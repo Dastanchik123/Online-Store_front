@@ -7,7 +7,11 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     public: {
-      apiBase: process.env.NUXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api",
+      apiBase:
+        process.env.NUXT_PUBLIC_API_BASE ||
+        (process.env.NODE_ENV === "production"
+          ? "https://online-store-back.onrender.com/api"
+          : "http://127.0.0.1:8000/api"),
     },
   },
 
@@ -51,7 +55,7 @@ export default defineNuxtConfig({
     preset: "vercel",
     devProxy: {
       "/api": {
-        target: "http://127.0.0.1:8000/api",
+        target: "https://online-store-back.onrender.com/api",
         changeOrigin: true,
       },
     },
