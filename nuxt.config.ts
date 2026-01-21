@@ -7,11 +7,7 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     public: {
-      apiBase:
-        process.env.NUXT_PUBLIC_API_BASE ||
-        (process.env.NODE_ENV === "production"
-          ? "https://online-store-back.onrender.com/api"
-          : "http://127.0.0.1:8000/api"),
+      apiBase: "https://online-store-back.onrender.com/api",
     },
   },
 
