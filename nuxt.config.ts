@@ -4,12 +4,26 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   ssr: true,
   modules: ["@pinia/nuxt"],
-  css: ["bootstrap/dist/css/bootstrap.min.css", "../app/assets/css/global.css"],
-  vite: {
-    optimizeDeps: {
-      include: ["bootstrap/dist/js/bootstrap.bundle.min.js"], // JS для Bootstrap
+
+  runtimeConfig: {
+    public: {
+      apiBase: process.env.NUXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api",
     },
   },
+
+  css: [
+    "bootstrap/dist/css/bootstrap.min.css",
+    "bootstrap-icons/font/bootstrap-icons.css",
+    "~/assets/css/main.css",
+    "~/assets/css/admin.css",
+  ],
+
+  vite: {
+    optimizeDeps: {
+      include: ["bootstrap/dist/js/bootstrap.bundle.min.js"],
+    },
+  },
+
   app: {
     head: {
       link: [
@@ -23,7 +37,22 @@ export default defineNuxtConfig({
           src: "https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js",
           defer: true,
         },
+        {
+          src: "https://cdn.jsdelivr.net/npm/rsvp@4.8.5/dist/rsvp.min.js",
+        },
+        {
+          src: "https://cdn.jsdelivr.net/npm/qz-tray@2.1.2/qz-tray.min.js",
+        },
       ],
+    },
+  },
+
+  nitro: {
+    devProxy: {
+      "/api": {
+        target: "http://127.0.0.1:8000/api",
+        changeOrigin: true,
+      },
     },
   },
 });

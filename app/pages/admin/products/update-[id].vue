@@ -1,15 +1,13 @@
 <script setup>
-import { ref, onMounted } from "vue";
-import { useProducts } from "~/composables/useProducts";
-import { useRoute, useRouter } from "vue-router";
-
 definePageMeta({
   layout: "admin",
-  // middleware: ["auth"],
+  middleware: "admin",
 });
 
 const route = useRoute();
 const router = useRouter();
+const uiStore = useUiStore();
+const productsStore = useProductsStore();
 const { getProduct, updateProduct, getCategories } = useProducts();
 const id = route.params.id;
 
@@ -21,6 +19,7 @@ const errors = ref({});
 const form = ref({
   name: "",
   sku: "",
+  purchase_price: "",
   price: "",
   sale_price: "",
   stock_quantity: 0,
@@ -30,7 +29,6 @@ const form = ref({
   image: "",
   is_active: true,
   in_stock: true,
-  weight: "",
   dimensions: "",
   attributes: {},
 });
@@ -38,7 +36,7 @@ const form = ref({
 const selectedFile = ref(null);
 const imagePreview = ref(null);
 
-// Helper for attributes (key-value)
+
 const attributeList = ref([]);
 
 const fetchCategories = async () => {
@@ -55,11 +53,11 @@ const fetchProduct = async () => {
   try {
     const product = await getProduct(id);
 
-    // Fill form
+    
     form.value = {
       ...form.value,
       ...product,
-      // Ensure specific types
+      
       category_id: product.category?.id || product.category_id,
       is_active: !!product.is_active,
       in_stock: !!product.in_stock,
@@ -68,11 +66,11 @@ const fetchProduct = async () => {
     if (product.image) {
       imagePreview.value = product.image.startsWith("http")
         ? product.image
-        : `http://127.0.0.1:8000/storage/${product.image}`; // Simple assumption for local execution or relative path
-      // Note: Adjust base URL logic as needed for production
+        : `http://127.0.0.1:8000/storage/${product.image}`; 
+      
     }
 
-    // Parse attributes if they exist
+    
     if (product.attributes && typeof product.attributes === "object") {
       attributeList.value = Object.entries(product.attributes).map(
         ([key, value]) => ({ key, value })
@@ -80,7 +78,7 @@ const fetchProduct = async () => {
     }
   } catch (error) {
     console.error("Error fetching product", error);
-    alert("Товар не найден");
+    uiStore.error("Товар не найден");
     router.push("/admin/products");
   } finally {
     isLoading.value = false;
@@ -99,7 +97,7 @@ const handleFileUpload = (event) => {
   const file = event.target.files[0];
   if (file) {
     selectedFile.value = file;
-    // Создаем превью
+    
     const reader = new FileReader();
     reader.onload = (e) => {
       imagePreview.value = e.target.result;
@@ -107,9 +105,9 @@ const handleFileUpload = (event) => {
     reader.readAsDataURL(file);
   } else {
     selectedFile.value = null;
-    // Если отменили выбор, возвращаем старое превью (или очищаем)
-    // imagePreview.value = form.value.image ? ... : null;
-    // Для простоты пока оставляем как есть или сбрасываем
+    
+    
+    
   }
 };
 
@@ -120,15 +118,15 @@ const handleSubmit = async () => {
   try {
     const formData = new FormData();
 
-    // Добавляем основные поля
+    
     Object.keys(form.value).forEach((key) => {
       let value = form.value[key];
 
-      // Пропускаем атрибуты (обработаем отдельно) и image (если не файл)
+      
       if (key === "attributes") return;
-      if (key === "image") return; // Image только через файл
-      if (key === "category") return; // Не отправляем объект категории
-      if (key === "reviews") return; // Не отправляем отзывы
+      if (key === "image") return; 
+      if (key === "category") return; 
+      if (key === "reviews") return; 
 
       if (value === null || value === undefined) return;
 
@@ -139,29 +137,30 @@ const handleSubmit = async () => {
       formData.append(key, value);
     });
 
-    // Добавляем файл
+    
     if (selectedFile.value) {
       formData.append("image", selectedFile.value);
     }
 
-    // Добавляем атрибуты как массив/объект
-    // Laravel validation 'attributes' => 'nullable|array'
-    // FormData не поддерживает вложенные объекты напрямую, используем нотацию скобок
+    
+    
+    
     attributeList.value.forEach((item, index) => {
       if (item.key) {
-        // Отправляем как ассоциативный массив: attributes[Ключ] = Значение
+        
         formData.append(`attributes[${item.key}]`, item.value);
       }
     });
 
     await updateProduct(id, formData);
+    uiStore.success("Товар успешно обновлен");
     router.push("/admin/products");
   } catch (error) {
     if (error.data && error.data.errors) {
       errors.value = error.data.errors;
     } else {
       console.error(error);
-      alert("Ошибка при обновлении товара");
+      uiStore.error("Ошибка при обновлении товара");
     }
   } finally {
     isSaving.value = false;
@@ -192,7 +191,7 @@ onMounted(async () => {
     <div v-else class="card shadow-sm">
       <div class="card-body">
         <form @submit.prevent="handleSubmit">
-          <!-- Основная информация -->
+          
           <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label">Название товара *</label>
@@ -269,10 +268,27 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Цены и Склад -->
+          
           <div class="row g-3 mb-4">
-            <div class="col-md-4">
-              <label class="form-label">Цена *</label>
+            <div class="col-md-3">
+              <label class="form-label">Закупочная цена</label>
+              <div class="input-group">
+                <input
+                  v-model="form.purchase_price"
+                  type="number"
+                  step="0.01"
+                  class="form-control"
+                  :class="{ 'is-invalid': errors.purchase_price }"
+                />
+                <span class="input-group-text">сом</span>
+              </div>
+              <div v-if="errors.purchase_price" class="text-danger small">
+                {{ errors.purchase_price[0] }}
+              </div>
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label">Цена продажи *</label>
               <div class="input-group">
                 <input
                   v-model="form.price"
@@ -282,15 +298,15 @@ onMounted(async () => {
                   :class="{ 'is-invalid': errors.price }"
                   required
                 />
-                <span class="input-group-text">₽</span>
+                <span class="input-group-text">сом</span>
               </div>
               <div v-if="errors.price" class="text-danger small">
                 {{ errors.price[0] }}
               </div>
             </div>
 
-            <div class="col-md-4">
-              <label class="form-label">Цена со скидкой</label>
+            <div class="col-md-3">
+              <label class="form-label">Цена по акции</label>
               <div class="input-group">
                 <input
                   v-model="form.sale_price"
@@ -298,21 +314,26 @@ onMounted(async () => {
                   step="0.01"
                   class="form-control"
                 />
-                <span class="input-group-text">₽</span>
+                <span class="input-group-text">сом</span>
               </div>
             </div>
 
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">Количество на складе</label>
               <input
                 v-model="form.stock_quantity"
                 type="number"
                 class="form-control"
+                disabled
+                title="Изменяется только через закупки или инвентаризацию"
               />
+              <div class="form-text text-muted" style="font-size: 0.75rem">
+                Изменяется только через закупки
+              </div>
             </div>
           </div>
 
-          <!-- Описание -->
+          
           <div class="mb-4">
             <label class="form-label">Краткое описание</label>
             <textarea
@@ -331,7 +352,7 @@ onMounted(async () => {
             ></textarea>
           </div>
 
-          <!-- Изображения -->
+          
           <div class="mb-4">
             <label class="form-label">Изображение</label>
 
@@ -356,7 +377,7 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Дополнительно -->
+          
           <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label">Вес (кг)</label>
@@ -378,7 +399,7 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Атрибуты -->
+          
           <div class="border-top pt-4">
             <label class="form-label mb-2">Характеристики</label>
             <div

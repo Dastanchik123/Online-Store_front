@@ -3,16 +3,19 @@ const route = useRoute();
 const { getProduct } = useProducts();
 const { addToCart } = useCart();
 const authStore = useAuthStore();
+const uiStore = useUiStore();
+const { setProductSeo, setBreadcrumbs } = useSeo();
 
 const product = ref(null);
 const pending = ref(false);
+const isAdding = ref(false);
 const error = ref(null);
 
 const title = computed(() =>
   product.value ? product.value.name : "Страница товара"
 );
 
-// Загрузка товара
+
 const loadProduct = async () => {
   if (!route.params.id) return;
 
@@ -21,6 +24,26 @@ const loadProduct = async () => {
 
   try {
     product.value = await getProduct(route.params.id);
+
+    
+    if (product.value) {
+      setProductSeo(product.value);
+
+      
+      setBreadcrumbs([
+        { name: "Главная", url: "/" },
+        { name: "Каталог", url: "/catalog" },
+        ...(product.value.category
+          ? [
+              {
+                name: product.value.category.name,
+                url: `/catalog?category=${product.value.category.id}`,
+              },
+            ]
+          : []),
+        { name: product.value.name, url: `/product/${product.value.id}` },
+      ]);
+    }
   } catch (err) {
     error.value = err.data?.message || "Ошибка загрузки товара";
   } finally {
@@ -28,29 +51,32 @@ const loadProduct = async () => {
   }
 };
 
-// Форматирование цены
-// const formattedPrice = computed(() => {
-//   if (!product.value) return "0";
-//   // Если есть цена со скидкой (и она не null/0), используем её, иначе обычную цену
-//   const price = product.value.sale_price || product.value.price;
-//   return parseFloat(price).toLocaleString("ru-RU", {
-//     minimumFractionDigits: 2,
-//     maximumFractionDigits: 2,
-//   });
-// });
 
-// Placeholder для изображения
+
+
+
+
+
+
+
+
+
+
+
 const productImage = computed(() => {
   if (product.value?.image) {
-    return `http://127.0.0.1:8000${product.value.image}`;
+    const storageURL = "http://127.0.0.1:8000/storage/";
+    return product.value.image.startsWith("http")
+      ? product.value.image
+      : `${storageURL}${product.value.image}`;
   }
   return "https://via.placeholder.com/600x600/0f172a/38bdf8?text=Изображение+товара";
 });
 
-// Состояние для количества товара
+
 const quantity = ref(1);
 
-// Функция добавления в корзину
+
 const handleAddToCart = async () => {
   if (!authStore.isAuthenticated) {
     await navigateTo("/auth/login");
@@ -59,18 +85,37 @@ const handleAddToCart = async () => {
 
   try {
     await addToCart(product.value.id, quantity.value);
-    alert(`Добавлено в корзину: ${product.value.name} (${quantity.value} шт.)`);
+    uiStore.success(`
+      <div class="d-flex align-items-center">
+        <span class="me-2">Товар добавлен!</span>
+        <a href="/cart" class="btn btn-sm btn-light rounded-pill px-3 fw-bold decoration-none text-primary shadow-sm" style="font-size: 0.75rem">
+          В корзину <i class="bi bi-arrow-right ms-1"></i>
+        </a>
+      </div>
+    `);
   } catch (err) {
-    alert(err.data?.message || "Ошибка добавления в корзину");
+    uiStore.error(err.data?.message || "Ошибка добавления в корзину");
+  } finally {
+    isAdding.value = false;
+  }
+};
+
+const handleBuyNow = async () => {
+  if (!authStore.isAuthenticated) {
+    await navigateTo("/auth/login");
+    return;
+  }
+
+  try {
+    await addToCart(product.value.id, quantity.value);
+    await router.push("/checkout");
+  } catch (error) {
+    uiStore.error("Ошибка при оформлении заказа");
   }
 };
 
 onMounted(() => {
   loadProduct();
-});
-
-watch(quantity, () => {
-  console.log(quantity.value);
 });
 </script>
 
@@ -80,70 +125,77 @@ watch(quantity, () => {
   </Head>
 
   <section class="product-page">
-    <!-- Загрузка -->
+    
     <div v-if="pending" class="loading">
       <div class="spinner"></div>
       <p>Загрузка товара...</p>
     </div>
 
-    <!-- Ошибка -->
+    
     <div v-else-if="error" class="error">
       <h2>Ошибка загрузки</h2>
       <p>Не удалось загрузить информацию о товаре.</p>
       <NuxtLink to="/" class="back-link">Вернуться на главную</NuxtLink>
     </div>
 
-    <!-- Товар не найден -->
+    
     <div v-else-if="!product" class="not-found">
       <h2>Товар не найден</h2>
       <p>Товар с указанным ID не существует.</p>
       <NuxtLink to="/" class="back-link">Вернуться на главную</NuxtLink>
     </div>
 
-    <!-- Информация о товаре -->
+    
     <div v-else class="product-container">
-      <!-- Хлебные крошки -->
+      
       <nav class="breadcrumbs">
         <NuxtLink to="/" class="breadcrumb-link">Главная</NuxtLink>
         <span class="breadcrumb-separator">/</span>
         <NuxtLink to="/catalog" class="breadcrumb-link">Каталог</NuxtLink>
         <span class="breadcrumb-separator">/</span>
-        <span class="breadcrumb-current">{{ product.category.name }}</span>
+        <NuxtLink
+          :to="`/catalog?category_id=${product.category.id}`"
+          class="breadcrumb-link"
+          >{{ product.category.name }}</NuxtLink
+        >
         <span class="breadcrumb-separator">/</span>
         <span class="breadcrumb-current">{{ product.name }}</span>
       </nav>
 
       <div class="product-content">
-        <!-- Галерея изображений -->
+        
         <div class="product-gallery">
           <div class="main-image">
-            <!-- <img :src="productImage" :alt="product.name" /> -->
-            <img :src="product.image_url" :alt="product.name" />
+            <img :src="productImage" :alt="product.name" />
           </div>
           <div class="image-thumbnails" v-if="product.image">
             <div class="thumbnail active">
-              <img :src="product.image_url" :alt="product.name" />
+              <img :src="productImage" :alt="product.name" />
             </div>
           </div>
         </div>
 
-        <!-- Информация о товаре -->
+        
         <div class="product-info">
-          <!-- Категория -->
+          
           <div class="product-category">
-            <span class="category-badge">{{ product.category.name }}</span>
+            <NuxtLink
+              :to="`/catalog?category_id=${product.category.id}`"
+              class="category-badge text-decoration-none"
+              >{{ product.category.name }}</NuxtLink
+            >
           </div>
 
-          <!-- Название -->
+          
           <h1 class="product-title">{{ product.name }}</h1>
 
-          <!-- Цена -->
+          
           <div class="product-price">
             <span class="price-value">{{ product.price }}</span>
             <span class="price-currency">сом</span>
           </div>
 
-          <!-- Наличие -->
+          
           <div class="product-stock">
             <span
               :class="[
@@ -152,7 +204,7 @@ watch(quantity, () => {
               ]"
             >
               {{
-                product.in_stock
+                product.in_stock && product.stock_quantity > 0
                   ? `В наличии (${
                       product.stock_quantity || product.quantity
                     } шт.)`
@@ -161,13 +213,13 @@ watch(quantity, () => {
             </span>
           </div>
 
-          <!-- Описание -->
+          
           <div class="product-description">
             <h3>Описание</h3>
             <p>{{ product.short_description }}</p>
           </div>
 
-          <!-- Количество и кнопка -->
+          
           <div class="product-actions">
             <div class="quantity-selector">
               <label for="quantity">Количество:</label>
@@ -199,37 +251,56 @@ watch(quantity, () => {
               </div>
             </div>
 
-            <button
-              @click="handleAddToCart"
-              class="add-to-cart-btn"
-              :disabled="!product.in_stock"
-            >
-              <span class="btn-icon">🛒</span>
-              <span>Добавить в корзину</span>
-            </button>
+            <div class="d-flex gap-3">
+              <button
+                @click="handleAddToCart"
+                class="add-to-cart-btn btn flex-grow-1"
+                :class="{ 'btn-loading': isAdding }"
+                :disabled="!product.in_stock || isAdding"
+              >
+                <i v-if="!isAdding" class="bi bi-cart-plus-fill me-2"></i>
+                <span>{{ isAdding ? "Добавление..." : "В КОРЗИНУ" }}</span>
+              </button>
+
+              <button
+                @click="handleBuyNow"
+                class="btn btn-outline-dark px-4 fw-bold rounded-3"
+                :disabled="!product.in_stock || isAdding"
+              >
+                КУПИТЬ В 1 КЛИК
+              </button>
+            </div>
           </div>
 
-          <!-- Дополнительная информация -->
+          
           <div class="product-meta">
-            <div class="meta-item">
+            <div class="meta-item" v-if="product.id">
               <span class="meta-label">ID товара:</span>
               <span class="meta-value">#{{ product.id }}</span>
             </div>
-            <div class="meta-item" v-if="formattedDate">
-              <span class="meta-label">Обновлено:</span>
-              <span class="meta-value">{{ formattedDate }}</span>
+            <div class="meta-item" v-if="product.sku">
+              <span class="meta-label">Артикул (SKU):</span>
+              <span class="meta-value">{{ product.sku }}</span>
             </div>
           </div>
         </div>
       </div>
-      <div class="short-description rounded-3 mt-5 mb-5 " style="background-color:  #f5f5f5; padding: 20px;">
+      <div
+        class="short-description rounded-3 mt-5 mb-5"
+        style="background-color: #f5f5f5; padding: 20px"
+        v-if="product.description"
+      >
         <h3>Полное описание</h3>
         <p>{{ product.description }}</p>
       </div>
-      <div class="d-flex flex-column rounded-3 mt-5 mb-5" style="background-color:  #f5f5f5; padding: 20px;">
+      <div
+        class="d-flex flex-column rounded-3 mt-5 mb-5"
+        style="background-color: #f5f5f5; padding: 20px"
+        v-if="product.attributes"
+      >
         <h1>Краткая информация</h1>
         <div class="product-characteristics fs-6">
-          <p><i class="bi bi-info-circle text-info me-2"></i> Основные </p>
+          <p><i class="bi bi-info-circle text-info me-2"></i> Основные</p>
           <div
             class="characteristic-item"
             v-for="(value, key) in product.attributes"
@@ -282,7 +353,7 @@ watch(quantity, () => {
   margin: 0 auto;
 }
 
-/* Загрузка */
+
 .loading {
   display: flex;
   flex-direction: column;
@@ -307,7 +378,7 @@ watch(quantity, () => {
   }
 }
 
-/* Ошибка и не найдено */
+
 .error,
 .not-found {
   text-align: center;
@@ -335,7 +406,7 @@ watch(quantity, () => {
   text-decoration: underline;
 }
 
-/* Хлебные крошки */
+
 .breadcrumbs {
   display: flex;
   align-items: center;
@@ -364,7 +435,7 @@ watch(quantity, () => {
   font-weight: 500;
 }
 
-/* Контейнер товара */
+
 .product-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -377,7 +448,7 @@ watch(quantity, () => {
   margin-top: 20px;
 }
 
-/* Галерея */
+
 .product-gallery {
   display: flex;
   flex-direction: column;
@@ -430,7 +501,7 @@ watch(quantity, () => {
   object-fit: cover;
 }
 
-/* Информация о товаре */
+
 .product-info {
   display: flex;
   flex-direction: column;
@@ -524,7 +595,7 @@ watch(quantity, () => {
   color: #475569;
 }
 
-/* Действия */
+
 .product-actions {
   display: flex;
   flex-direction: column;
@@ -633,7 +704,7 @@ watch(quantity, () => {
   font-size: 20px;
 }
 
-/* Мета информация */
+
 .product-meta {
   display: flex;
   flex-direction: column;
@@ -657,7 +728,7 @@ watch(quantity, () => {
   color: #1e293b;
 }
 
-/* Адаптивность */
+
 @media (max-width: 968px) {
   .product-content {
     grid-template-columns: 1fr;

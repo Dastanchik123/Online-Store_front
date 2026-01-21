@@ -1,10 +1,12 @@
 <script setup>
 const route = useRoute();
-const { getOrder, cancelOrder } = useOrders();
+const { getOrder, cancelOrder, downloadOrderInvoice } = useOrders();
 const { createPayment, getPayments } = usePayments();
+const { settings, fetchPublicSettings } = useSettings();
+const uiStore = useUiStore();
 
 definePageMeta({
-  middleware: "auth",
+  
 });
 
 const order = ref(null);
@@ -13,21 +15,38 @@ const loading = ref(false);
 const error = ref(null);
 const paymentLoading = ref(false);
 
-// Загрузка заказа
+const mbankQrImage = computed(
+  () => settings.value?.payment_mbank_qr_image || ""
+);
+
+
+const getImageUrl = (url) => {
+  if (!url) return "";
+  if (url.startsWith("http")) return url;
+  const config = useRuntimeConfig();
+  const baseUrl = config.public.apiBase.replace(/\/api$/, "");
+  let path = url;
+  if (!path.startsWith("/storage") && !path.startsWith("storage")) {
+    path = "storage/" + (path.startsWith("/") ? path.substring(1) : path);
+  }
+  return `${baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
+};
+
+
 const loadOrder = async () => {
   loading.value = true;
   error.value = null;
 
   try {
     order.value = await getOrder(route.params.id);
+
     
-    // Загружаем платежи для этого заказа
     if (order.value) {
       try {
         const paymentsData = await getPayments({ order_id: order.value.id });
         payments.value = paymentsData.data || paymentsData || [];
       } catch (err) {
-        // Игнорируем ошибки загрузки платежей
+        
         console.error("Error loading payments:", err);
       }
     }
@@ -38,54 +57,51 @@ const loadOrder = async () => {
   }
 };
 
-// Создание платежа
+
 const handleCreatePayment = async () => {
   if (!order.value) return;
 
-  const paymentMethod = prompt("Выберите способ оплаты:\n1 - Банковская карта\n2 - Электронный кошелек\n3 - Наличные");
   
-  if (!paymentMethod) return;
-
-  const methods = {
-    "1": "credit_card",
-    "2": "e_wallet",
-    "3": "cash",
-  };
+  const method = order.value.payment_method || "cash";
 
   paymentLoading.value = true;
 
   try {
     const payment = await createPayment({
       order_id: order.value.id,
-      payment_method: methods[paymentMethod] || "credit_card",
+      payment_method: method,
       amount: order.value.total,
       currency: order.value.currency || "KGS",
     });
 
-    alert("Платеж успешно создан!");
-    await loadOrder(); // Перезагружаем заказ для обновления статуса
+    uiStore.success("Платеж успешно создан!");
+    await loadOrder(); 
   } catch (err) {
-    alert(err.data?.message || "Ошибка создания платежа");
+    uiStore.error(err.data?.message || "Ошибка создания платежа");
   } finally {
     paymentLoading.value = false;
   }
 };
 
-// Отмена заказа
+
 const handleCancelOrder = async () => {
-  if (!confirm("Вы уверены, что хотите отменить заказ?")) {
-    return;
-  }
+  const confirmed = await uiStore.showConfirm(
+    "Отмена заказа",
+    "Вы уверены, что хотите отменить заказ?"
+  );
+
+  if (!confirmed) return;
 
   try {
     await cancelOrder(route.params.id);
+    uiStore.success("Заказ отменен");
     await loadOrder();
   } catch (err) {
-    alert(err.data?.message || "Ошибка отмены заказа");
+    uiStore.error(err.data?.message || "Ошибка отмены заказа");
   }
 };
 
-// Форматирование цены
+
 const formatPrice = (price) => {
   return parseFloat(price).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
@@ -93,7 +109,7 @@ const formatPrice = (price) => {
   });
 };
 
-// Статус заказа
+
 const getStatusBadge = (status) => {
   const badges = {
     pending: "warning",
@@ -106,8 +122,42 @@ const getStatusBadge = (status) => {
   return badges[status] || "secondary";
 };
 
+const translateStatus = (status) => {
+  const translations = {
+    pending: "Ожидает",
+    processing: "В обработке",
+    shipped: "Отправлен",
+    delivered: "Доставлен",
+    cancelled: "Отменен",
+    refunded: "Возвращен",
+  };
+  return translations[status] || status;
+};
+
+const translatePaymentStatus = (status) => {
+  const translations = {
+    pending: "Ожидает",
+    completed: "Завершен",
+    failed: "Ошибка",
+    refunded: "Возвращен",
+  };
+  return translations[status] || status;
+};
+
+const translatePaymentMethod = (method) => {
+  const translations = {
+    mbank: "MBank",
+    transfer: "Перевод",
+    cash: "Оплата при получении",
+    card: "Картой",
+    qr: "QR-код",
+  };
+  return translations[method] || method;
+};
+
 onMounted(() => {
   loadOrder();
+  fetchPublicSettings();
 });
 </script>
 
@@ -120,30 +170,29 @@ onMounted(() => {
         </NuxtLink>
       </div>
 
-      <!-- Загрузка -->
+      
       <div v-if="loading" class="text-center py-5">
         <div class="spinner-border text-primary" role="status">
           <span class="visually-hidden">Загрузка...</span>
         </div>
       </div>
 
-      <!-- Ошибка -->
+      
       <div v-else-if="error" class="alert alert-danger" role="alert">
         {{ error }}
       </div>
 
-      <!-- Заказ -->
+      
       <div v-else-if="order" class="row">
         <div class="col-lg-8">
-          <!-- Информация о заказе -->
+          
           <div class="card shadow-sm border-0 mb-4">
-            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <div
+              class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
+            >
               <h5 class="mb-0">Заказ #{{ order.order_number }}</h5>
-              <span
-                class="badge"
-                :class="`bg-${getStatusBadge(order.status)}`"
-              >
-                {{ order.status }}
+              <span class="badge" :class="`bg-${getStatusBadge(order.status)}`">
+                {{ translateStatus(order.status) }}
               </span>
             </div>
             <div class="card-body">
@@ -164,7 +213,7 @@ onMounted(() => {
                     class="badge"
                     :class="`bg-${getStatusBadge(order.status)}`"
                   >
-                    {{ order.status }}
+                    {{ translateStatus(order.status) }}
                   </span>
                 </div>
               </div>
@@ -181,8 +230,20 @@ onMounted(() => {
                         : 'bg-warning'
                     "
                   >
-                    {{ order.payment_status === "paid" ? "Оплачен" : "Не оплачен" }}
+                    {{
+                      order.payment_status === "paid" ? "Оплачен" : "Не оплачен"
+                    }}
                   </span>
+                </div>
+              </div>
+              <div class="row mb-3">
+                <div class="col-sm-4">
+                  <strong>Способ оплаты:</strong>
+                </div>
+                <div class="col-sm-8 text-muted">
+                  {{
+                    translatePaymentMethod(order.payment_method) || "Не указан"
+                  }}
                 </div>
               </div>
               <div v-if="order.notes" class="row mb-3">
@@ -194,7 +255,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Товары -->
+          
           <div class="card shadow-sm border-0 mb-4">
             <div class="card-header bg-white">
               <h5 class="mb-0">Товары в заказе</h5>
@@ -223,15 +284,17 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Адрес доставки -->
+          
           <div v-if="order.shipping_address" class="card shadow-sm border-0">
             <div class="card-header bg-white">
               <h5 class="mb-0">Адрес доставки</h5>
             </div>
             <div class="card-body">
               <p class="mb-1">
-                <strong>{{ order.shipping_address.first_name }}
-                {{ order.shipping_address.last_name }}</strong>
+                <strong
+                  >{{ order.shipping_address.first_name }}
+                  {{ order.shipping_address.last_name }}</strong
+                >
               </p>
               <p class="mb-1">{{ order.shipping_address.address_line_1 }}</p>
               <p v-if="order.shipping_address.address_line_2" class="mb-1">
@@ -248,7 +311,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Итого -->
+        
         <div class="col-lg-4">
           <div class="card shadow-sm border-0">
             <div class="card-header bg-primary text-white">
@@ -259,16 +322,12 @@ onMounted(() => {
                 <span>Товары:</span>
                 <strong>{{ formatPrice(order.subtotal) }} сом</strong>
               </div>
-              <div v-if="order.tax" class="d-flex justify-content-between mb-2">
-                <span>Налог:</span>
-                <strong>{{ formatPrice(order.tax) }} сом</strong>
-              </div>
               <div
                 v-if="order.shipping_cost"
                 class="d-flex justify-content-between mb-2"
               >
                 <span>Доставка:</span>
-                <strong>{{ formatPrice(order.shipping_cost) }} сом</strong>
+                <strong class="text-primary">Договорная</strong>
               </div>
               <div
                 v-if="order.discount"
@@ -284,7 +343,70 @@ onMounted(() => {
                   {{ formatPrice(order.total) }} сом
                 </strong>
               </div>
-              <!-- Платежи -->
+
+              
+              <div
+                v-if="
+                  order.payment_method === 'mbank' &&
+                  order.payment_status !== 'paid' &&
+                  order.status !== 'cancelled'
+                "
+                class="mt-4 p-3 bg-light rounded-4 text-center border border-primary border-opacity-25"
+              >
+                <h6 class="fw-bold mb-2">Оплата через MBank</h6>
+                <div v-if="mbankQrImage" class="mb-3">
+                  <img
+                    :src="getImageUrl(mbankQrImage)"
+                    alt="MBank QR"
+                    class="img-fluid rounded-3 shadow-sm"
+                    style="max-width: 150px"
+                  />
+                </div>
+                <div class="small text-muted mb-2">
+                  Отсканируйте QR или переведите по номеру:
+                </div>
+                <div class="fw-bold text-primary">
+                  {{
+                    settings?.payment_contact ||
+                    settings?.contact_phone ||
+                    "+996 XXX XXX XXX"
+                  }}
+                </div>
+                <div
+                  v-if="settings?.payment_recipient"
+                  class="x-small text-muted mt-1"
+                >
+                  Получатель: {{ settings.payment_recipient }}
+                </div>
+              </div>
+
+              
+              <div
+                v-if="
+                  order.payment_method === 'transfer' &&
+                  order.payment_status !== 'paid' &&
+                  order.status !== 'cancelled'
+                "
+                class="mt-4 p-3 bg-light rounded-4 text-center border"
+              >
+                <h6 class="fw-bold mb-2">Банковский перевод</h6>
+                <div class="small text-muted mb-2">Реквизиты для перевода:</div>
+                <div class="fw-bold">
+                  {{
+                    settings?.payment_contact ||
+                    settings?.contact_phone ||
+                    "+996 XXX XXX XXX"
+                  }}
+                </div>
+                <div
+                  v-if="settings?.payment_recipient"
+                  class="x-small text-muted mt-1"
+                >
+                  Получатель: {{ settings.payment_recipient }}
+                </div>
+              </div>
+
+              
               <div v-if="payments.length > 0" class="mt-3 mb-3">
                 <h6 class="mb-2">Платежи:</h6>
                 <div
@@ -293,7 +415,9 @@ onMounted(() => {
                   class="mb-2 p-2 bg-light rounded"
                 >
                   <div class="d-flex justify-content-between">
-                    <span class="small">{{ payment.payment_method }}</span>
+                    <span class="small">{{
+                      translatePaymentMethod(payment.payment_method)
+                    }}</span>
                     <span
                       class="badge"
                       :class="
@@ -304,19 +428,23 @@ onMounted(() => {
                           : 'bg-warning'
                       "
                     >
-                      {{ payment.status }}
+                      {{ translatePaymentStatus(payment.status) }}
                     </span>
                   </div>
                   <div class="small text-muted">
-                    {{ formatPrice(payment.amount) }} {{ payment.currency || 'сом' }}
+                    {{ formatPrice(payment.amount) }}
+                    сом
                   </div>
                 </div>
               </div>
 
-              <!-- Кнопки действий -->
+              
               <div v-if="order.status === 'pending'" class="mt-3">
                 <button
-                  v-if="order.payment_status !== 'paid'"
+                  v-if="
+                    order.payment_status !== 'paid' &&
+                    order.payment_method !== 'cash'
+                  "
                   class="btn btn-primary w-100 mb-2"
                   :disabled="paymentLoading"
                   @click="handleCreatePayment"
@@ -329,11 +457,18 @@ onMounted(() => {
                   ></span>
                   Оплатить заказ
                 </button>
+                <button class="btn btn-danger w-100" @click="handleCancelOrder">
+                  Отменить заказ
+                </button>
+              </div>
+
+              
+              <div v-if="order.status === 'delivered'" class="mt-3">
                 <button
                   class="btn btn-danger w-100"
-                  @click="handleCancelOrder"
+                  @click="downloadOrderInvoice(order.id)"
                 >
-                  Отменить заказ
+                  <i class="bi bi-file-earmark-pdf"></i> Скачать накладную (PDF)
                 </button>
               </div>
             </div>
@@ -343,4 +478,3 @@ onMounted(() => {
     </div>
   </div>
 </template>
-

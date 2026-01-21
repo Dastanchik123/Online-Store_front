@@ -1,5 +1,6 @@
 <script setup>
-const { getOrders, getOrder, cancelOrder } = useOrders();
+const { getOrders, getOrder, cancelOrder, downloadOrderInvoice } = useOrders();
+const uiStore = useUiStore();
 
 definePageMeta({
   middleware: "auth",
@@ -9,13 +10,13 @@ const orders = ref(null);
 const loading = ref(false);
 const error = ref(null);
 
-// Загрузка заказов
-const loadOrders = async () => {
+
+const loadOrders = async (params = {}) => {
   loading.value = true;
   error.value = null;
 
   try {
-    orders.value = await getOrders({ per_page: 20 });
+    orders.value = await getOrders({ per_page: 20, ...params });
   } catch (err) {
     error.value = err.data?.message || "Ошибка загрузки заказов";
   } finally {
@@ -23,21 +24,25 @@ const loadOrders = async () => {
   }
 };
 
-// Отмена заказа
+
 const handleCancelOrder = async (orderId) => {
-  if (!confirm("Вы уверены, что хотите отменить заказ?")) {
-    return;
-  }
+  const confirmed = await uiStore.showConfirm(
+    "Отмена заказа",
+    "Вы уверены, что хотите отменить этот заказ?"
+  );
+
+  if (!confirmed) return;
 
   try {
     await cancelOrder(orderId);
+    uiStore.success("Заказ успешно отменен");
     await loadOrders();
   } catch (err) {
-    alert(err.data?.message || "Ошибка отмены заказа");
+    uiStore.error(err.data?.message || "Ошибка отмены заказа");
   }
 };
 
-// Форматирование цены
+
 const formatPrice = (price) => {
   return parseFloat(price).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
@@ -45,7 +50,7 @@ const formatPrice = (price) => {
   });
 };
 
-// Статус заказа
+
 const getStatusBadge = (status) => {
   const badges = {
     pending: "warning",
@@ -85,19 +90,19 @@ onMounted(() => {
         </NuxtLink>
       </div>
 
-      <!-- Ошибка -->
+      
       <div v-if="error" class="alert alert-danger" role="alert">
         {{ error }}
       </div>
 
-      <!-- Загрузка -->
+      
       <div v-if="loading" class="text-center py-5">
         <div class="spinner-border text-primary" role="status">
           <span class="visually-hidden">Загрузка...</span>
         </div>
       </div>
 
-      <!-- Пусто -->
+      
       <div
         v-else-if="!orders || !orders.data || orders.data.length === 0"
         class="text-center py-5"
@@ -112,15 +117,13 @@ onMounted(() => {
         </NuxtLink>
       </div>
 
-      <!-- Список заказов -->
+      
       <div v-else class="row">
-        <div
-          v-for="order in orders.data"
-          :key="order.id"
-          class="col-12 mb-4"
-        >
+        <div v-for="order in orders.data" :key="order.id" class="col-12 mb-4">
           <div class="card shadow-sm border-0">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div
+              class="card-header bg-white d-flex justify-content-between align-items-center"
+            >
               <div>
                 <h5 class="mb-0">Заказ #{{ order.order_number }}</h5>
                 <small class="text-muted">
@@ -132,27 +135,27 @@ onMounted(() => {
                   class="badge"
                   :class="`bg-${getStatusBadge(order.status)}`"
                 >
-                  {{ getStatusBadge(order.status) }}
+                  {{ getStatusText(order.status) }}
                 </span>
               </div>
             </div>
             <div class="card-body">
-              <!-- Товары -->
+              
               <div class="mb-3">
                 <h6>Товары:</h6>
                 <ul class="list-unstyled">
                   <li
                     v-for="item in order.items"
                     :key="item.id"
-                    class="mb-2"
+                    class="mb-2 d-flex justify-content-between"
                   >
-                    {{ item.product_name }} × {{ item.quantity }} =
-                    {{ formatPrice(item.total) }} сом
+                    {{ item.product_name }} {{ item.product.sale_price }} ×
+                    {{ item.quantity }} = {{ formatPrice(item.total) }} сом
                   </li>
                 </ul>
               </div>
 
-              <!-- Адрес доставки -->
+              
               <div v-if="order.shipping_address" class="mb-3">
                 <h6>Адрес доставки:</h6>
                 <p class="mb-0 small">
@@ -162,7 +165,7 @@ onMounted(() => {
                 </p>
               </div>
 
-              <!-- Итого -->
+              
               <div class="d-flex justify-content-between align-items-center">
                 <div>
                   <strong class="text-primary">
@@ -170,6 +173,14 @@ onMounted(() => {
                   </strong>
                 </div>
                 <div>
+                  <button
+                    v-if="order.status === 'delivered'"
+                    class="btn btn-sm btn-outline-danger me-2"
+                    @click="downloadOrderInvoice(order.id)"
+                    title="Скачать накладную (PDF)"
+                  >
+                    <i class="bi bi-file-earmark-pdf"></i> Накладная
+                  </button>
                   <NuxtLink
                     :to="`/profile/orders/${order.id}`"
                     class="btn btn-sm btn-outline-primary me-2"
@@ -190,7 +201,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Пагинация -->
+      
       <nav
         v-if="orders && orders.last_page > 1"
         aria-label="Навигация по страницам"
@@ -203,9 +214,7 @@ onMounted(() => {
           >
             <button
               class="page-link"
-              @click="
-                loadOrders({ page: orders.current_page - 1 })
-              "
+              @click="loadOrders({ page: orders.current_page - 1 })"
             >
               Предыдущая
             </button>

@@ -1,8 +1,10 @@
 export default defineNuxtRouteMiddleware((to, from) => {
   const authStore = useAuthStore();
 
-  // Инициализируем auth из localStorage
-  if (process.client && !authStore.isAuthenticated) {
+  if (import.meta.server) return;
+
+  
+  if (!authStore.isAuthenticated) {
     authStore.initAuth();
   }
 
@@ -10,5 +12,3 @@ export default defineNuxtRouteMiddleware((to, from) => {
     return navigateTo("/auth/login");
   }
 });
-
-

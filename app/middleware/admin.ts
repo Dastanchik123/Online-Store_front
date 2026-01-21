@@ -1,7 +1,21 @@
-export default defineNuxtRouteMiddleware(() => {
-  const isAdmin = true // здесь проверка токена / роли
+export default defineNuxtRouteMiddleware((to, from) => {
+  const authStore = useAuthStore();
 
-  if (!isAdmin) { 
-    return navigateTo('/login')
+  
+  if (import.meta.client && !authStore.isAuthenticated) {
+    authStore.initAuth();
   }
-})
+
+  
+  
+  
+  if (import.meta.client) {
+    if (!authStore.isAuth) {
+      return navigateTo("/auth/login");
+    }
+
+    if (!authStore.isAdmin) {
+      return navigateTo("/");
+    }
+  }
+});

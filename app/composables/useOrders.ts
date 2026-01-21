@@ -73,11 +73,40 @@ export const useOrders = () => {
     }
   };
 
+  const downloadOrderInvoice = async (id: number | string) => {
+    return await api.downloadFile(
+      `/reports/order/${id}`,
+      `Order_Invoice_${id}.pdf`
+    );
+  };
+
+  const trackOrder = async (orderNumber: string) => {
+    try {
+      return await api.apiFetch(`/orders/track/${orderNumber}`);
+    } catch (error) {
+      throw error;
+    }
+  };
+
   return {
     getOrders,
     getOrder,
     createOrder,
     cancelOrder,
     updateOrder,
+    downloadOrderInvoice,
+    trackOrder,
+    downloadOrderThermalReceipt: async (id: number | string) => {
+      return await api.downloadFile(
+        `/reports/order/${id}/thermal`,
+        `Thermal_Receipt_${id}.pdf`
+      );
+    },
+    returnOrderItems: async (id: number | string, items: any[]) => {
+      return await api.apiFetch(`/orders/${id}/return-items`, {
+        method: "POST",
+        body: JSON.stringify({ items }),
+      });
+    },
   };
 };

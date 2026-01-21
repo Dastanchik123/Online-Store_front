@@ -42,7 +42,7 @@ export const useProducts = () => {
 
   const createProduct = async (data: any) => {
     try {
-      // Проверка на FormData для загрузки файлов
+      
       const isFormData = data instanceof FormData;
       const headers = isFormData ? { "Content-Type": undefined } : {};
 
@@ -61,7 +61,7 @@ export const useProducts = () => {
       const isFormData = data instanceof FormData;
 
       if (isFormData) {
-        // Laravel требует POST с _method=PUT для загрузки файлов при обновлении
+        
         data.append("_method", "PUT");
         return await api.apiFetch(`/products/${id}`, {
           method: "POST",
@@ -84,7 +84,6 @@ export const useProducts = () => {
       return await api.apiFetch(`/products/${id}`, {
         method: "DELETE",
       });
-      
     } catch (error) {
       throw error;
     }
@@ -123,9 +122,13 @@ export const useProducts = () => {
 
   const createCategory = async (data: any) => {
     try {
+      const isFormData = data instanceof FormData;
+      const headers = isFormData ? { "Content-Type": undefined } : {};
+
       return await api.apiFetch("/categories", {
         method: "POST",
         body: data,
+        headers: headers as any,
       });
     } catch (error) {
       throw error;
@@ -134,6 +137,18 @@ export const useProducts = () => {
 
   const updateCategory = async (id: number | string, data: any) => {
     try {
+      const isFormData = data instanceof FormData;
+
+      if (isFormData) {
+        
+        data.append("_method", "PUT");
+        return await api.apiFetch(`/categories/${id}`, {
+          method: "POST",
+          body: data,
+          headers: { "Content-Type": undefined } as any,
+        });
+      }
+
       return await api.apiFetch(`/categories/${id}`, {
         method: "PUT",
         body: data,
@@ -153,6 +168,58 @@ export const useProducts = () => {
     }
   };
 
+  const downloadProductsExport = async (
+    params: {
+      category_id?: number;
+      in_stock?: boolean;
+      search?: string;
+    } = {}
+  ) => {
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        queryParams.append(key, value.toString());
+      }
+    });
+    const queryString = queryParams.toString();
+    const endpoint = `/reports/products${queryString ? `?${queryString}` : ""}`;
+    return await api.downloadFile(
+      endpoint,
+      `Products_Report_${new Date().toISOString().split("T")[0]}.pdf`
+    );
+  };
+
+  const downloadProductsExcel = async (
+    params: {
+      category_id?: number;
+      in_stock?: boolean;
+      search?: string;
+    } = {}
+  ) => {
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        queryParams.append(key, value.toString());
+      }
+    });
+    const queryString = queryParams.toString();
+    const endpoint = `/reports/products-excel${
+      queryString ? `?${queryString}` : ""
+    }`;
+    return await api.downloadFile(
+      endpoint,
+      `Products_Export_${new Date().toISOString().split("T")[0]}.xls`
+    );
+  };
+
+  const generateSku = async () => {
+    try {
+      return await api.apiFetch("/products/generate-sku");
+    } catch (error) {
+      throw error;
+    }
+  };
+
   return {
     getProducts,
     getProduct,
@@ -164,5 +231,11 @@ export const useProducts = () => {
     createCategory,
     updateCategory,
     deleteCategory,
+    downloadProductsExport,
+    downloadProductsExcel,
+    generateSku,
+    downloadProductBarcode: async (id: number | string) => {
+      return await api.printFile(`/reports/products/${id}/barcode`);
+    },
   };
 };

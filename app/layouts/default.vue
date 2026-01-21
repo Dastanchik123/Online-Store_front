@@ -3,11 +3,13 @@ import Header from "../components/loyaut/Header.vue";
 import Footer from "../components/loyaut/Footer.vue";
 </script>
 <template>
-  <div>
+  <div class="pt-5 ">
     <Header />
-    <div class="container py-4 mx-auto">
+    <div class="container mt-5 py-4 mx-auto">
       <slot />
     </div>
     <Footer />
+    <UiToastContainer />
+    <UiConfirmModal />
   </div>
 </template>

@@ -1,13 +1,12 @@
 <script setup>
-import { ref, onMounted } from "vue";
-import { useProducts } from "~/composables/useProducts";
-
 definePageMeta({
   layout: "admin",
-  // middleware: ["auth"],
+  middleware: "admin",
 });
 
-const { createProduct, getCategories } = useProducts();
+const uiStore = useUiStore();
+const productsStore = useProductsStore();
+const { createProduct, getCategories, generateSku } = useProducts();
 const router = useRouter();
 
 const categories = ref([]);
@@ -17,17 +16,17 @@ const errors = ref({});
 const form = ref({
   name: "",
   sku: "",
+  purchase_price: "",
   price: "",
   sale_price: "",
-  stock_quantity: 0,
   category_id: "",
   description: "",
   short_description: "",
   image: "",
   is_active: true,
   in_stock: true,
-  weight: "",
   dimensions: "",
+  stock_quantity: 0,
 });
 
 const selectedFile = ref(null);
@@ -42,11 +41,20 @@ const fetchCategories = async () => {
   }
 };
 
+const handleGenerateSku = async () => {
+  try {
+    const res = await generateSku();
+    form.value.sku = res.sku;
+  } catch (error) {
+    console.error("Error generating SKU", error);
+  }
+};
+
 const handleFileUpload = (event) => {
   const file = event.target.files[0];
   if (file) {
     selectedFile.value = file;
-    // Создаем превью
+    
     const reader = new FileReader();
     reader.onload = (e) => {
       imagePreview.value = e.target.result;
@@ -65,17 +73,17 @@ const handleSubmit = async () => {
   try {
     const formData = new FormData();
 
-    // Добавляем все поля формы
+    
     Object.keys(form.value).forEach((key) => {
       let value = form.value[key];
 
-      // Если выбран файл, не отправляем URL из поля image, если он там есть
-      // Но если файла нет, отправляем то что в image (URL)
+      
+      
       if (key === "image" && selectedFile.value) return;
 
       if (value === null || value === undefined) return;
 
-      // Преобразование булевых значений для Laravel validation (иногда boolean проходит, но '1'/'0' надежнее в FormData)
+      
       if (typeof value === "boolean") {
         value = value ? "1" : "0";
       }
@@ -83,19 +91,20 @@ const handleSubmit = async () => {
       formData.append(key, value);
     });
 
-    // Добавляем файл, если он выбран
+    
     if (selectedFile.value) {
       formData.append("image", selectedFile.value);
     }
 
     await createProduct(formData);
+    uiStore.success("Товар успешно создан");
     router.push("/admin/products");
   } catch (error) {
     if (error.data && error.data.errors) {
       errors.value = error.data.errors;
     } else {
       console.error(error);
-      alert("Ошибка при создании товара");
+      uiStore.error("Ошибка при создании товара");
     }
   } finally {
     isLoading.value = false;
@@ -104,6 +113,7 @@ const handleSubmit = async () => {
 
 onMounted(() => {
   fetchCategories();
+  handleGenerateSku();
 });
 </script>
 
@@ -119,7 +129,7 @@ onMounted(() => {
     <div class="card shadow-sm">
       <div class="card-body">
         <form @submit.prevent="handleSubmit">
-          <!-- Основная информация -->
+          
           <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label">Название товара *</label>
@@ -137,15 +147,25 @@ onMounted(() => {
 
             <div class="col-md-6">
               <label class="form-label">SKU (Артикул) *</label>
-              <input
-                v-model="form.sku"
-                type="text"
-                class="form-control"
-                :class="{ 'is-invalid': errors.sku }"
-                required
-              />
-              <div v-if="errors.sku" class="invalid-feedback">
-                {{ errors.sku[0] }}
+              <div class="input-group">
+                <input
+                  v-model="form.sku"
+                  type="text"
+                  class="form-control"
+                  :class="{ 'is-invalid': errors.sku }"
+                  required
+                />
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  @click="handleGenerateSku"
+                  title="Сгенерировать SKU"
+                >
+                  <i class="bi bi-magic"></i>
+                </button>
+                <div v-if="errors.sku" class="invalid-feedback">
+                  {{ errors.sku[0] }}
+                </div>
               </div>
             </div>
           </div>
@@ -180,26 +200,43 @@ onMounted(() => {
                     id="isActive"
                   />
                   <label class="form-check-label" for="isActive">Активен</label>
-                </div>
-                <div class="form-check">
-                  <input
-                    v-model="form.in_stock"
-                    type="checkbox"
-                    class="form-check-input"
-                    id="inStock"
-                  />
-                  <label class="form-check-label" for="inStock"
-                    >В наличии</label
-                  >
+                  <div class="form-check">
+                    <input
+                      v-model="form.in_stock"
+                      type="checkbox"
+                      class="form-check-input"
+                      id="inStock"
+                    />
+                    <label class="form-check-label" for="inStock"
+                      >В наличии</label
+                    >
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Цены и Склад -->
+          
           <div class="row g-3 mb-4">
             <div class="col-md-4">
-              <label class="form-label">Цена *</label>
+              <label class="form-label">Закупочная цена</label>
+              <div class="input-group">
+                <input
+                  v-model="form.purchase_price"
+                  type="number"
+                  step="0.01"
+                  class="form-control"
+                  :class="{ 'is-invalid': errors.purchase_price }"
+                />
+                <span class="input-group-text">сом</span>
+              </div>
+              <div v-if="errors.purchase_price" class="text-danger small">
+                {{ errors.purchase_price[0] }}
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">Цена продажи *</label>
               <div class="input-group">
                 <input
                   v-model="form.price"
@@ -209,37 +246,42 @@ onMounted(() => {
                   :class="{ 'is-invalid': errors.price }"
                   required
                 />
-                <span class="input-group-text">₽</span>
+                <span class="input-group-text">сом</span>
               </div>
               <div v-if="errors.price" class="text-danger small">
                 {{ errors.price[0] }}
               </div>
             </div>
 
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">Цена со скидкой</label>
               <div class="input-group">
                 <input
-                  v-model="form.sale_price"
+                  v-model.number="form.sale_price"
                   type="number"
                   step="0.01"
                   class="form-control"
                 />
-                <span class="input-group-text">₽</span>
+                <span class="input-group-text">сом</span>
               </div>
             </div>
 
-            <div class="col-md-4">
-              <label class="form-label">Количество на складе</label>
+            <div class="col-md-3">
+              <label class="form-label">Начальный остаток</label>
               <input
-                v-model="form.stock_quantity"
+                v-model.number="form.stock_quantity"
                 type="number"
                 class="form-control"
+                placeholder="0"
+                min="0"
               />
+              <div class="form-text text-muted" style="font-size: 0.75rem">
+                Только при создании
+              </div>
             </div>
           </div>
 
-          <!-- Описание -->
+          
           <div class="mb-4">
             <label class="form-label">Краткое описание</label>
             <textarea
@@ -258,7 +300,7 @@ onMounted(() => {
             ></textarea>
           </div>
 
-          <!-- Изображения -->
+          
           <div class="mb-4">
             <label class="form-label">Изображение</label>
 
@@ -295,7 +337,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Дополнительно -->
+          
           <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label">Вес (кг)</label>
