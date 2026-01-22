@@ -14,7 +14,8 @@ export const useSeo = () => {
   }) => {
     const route = useRoute();
     const baseUrl =
-      config.public.apiBase?.replace("/api", "") || "http://localhost:3000";
+      config.public.apiBase?.replace("/api", "") ||
+      "https://online-store-back.onrender.com";
 
     const defaultTitle = "KurulushStore - Интернет-магазин";
     const defaultDescription =
@@ -34,12 +35,10 @@ export const useSeo = () => {
     useHead({
       title,
       meta: [
-        
         { name: "description", content: description },
         { name: "keywords", content: keywords },
         { name: "author", content: options.author || "KurulushStore" },
 
-        
         { property: "og:type", content: type },
         { property: "og:url", content: url },
         { property: "og:title", content: title },
@@ -48,20 +47,17 @@ export const useSeo = () => {
         { property: "og:site_name", content: "KurulushStore" },
         { property: "og:locale", content: "ru_RU" },
 
-        
         { name: "twitter:card", content: "summary_large_image" },
         { name: "twitter:url", content: url },
         { name: "twitter:title", content: title },
         { name: "twitter:description", content: description },
         { name: "twitter:image", content: image },
 
-        
         { name: "robots", content: "index, follow" },
         { name: "googlebot", content: "index, follow" },
         { name: "viewport", content: "width=device-width, initial-scale=1" },
         { "http-equiv": "Content-Type", content: "text/html; charset=utf-8" },
 
-        
         ...(options.publishedTime
           ? [
               {
@@ -92,7 +88,6 @@ export const useSeo = () => {
         },
       ],
       script: [
-        
         {
           type: "application/ld+json",
           children: JSON.stringify({
@@ -121,7 +116,8 @@ export const useSeo = () => {
   const setProductSeo = (product: any) => {
     const config = useRuntimeConfig();
     const baseUrl =
-      config.public.apiBase?.replace("/api", "") || "http://localhost:3000";
+      config.public.apiBase?.replace("/api", "") ||
+      "https://online-store-back.onrender.com";
 
     const price = product.sale_price || product.price;
     const availability = product.stock_quantity > 0 ? "InStock" : "OutOfStock";
@@ -138,7 +134,6 @@ export const useSeo = () => {
       type: "product",
     });
 
-    
     useHead({
       script: [
         {
@@ -184,7 +179,8 @@ export const useSeo = () => {
   const setBreadcrumbs = (items: Array<{ name: string; url: string }>) => {
     const config = useRuntimeConfig();
     const baseUrl =
-      config.public.apiBase?.replace("/api", "") || "http://localhost:3000";
+      config.public.apiBase?.replace("/api", "") ||
+      "https://online-store-back.onrender.com";
 
     useHead({
       script: [

@@ -5,7 +5,6 @@ const router = useRouter();
 
 const title = "Каталог товаров";
 
-
 const filters = ref({
   category_id: route.query.category_id
     ? Number(route.query.category_id)
@@ -24,9 +23,8 @@ const products = ref(null);
 const categories = ref([]);
 const loading = ref(false);
 const error = ref(null);
-const viewMode = ref("grid"); 
+const viewMode = ref("grid");
 const isCategoriesOpen = ref(true);
-
 
 const loadData = async () => {
   loading.value = true;
@@ -47,7 +45,6 @@ const loadData = async () => {
   }
 };
 
-
 const applyFilters = () => {
   const query = {};
   Object.entries(filters.value).forEach(([key, value]) => {
@@ -55,13 +52,11 @@ const applyFilters = () => {
       query[key] = value;
     }
   });
-  
+
   if (query.page === filters.value.page && route.query.page) {
-    
   }
   router.push({ query });
 };
-
 
 const resetFilters = () => {
   filters.value = {
@@ -78,7 +73,6 @@ const resetFilters = () => {
   router.push({ query: {} });
 };
 
-
 const handleSortChange = (event) => {
   const value = event.target.value;
   if (!value) return;
@@ -90,7 +84,6 @@ const handleSortChange = (event) => {
   applyFilters();
 };
 
-
 const formatPrice = (price) => {
   return parseFloat(price).toLocaleString("ru-RU", {
     minimumFractionDigits: 2,
@@ -98,14 +91,14 @@ const formatPrice = (price) => {
   });
 };
 
+const { getImageUrl } = useImageUrl();
 
 const getProductImage = (product) => {
   if (product.image) {
-    return `http://127.0.0.1:8000${product.image}`;
+    return getImageUrl(product.image);
   }
   return "https://via.placeholder.com/300x300/0f172a/38bdf8?text=Товар";
 };
-
 
 watch(
   () => route.query,
@@ -126,13 +119,12 @@ watch(
     filters.value.page = newQuery.page ? Number(newQuery.page) : 1;
     loadData();
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 onMounted(() => {
   loadData();
 });
-
 
 const visiblePages = computed(() => {
   if (!products.value) return [];
@@ -181,7 +173,6 @@ const toggleMobileFilters = () => {
 <template>
   <div class="catalog-page">
     <div class="container py-4">
-      
       <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h3 fw-bold mb-0">{{ title }}</h1>
         <button
@@ -193,7 +184,6 @@ const toggleMobileFilters = () => {
       </div>
 
       <div class="row g-4">
-        
         <aside class="col-lg-3">
           <div
             class="filter-sidebar"
@@ -205,7 +195,6 @@ const toggleMobileFilters = () => {
             </div>
 
             <div class="filter-card shadow-sm">
-              
               <div class="filter-section p-4 border-bottom">
                 <div class="d-flex align-items-center mb-3">
                   <i class="bi bi-search text-primary me-2"></i>
@@ -223,7 +212,6 @@ const toggleMobileFilters = () => {
                 </div>
               </div>
 
-              
               <div class="filter-section p-0 border-bottom">
                 <div
                   class="d-flex align-items-center justify-content-between p-4 cursor-pointer"
@@ -270,7 +258,6 @@ const toggleMobileFilters = () => {
                 </transition>
               </div>
 
-              
               <div class="filter-section p-4 border-bottom">
                 <div class="d-flex align-items-center mb-3">
                   <i class="bi bi-currency-dollar text-primary me-2"></i>
@@ -302,7 +289,6 @@ const toggleMobileFilters = () => {
                 </div>
               </div>
 
-              
               <div class="filter-section p-4 border-bottom">
                 <div class="form-check form-switch mb-0">
                   <input
@@ -320,7 +306,6 @@ const toggleMobileFilters = () => {
                 </div>
               </div>
 
-              
               <div class="p-4 d-grid gap-2">
                 <button class="btn btn-primary" @click="applyFilters">
                   Применить фильтры
@@ -331,7 +316,7 @@ const toggleMobileFilters = () => {
               </div>
             </div>
           </div>
-          
+
           <div
             v-if="isMobileFiltersOpen"
             class="filter-overlay"
@@ -339,9 +324,7 @@ const toggleMobileFilters = () => {
           ></div>
         </aside>
 
-        
         <main class="col-lg-9">
-          
           <div
             class="catalog-toolbar d-flex justify-content-between align-items-center mb-4 p-3 bg-white shadow-sm rounded-3"
           >
@@ -381,19 +364,16 @@ const toggleMobileFilters = () => {
             </div>
           </div>
 
-          
           <div v-if="loading" class="text-center py-5">
             <div class="spinner-border text-primary" role="status">
               <span class="visually-hidden">Загрузка...</span>
             </div>
           </div>
 
-          
           <div v-else-if="error" class="alert alert-danger" role="alert">
             {{ error }}
           </div>
 
-          
           <div v-else-if="products && products.data?.length" class="row g-4">
             <div
               v-for="product in products.data"
@@ -405,12 +385,10 @@ const toggleMobileFilters = () => {
             </div>
           </div>
 
-          
           <div v-else class="text-center py-5">
             <p class="text-muted">Товары не найдены</p>
           </div>
 
-          
           <nav
             v-if="products && products.last_page > 1"
             aria-label="Навигация по страницам"
@@ -493,9 +471,8 @@ const toggleMobileFilters = () => {
   gap: 0.25rem;
   max-height: 280px;
   overflow-y: auto;
-  padding-right: 8px; 
+  padding-right: 8px;
 }
-
 
 .category-list::-webkit-scrollbar {
   width: 4px;
@@ -578,7 +555,6 @@ const toggleMobileFilters = () => {
   background: #f1f5f9;
 }
 
-
 @media (max-width: 991.98px) {
   .filter-sidebar {
     position: fixed;
@@ -649,7 +625,6 @@ const toggleMobileFilters = () => {
   cursor: pointer;
 }
 
-
 .collapse-enter-active,
 .collapse-leave-active {
   transition: all 0.3s ease-in-out;
@@ -663,7 +638,6 @@ const toggleMobileFilters = () => {
   opacity: 0;
   padding-bottom: 0 !important;
 }
-
 
 .line-clamp-1 {
   display: -webkit-box;

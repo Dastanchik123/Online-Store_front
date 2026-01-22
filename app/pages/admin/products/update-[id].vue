@@ -9,6 +9,7 @@ const router = useRouter();
 const uiStore = useUiStore();
 const productsStore = useProductsStore();
 const { getProduct, updateProduct, getCategories } = useProducts();
+const { getImageUrl } = useImageUrl();
 const id = route.params.id;
 
 const categories = ref([]);
@@ -36,7 +37,6 @@ const form = ref({
 const selectedFile = ref(null);
 const imagePreview = ref(null);
 
-
 const attributeList = ref([]);
 
 const fetchCategories = async () => {
@@ -53,27 +53,22 @@ const fetchProduct = async () => {
   try {
     const product = await getProduct(id);
 
-    
     form.value = {
       ...form.value,
       ...product,
-      
+
       category_id: product.category?.id || product.category_id,
       is_active: !!product.is_active,
       in_stock: !!product.in_stock,
     };
 
     if (product.image) {
-      imagePreview.value = product.image.startsWith("http")
-        ? product.image
-        : `http://127.0.0.1:8000/storage/${product.image}`; 
-      
+      imagePreview.value = getImageUrl(product.image);
     }
 
-    
     if (product.attributes && typeof product.attributes === "object") {
       attributeList.value = Object.entries(product.attributes).map(
-        ([key, value]) => ({ key, value })
+        ([key, value]) => ({ key, value }),
       );
     }
   } catch (error) {
@@ -97,7 +92,7 @@ const handleFileUpload = (event) => {
   const file = event.target.files[0];
   if (file) {
     selectedFile.value = file;
-    
+
     const reader = new FileReader();
     reader.onload = (e) => {
       imagePreview.value = e.target.result;
@@ -105,9 +100,6 @@ const handleFileUpload = (event) => {
     reader.readAsDataURL(file);
   } else {
     selectedFile.value = null;
-    
-    
-    
   }
 };
 
@@ -118,15 +110,13 @@ const handleSubmit = async () => {
   try {
     const formData = new FormData();
 
-    
     Object.keys(form.value).forEach((key) => {
       let value = form.value[key];
 
-      
       if (key === "attributes") return;
-      if (key === "image") return; 
-      if (key === "category") return; 
-      if (key === "reviews") return; 
+      if (key === "image") return;
+      if (key === "category") return;
+      if (key === "reviews") return;
 
       if (value === null || value === undefined) return;
 
@@ -137,17 +127,12 @@ const handleSubmit = async () => {
       formData.append(key, value);
     });
 
-    
     if (selectedFile.value) {
       formData.append("image", selectedFile.value);
     }
 
-    
-    
-    
     attributeList.value.forEach((item, index) => {
       if (item.key) {
-        
         formData.append(`attributes[${item.key}]`, item.value);
       }
     });
@@ -191,7 +176,6 @@ onMounted(async () => {
     <div v-else class="card shadow-sm">
       <div class="card-body">
         <form @submit.prevent="handleSubmit">
-          
           <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label">Название товара *</label>
@@ -268,7 +252,6 @@ onMounted(async () => {
             </div>
           </div>
 
-          
           <div class="row g-3 mb-4">
             <div class="col-md-3">
               <label class="form-label">Закупочная цена</label>
@@ -333,7 +316,6 @@ onMounted(async () => {
             </div>
           </div>
 
-          
           <div class="mb-4">
             <label class="form-label">Краткое описание</label>
             <textarea
@@ -352,7 +334,6 @@ onMounted(async () => {
             ></textarea>
           </div>
 
-          
           <div class="mb-4">
             <label class="form-label">Изображение</label>
 
@@ -377,7 +358,6 @@ onMounted(async () => {
             </div>
           </div>
 
-          
           <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label">Вес (кг)</label>
@@ -399,7 +379,6 @@ onMounted(async () => {
             </div>
           </div>
 
-          
           <div class="border-top pt-4">
             <label class="form-label mb-2">Характеристики</label>
             <div

@@ -17,7 +17,7 @@ export const useAuthStore = defineStore("auth", {
     isCashier: (state) => state.user?.role === "cashier",
     hasPermission: (state) => (permission: string) => {
       if (state.user?.role === "admin") return true;
-      
+
       if (state.user?.role === "cashier" && permission === "cashier.access")
         return true;
       if (state.user?.role === "purchaser") {
@@ -71,8 +71,9 @@ export const useAuthStore = defineStore("auth", {
           (import.meta.client ? localStorage.getItem("auth_token") : null);
         if (!token) return;
 
+        const config = useRuntimeConfig();
         const perms: any = await $fetch("/my-permissions", {
-          baseURL: "http://127.0.0.1:8000/api",
+          baseURL: config.public.apiBase,
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: "application/json",
@@ -91,9 +92,9 @@ export const useAuthStore = defineStore("auth", {
           (import.meta.client ? localStorage.getItem("auth_token") : null);
         if (!token) return;
 
-        
+        const config = useRuntimeConfig();
         const user: any = await $fetch("/user", {
-          baseURL: "http://127.0.0.1:8000/api",
+          baseURL: config.public.apiBase,
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: "application/json",
@@ -108,7 +109,7 @@ export const useAuthStore = defineStore("auth", {
         }
       } catch (error: any) {
         console.error("Failed to verify user status:", error);
-        
+
         if (error.status === 401 || error.statusCode === 401) {
           this.clearAuth();
         }
@@ -127,7 +128,6 @@ export const useAuthStore = defineStore("auth", {
             this.isAuthenticated = true;
             this.fetchPermissions();
 
-            
             this.fetchUser();
           } catch (error) {
             console.error("Failed to parse user from localStorage", error);

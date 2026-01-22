@@ -23,7 +23,9 @@ const isReturnsModalOpen = ref(false);
 
 const fetchStaff = async () => {
   try {
-    const data: any = await $fetch("http://127.0.0.1:8000/api/pos/staff", {
+    const config = useRuntimeConfig();
+    const data: any = await $fetch("/pos/staff", {
+      baseURL: config.public.apiBase,
       headers: { Authorization: `Bearer ${useAuthStore().token}` },
     });
     staffList.value = data;
@@ -42,11 +44,9 @@ const loadReports = async () => {
       getProducts({ per_page: 1000 }),
     ]);
 
-    
     const data = reportData?.data || reportData;
     const summary = data?.summary || data;
 
-    
     let localMarketValue = 0;
     let localCostValue = 0;
 
@@ -57,9 +57,7 @@ const loadReports = async () => {
         return sum + price * qty;
       }, 0);
 
-      
-      
-      localCostValue = localMarketValue * 0.7; 
+      localCostValue = localMarketValue * 0.7;
     }
 
     reports.value = {
@@ -118,7 +116,6 @@ watch(filters, loadReports, { deep: true });
 
 <template>
   <div class="dashboard-page p-4 animate-fade-in">
-    
     <div class="row align-items-end mb-5">
       <div class="col">
         <div
@@ -212,7 +209,6 @@ watch(filters, loadReports, { deep: true });
       </div>
     </div>
 
-    
     <div v-if="isInitialLoading" class="row g-4 mb-5">
       <div v-for="i in 4" :key="i" class="col-xl-3 col-md-6">
         <div class="card border-0 shadow-sm rounded-4 p-4 animate-pulse">
@@ -237,7 +233,6 @@ watch(filters, loadReports, { deep: true });
       class="row g-4 mb-5"
       :class="{ 'opacity-75 transition-all': loading }"
     >
-      
       <div class="col-xl-3 col-md-6">
         <div class="stat-card glass-card luxury-blue">
           <div class="card-content">
@@ -255,7 +250,6 @@ watch(filters, loadReports, { deep: true });
         </div>
       </div>
 
-      
       <div class="col-xl-3 col-md-6">
         <div class="stat-card glass-card luxury-rose">
           <div class="card-content">
@@ -273,7 +267,6 @@ watch(filters, loadReports, { deep: true });
         </div>
       </div>
 
-      
       <div class="col-xl-3 col-md-6">
         <div class="stat-card glass-card luxury-emerald">
           <div class="card-content">
@@ -296,7 +289,6 @@ watch(filters, loadReports, { deep: true });
         </div>
       </div>
 
-      
       <div class="col-xl-3 col-md-6">
         <div class="stat-card glass-card luxury-amber">
           <div class="card-content">
@@ -320,7 +312,6 @@ watch(filters, loadReports, { deep: true });
       class="row g-4"
       :class="{ 'opacity-75 transition-all': loading }"
     >
-      
       <div class="col-lg-8">
         <div
           class="card border-0 shadow-sm rounded-4 luxury-table-card overflow-y-auto"
@@ -439,7 +430,6 @@ watch(filters, loadReports, { deep: true });
         </div>
       </div>
 
-      
       <div class="col-lg-4">
         <div
           class="card border-0 shadow-sm rounded-4 h-100 p-0 overflow-hidden"
@@ -467,7 +457,7 @@ watch(filters, loadReports, { deep: true });
                     <stop offset="100%" stop-color="#38bdf8" stop-opacity="0" />
                   </linearGradient>
                 </defs>
-                
+
                 <path
                   v-if="reports.chart_data && reports.chart_data.length"
                   :d="`M 0,100 ${reports.chart_data
@@ -485,7 +475,7 @@ watch(filters, loadReports, { deep: true });
                     .join(' ')} L 300,100 Z`"
                   fill="url(#chartGradient)"
                 />
-                
+
                 <path
                   v-if="reports.chart_data && reports.chart_data.length"
                   :d="`M 0,${
@@ -557,7 +547,6 @@ watch(filters, loadReports, { deep: true });
       </div>
     </div>
 
-    
     <AdminReturnsHistoryModal
       :show="isReturnsModalOpen"
       @close="isReturnsModalOpen = false"
@@ -574,7 +563,6 @@ watch(filters, loadReports, { deep: true });
 .text-dark-blue {
   color: #0f172a;
 }
-
 
 .btn-refresh {
   background: white;
@@ -599,7 +587,6 @@ watch(filters, loadReports, { deep: true });
     transform: rotate(360deg);
   }
 }
-
 
 .stat-card {
   position: relative;
@@ -656,7 +643,6 @@ watch(filters, loadReports, { deep: true });
   margin-top: 4px;
 }
 
-
 .luxury-blue {
   background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
 }
@@ -707,7 +693,6 @@ watch(filters, loadReports, { deep: true });
   );
 }
 
-
 .luxury-table-card {
   background: white;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03);
@@ -756,7 +741,6 @@ watch(filters, loadReports, { deep: true });
   color: #f43f5e;
 }
 
-
 .storage-status-card {
   background: linear-gradient(165deg, #1e293b 0%, #0f172a 100%);
   position: relative;
@@ -801,7 +785,6 @@ watch(filters, loadReports, { deep: true });
   transform: translateX(5px);
   color: white;
 }
-
 
 .animate-fade-in {
   animation: fadeIn 0.6s ease-out;

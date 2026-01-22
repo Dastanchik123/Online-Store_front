@@ -15,8 +15,7 @@ const authStore = useAuthStore();
 const uiStore = useUiStore();
 const router = useRouter();
 const { items, toggleWishlist, isInWishlist } = useWishlist();
-
-const storageURL = "http://127.0.0.1:8000/storage/";
+const { getImageUrl } = useImageUrl();
 
 const formatPrice = (price) => {
   if (!price) return "0.00";
@@ -28,9 +27,7 @@ const formatPrice = (price) => {
 
 const getProductImage = (product) => {
   if (product.image) {
-    return product.image.startsWith("http")
-      ? product.image
-      : `${storageURL}${product.image}`;
+    return getImageUrl(product.image);
   }
   return "https://dummyimage.com/300x300/0f172a/fff&text=Товар";
 };
@@ -52,8 +49,8 @@ const handleAddToCart = async () => {
         </a>
       </div>
     `,
-      true
-    ); 
+      true,
+    );
   } catch (error) {
     uiStore.error(error.data?.message || "Ошибка добавления в корзину");
   }
@@ -80,7 +77,6 @@ const handleBuyNow = async () => {
       v-if="viewMode === 'grid'"
       class="product-card-premium card h-100 shadow-sm border-0"
     >
-      
       <div
         class="product-image-wrapper position-relative ratio ratio-1x1 overflow-hidden"
       >
@@ -91,7 +87,6 @@ const handleBuyNow = async () => {
           style="object-fit: cover"
         />
 
-        
         <div
           class="position-absolute top-0 start-0 m-3 d-flex flex-column gap-2 z-2"
         >
@@ -109,7 +104,6 @@ const handleBuyNow = async () => {
           </span>
         </div>
 
-        
         <button
           class="btn-wishlist position-absolute top-0 end-0 m-3 z-3"
           :class="{ active: isInWishlist(product.id) }"
@@ -121,7 +115,6 @@ const handleBuyNow = async () => {
           ></i>
         </button>
 
-        
         <div
           class="product-overlay d-flex flex-column align-items-center justify-content-center"
         >
@@ -134,7 +127,6 @@ const handleBuyNow = async () => {
         </div>
       </div>
 
-      
       <div class="card-body d-flex flex-column p-4">
         <div class="mb-2">
           <NuxtLink
@@ -308,11 +300,11 @@ const handleBuyNow = async () => {
   opacity: 0;
   transition: opacity 0.3s ease;
   z-index: 10;
-  pointer-events: none; 
+  pointer-events: none;
 }
 
 .product-overlay .btn-quick-view {
-  pointer-events: auto; 
+  pointer-events: auto;
 }
 
 .product-card-premium:hover .product-overlay {

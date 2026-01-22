@@ -1,7 +1,6 @@
 <template>
   <div class="cart-item-card" :class="{ 'is-removing': isRemoving }">
     <div class="cart-item-body">
-      
       <div class="item-image-wrapper">
         <img
           :src="getProductImage(item.product)"
@@ -11,7 +10,6 @@
         <div class="item-badge" v-if="item.product?.sale_price">Sale</div>
       </div>
 
-      
       <div class="item-content">
         <div class="item-info">
           <NuxtLink :to="`/product/${item.product_id}`" class="item-title">
@@ -28,7 +26,6 @@
         </div>
 
         <div class="item-controls" v-if="!readonly">
-          
           <div class="quantity-selector">
             <button
               class="qty-btn"
@@ -54,7 +51,6 @@
             </button>
           </div>
 
-          
           <div class="item-actions">
             <div class="item-total">
               {{ formatPrice(item.price * item.quantity) }} <span>сом</span>
@@ -70,7 +66,6 @@
           </div>
         </div>
 
-        
         <div class="item-summary-readonly" v-else>
           <div class="readonly-qty">x{{ item.quantity }}</div>
           <div class="item-total">
@@ -98,7 +93,7 @@ const emit = defineEmits(["update-quantity", "remove"]);
 
 const isUpdating = ref(false);
 const isRemoving = ref(false);
-const storageURL = "http://127.0.0.1:8000/storage/";
+const { getImageUrl } = useImageUrl();
 
 const formatPrice = (price) => {
   return parseFloat(price).toLocaleString("ru-RU", {
@@ -109,7 +104,7 @@ const formatPrice = (price) => {
 
 const getProductImage = (product) => {
   if (product?.image) {
-    return storageURL + product.image;
+    return getImageUrl(product.image);
   }
   return (
     product?.image_url ||
@@ -401,7 +396,6 @@ const handleRemove = async () => {
   border-radius: 8px;
   font-size: 0.9rem;
 }
-
 
 .remove-btn:active {
   transform: scale(0.9);

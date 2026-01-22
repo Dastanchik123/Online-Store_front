@@ -7,10 +7,9 @@ definePageMeta({
 const uiStore = useUiStore();
 const productsStore = useProductsStore();
 const api = useApi();
-const storageURL = "http://127.0.0.1:8000/storage/";
+const { getImageUrl } = useImageUrl();
 
 const { createCategory, updateCategory, deleteCategory } = useProducts();
-
 
 const categories = computed(() => productsStore.categories);
 const isLoading = ref(false);
@@ -69,7 +68,7 @@ const openCreateModal = () => {
 
 const openEditModal = (category) => {
   isEditing.value = true;
-  form.value = { ...category, parent_id: category.parent_id || "" }; 
+  form.value = { ...category, parent_id: category.parent_id || "" };
   selectedFile.value = null;
   errors.value = {};
   isModalOpen.value = true;
@@ -106,7 +105,7 @@ const handleSubmit = async () => {
     productsStore.invalidateCategories();
     await fetchCategories(true);
     uiStore.success(
-      `Категория успешно ${isEditing.value ? "обновлена" : "создана"}`
+      `Категория успешно ${isEditing.value ? "обновлена" : "создана"}`,
     );
   } catch (error) {
     if (error.data && error.data.errors) {
@@ -123,7 +122,7 @@ const handleSubmit = async () => {
 const handleDelete = async (id) => {
   const confirmed = await uiStore.showConfirm(
     "Удаление категории",
-    "Вы уверены? Это может удалить и все подкатегории!"
+    "Вы уверены? Это может удалить и все подкатегории!",
   );
   if (!confirmed) return;
 
@@ -152,7 +151,6 @@ onMounted(() => {
       </button>
     </div>
 
-    
     <div class="card shadow-sm">
       <div v-if="isLoading" class="p-5 text-center text-muted">
         <div class="spinner-border text-primary" role="status">
@@ -184,7 +182,7 @@ onMounted(() => {
               <td>
                 <img
                   v-if="cat.image"
-                  :src="storageURL + cat.image"
+                  :src="getImageUrl(cat.image)"
                   class="rounded bg-light"
                   style="width: 40px; height: 40px; object-fit: cover"
                   alt=""
@@ -232,7 +230,6 @@ onMounted(() => {
       </div>
     </div>
 
-    
     <UiBaseModal
       :show="isModalOpen"
       :title="isEditing ? 'Редактировать категорию' : 'Создать категорию'"
@@ -258,7 +255,7 @@ onMounted(() => {
           <label class="form-label fw-semibold">Изображение категории</label>
           <div v-if="isEditing && form.image && !selectedFile" class="mb-2">
             <img
-              :src="storageURL + form.image"
+              :src="getImageUrl(form.image)"
               class="img-thumbnail"
               style="height: 100px"
               alt="Текущее фото"

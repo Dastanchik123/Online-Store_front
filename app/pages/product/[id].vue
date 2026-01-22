@@ -12,9 +12,8 @@ const isAdding = ref(false);
 const error = ref(null);
 
 const title = computed(() =>
-  product.value ? product.value.name : "Страница товара"
+  product.value ? product.value.name : "Страница товара",
 );
-
 
 const loadProduct = async () => {
   if (!route.params.id) return;
@@ -25,11 +24,9 @@ const loadProduct = async () => {
   try {
     product.value = await getProduct(route.params.id);
 
-    
     if (product.value) {
       setProductSeo(product.value);
 
-      
       setBreadcrumbs([
         { name: "Главная", url: "/" },
         { name: "Каталог", url: "/catalog" },
@@ -51,31 +48,16 @@ const loadProduct = async () => {
   }
 };
 
-
-
-
-
-
-
-
-
-
-
-
+const { getImageUrl } = useImageUrl();
 
 const productImage = computed(() => {
   if (product.value?.image) {
-    const storageURL = "http://127.0.0.1:8000/storage/";
-    return product.value.image.startsWith("http")
-      ? product.value.image
-      : `${storageURL}${product.value.image}`;
+    return getImageUrl(product.value.image);
   }
   return "https://via.placeholder.com/600x600/0f172a/38bdf8?text=Изображение+товара";
 });
 
-
 const quantity = ref(1);
-
 
 const handleAddToCart = async () => {
   if (!authStore.isAuthenticated) {
@@ -125,29 +107,24 @@ onMounted(() => {
   </Head>
 
   <section class="product-page">
-    
     <div v-if="pending" class="loading">
       <div class="spinner"></div>
       <p>Загрузка товара...</p>
     </div>
 
-    
     <div v-else-if="error" class="error">
       <h2>Ошибка загрузки</h2>
       <p>Не удалось загрузить информацию о товаре.</p>
       <NuxtLink to="/" class="back-link">Вернуться на главную</NuxtLink>
     </div>
 
-    
     <div v-else-if="!product" class="not-found">
       <h2>Товар не найден</h2>
       <p>Товар с указанным ID не существует.</p>
       <NuxtLink to="/" class="back-link">Вернуться на главную</NuxtLink>
     </div>
 
-    
     <div v-else class="product-container">
-      
       <nav class="breadcrumbs">
         <NuxtLink to="/" class="breadcrumb-link">Главная</NuxtLink>
         <span class="breadcrumb-separator">/</span>
@@ -163,7 +140,6 @@ onMounted(() => {
       </nav>
 
       <div class="product-content">
-        
         <div class="product-gallery">
           <div class="main-image">
             <img :src="productImage" :alt="product.name" />
@@ -175,9 +151,7 @@ onMounted(() => {
           </div>
         </div>
 
-        
         <div class="product-info">
-          
           <div class="product-category">
             <NuxtLink
               :to="`/catalog?category_id=${product.category.id}`"
@@ -186,16 +160,13 @@ onMounted(() => {
             >
           </div>
 
-          
           <h1 class="product-title">{{ product.name }}</h1>
 
-          
           <div class="product-price">
             <span class="price-value">{{ product.price }}</span>
             <span class="price-currency">сом</span>
           </div>
 
-          
           <div class="product-stock">
             <span
               :class="[
@@ -213,13 +184,11 @@ onMounted(() => {
             </span>
           </div>
 
-          
           <div class="product-description">
             <h3>Описание</h3>
             <p>{{ product.short_description }}</p>
           </div>
 
-          
           <div class="product-actions">
             <div class="quantity-selector">
               <label for="quantity">Количество:</label>
@@ -272,7 +241,6 @@ onMounted(() => {
             </div>
           </div>
 
-          
           <div class="product-meta">
             <div class="meta-item" v-if="product.id">
               <span class="meta-label">ID товара:</span>
@@ -353,7 +321,6 @@ onMounted(() => {
   margin: 0 auto;
 }
 
-
 .loading {
   display: flex;
   flex-direction: column;
@@ -377,7 +344,6 @@ onMounted(() => {
     transform: rotate(360deg);
   }
 }
-
 
 .error,
 .not-found {
@@ -405,7 +371,6 @@ onMounted(() => {
   color: #0ea5e9;
   text-decoration: underline;
 }
-
 
 .breadcrumbs {
   display: flex;
@@ -435,7 +400,6 @@ onMounted(() => {
   font-weight: 500;
 }
 
-
 .product-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -447,7 +411,6 @@ onMounted(() => {
   gap: 60px;
   margin-top: 20px;
 }
-
 
 .product-gallery {
   display: flex;
@@ -500,7 +463,6 @@ onMounted(() => {
   height: 100%;
   object-fit: cover;
 }
-
 
 .product-info {
   display: flex;
@@ -594,7 +556,6 @@ onMounted(() => {
   line-height: 1.6;
   color: #475569;
 }
-
 
 .product-actions {
   display: flex;
@@ -704,7 +665,6 @@ onMounted(() => {
   font-size: 20px;
 }
 
-
 .product-meta {
   display: flex;
   flex-direction: column;
@@ -727,7 +687,6 @@ onMounted(() => {
 .meta-value {
   color: #1e293b;
 }
-
 
 @media (max-width: 968px) {
   .product-content {
