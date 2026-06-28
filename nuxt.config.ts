@@ -7,7 +7,7 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     public: {
-      apiBase: process.env.NUXT_PUBLIC_API_BASE || "http://192.168.2.176:8000/api",
+      apiBase: "https://online-store-back.fly.dev/api" //192.168.2.176:8000/api",
     },
   },
 
