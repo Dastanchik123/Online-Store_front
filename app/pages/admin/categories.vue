@@ -164,7 +164,7 @@ onMounted(() => {
         Нет категорий
       </div>
 
-      <div v-else class="table-responsive">
+      <div v-else class="table-responsive" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>

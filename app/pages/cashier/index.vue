@@ -10,11 +10,13 @@ const { getDebts } = useAccounting();
 const {
   printers,
   activePrinter,
-  initQZ,
+  initPrinter,
   setPrinter,
   isConnected,
   testPrint,
   printReceipt,
+  generateReceiptHtml,
+  generateInvoiceHtml,
 } = usePrinter();
 const ui = useUiStore();
 
@@ -82,7 +84,15 @@ const loadHistory = async () => {
 };
 
 const reprintOrder = async (order) => {
-  await printReceipt(order.id, printTemplate.value);
+  await printReceipt(order, printTemplate.value);
+};
+
+const showPreviewModal = ref(false);
+const selectedOrder = ref(null);
+
+const openPreview = (order) => {
+  selectedOrder.value = order;
+  showPreviewModal.value = true;
 };
 
 const returnSearchQuery = ref("");
@@ -91,24 +101,30 @@ const isReturnCheckLoading = ref(false);
 const returnItems = ref({});
 
 const searchOrderForReturn = async () => {
-  if (!returnSearchQuery.value) return;
+  const query = returnSearchQuery.value?.trim();
+  if (!query) return;
+  
   isReturnCheckLoading.value = true;
   returnOrderData.value = null;
   returnItems.value = {};
 
   try {
-    const order = await trackOrder(returnSearchQuery.value);
-    if (order && order.id) {
+    const order = await trackOrder(query);
+    if (order && (order.id || order.uuid)) {
       returnOrderData.value = order;
-
-      order.items.forEach((item) => {
-        returnItems.value[item.id] = 0;
-      });
+      // Initialize return quantities
+      if (order.items) {
+        order.items.forEach(item => {
+          returnItems.value[item.id] = 0;
+        });
+      }
     } else {
-      ui.addToast("Заказ не найден", "warning");
+      ui.addToast("Заказ не найден. Проверьте номер чека.", "warning");
     }
   } catch (e) {
-    ui.addToast("Заказ не найден или ошибка сервера", "error");
+    console.error("Return search error:", e);
+    const msg = e.data?.message || "Заказ не найден или ошибка сервера";
+    ui.addToast(msg, "error");
   } finally {
     isReturnCheckLoading.value = false;
   }
@@ -127,8 +143,8 @@ const processReturn = async () => {
   }
 
   try {
-    await returnOrderItems(returnOrderData.value.id, itemsToReturn);
-    ui.addToast("Возврат успешно оформлен", "success");
+    await returnOrderItems(returnOrderData.value.uuid || returnOrderData.value.id, itemsToReturn);
+    // Возврат оформлен
     showReturnModal.value = false;
     returnSearchQuery.value = "";
     returnOrderData.value = null;
@@ -149,7 +165,7 @@ onMounted(async () => {
     if (saved) printTemplate.value = saved;
   }
   loadSummary();
-  await initQZ();
+  await initPrinter();
 });
 </script>
 
@@ -304,19 +320,8 @@ onMounted(async () => {
                 class="d-flex justify-content-between align-items-center mb-2"
               >
                 <label class="form-label fw-bold mb-0">Выберите принтер</label>
-                <span
-                  :class="isConnected ? 'text-success' : 'text-danger'"
-                  class="small fw-bold"
-                >
-                  <i
-                    class="bi"
-                    :class="
-                      isConnected
-                        ? 'bi-circle-fill'
-                        : 'bi-exclamation-triangle-fill'
-                    "
-                  ></i>
-                  {{ isConnected ? "QZ Tray: Активен" : "QZ Tray: Не запущен" }}
+                <span :class="isConnected ? 'text-success' : 'text-info'" class="small fw-bold">
+                  {{ isConnected ? "Принтер: Подключен (Electron)" : "Принтер: Обычный режим" }}
                 </span>
               </div>
 
@@ -325,7 +330,7 @@ onMounted(async () => {
                 @change="(e) => setPrinter(e.target.value)"
                 class="form-select rounded-3"
               >
-                <option value="">-- Не выбрано --</option>
+                <option value="">-- По умолчанию --</option>
                 <option v-for="p in printers" :key="p" :value="p">
                   {{ p }}
                 </option>
@@ -333,10 +338,9 @@ onMounted(async () => {
 
               <div
                 v-if="!isConnected"
-                class="alert alert-warning mt-2 py-2 small"
+                class="alert alert-info mt-2 py-2 small"
               >
-                Похоже программа <strong>QZ Tray</strong> не запущена на этом
-                компьютере. Пожалуйста запустите её для прямой печати чеков.
+                Запустите приложение через <strong>Electron</strong> для выбора принтера и прямой печати.
               </div>
 
               <div class="mt-4">
@@ -422,7 +426,7 @@ onMounted(async () => {
       tabindex="-1"
       @click.self="showHistoryModal = false"
     >
-      <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-dialog modal-dialog-centered modal-xl">
         <div class="modal-content border-0 rounded-4 shadow-lg">
           <div class="modal-header border-0 p-4">
             <h5 class="modal-title fw-bold">История чеков (Сегодня)</h5>
@@ -434,7 +438,7 @@ onMounted(async () => {
           </div>
           <div
             class="modal-body p-4 pt-0 overflow-auto"
-            style="max-height: 60vh"
+            style="max-height: 75vh"
           >
             <div v-if="isHistoryLoading" class="text-center py-5">
               <div class="spinner-border text-primary" role="status"></div>
@@ -475,10 +479,10 @@ onMounted(async () => {
                   </td>
                   <td class="text-end pe-3">
                     <button
-                      @click="reprintOrder(order)"
-                      class="btn btn-sm btn-outline-primary rounded-pill"
+                      @click="openPreview(order)"
+                      class="btn btn-sm btn-outline-info rounded-pill"
                     >
-                      <i class="bi bi-printer me-1"></i> Печать
+                      <i class="bi bi-eye me-1"></i> Просмотр
                     </button>
                   </td>
                 </tr>
@@ -628,10 +632,61 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <div v-if="showPreviewModal" class="modal-backdrop fade show"></div>
+    <div
+      v-if="showPreviewModal"
+      class="modal fade show d-block"
+      tabindex="-1"
+      @click.self="showPreviewModal = false"
+    >
+      <div class="modal-dialog modal-dialog-centered" style="max-width: 950px;">
+        <div class="modal-content border-0 rounded-4 shadow-2xl overflow-hidden" style="box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
+          <div class="modal-header bg-dark text-white border-0 p-4 d-flex justify-content-between align-items-center">
+            <div>
+              <h5 class="modal-title fw-bold m-0 text-white">Просмотр документа</h5>
+              <div class="small text-white-50">Вы можете распечатать накладную или закрыть просмотр</div>
+            </div>
+            <button type="button" class="btn-primary rounded-circle p-2 border-0 d-flex align-items-center justify-content-center" style="width: 32px; height: 32px; opacity: 0.8;" @click="showPreviewModal = false">
+              <i class="bi bi-x-lg text-white" style="font-size: 14px;"></i>
+            </button>
+          </div>
+          <div class="modal-body p-0 bg-secondary-subtle" style="max-height: 60vh; overflow-y: auto;">
+             <div class="p-4 d-flex justify-content-center">
+               <div 
+                 class="bg-white shadow-lg rounded-1 p-5" 
+                 style="width: 100%; min-height: 600px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);"
+                 v-html="generateInvoiceHtml(selectedOrder)"
+               ></div>
+             </div>
+          </div>
+          <div class="modal-footer border-0 p-4 bg-white shadow-lg d-flex gap-3">
+            <button
+              type="button"
+              class="btn btn-light rounded-pill px-5 py-2 fw-semibold grow"
+              @click="showPreviewModal = false"
+            >
+              Закрыть
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary rounded-pill px-5 py-2 grow fw-bold shadow-sm d-flex align-items-center justify-content-center gap-2"
+              style="background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%); border: none;"
+              @click="reprintOrder(selectedOrder); showPreviewModal = false;"
+            >
+              <i class="bi bi-printer-fill fs-5"></i> 
+              <span>Распечатать чек</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+
+
 .glass-header {
   background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
 }

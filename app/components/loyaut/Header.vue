@@ -119,12 +119,16 @@
       </ul>
 
       
-      <div class="d-flex align-items-center gap-3 d-lg-none">
-        <NuxtLink to="/cart" class="mobile-cart-btn position-relative">
-          <i class="bi bi-cart fs-4"></i>
+      <div class="d-flex align-items-center gap-2 d-lg-none">
+        <NuxtLink to="/wishlist" class="mobile-icon-btn position-relative">
+          <i class="bi bi-heart fs-5"></i>
+          <span v-if="wishlist.items.value.length > 0" class="mobile-badge">{{ wishlist.items.value.length }}</span>
+        </NuxtLink>
+        <NuxtLink to="/cart" class="mobile-icon-btn position-relative">
+          <i class="bi bi-cart fs-5"></i>
           <span
             v-if="cartStore.itemsCount > 0"
-            class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger cart-badge"
+            class="mobile-badge"
             :class="{ 'badge-bounce': isBadgeAnimating }"
           >
             {{ cartStore.itemsCount }}
@@ -373,10 +377,14 @@ const handleLogoutMobil = async () => {
   left: 0;
   width: 100%;
   z-index: 1000;
-  padding: 1.25rem 0;
+  padding: 0.75rem 0;
   transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
   background: #0f172a;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+@media (min-width: 992px) {
+  .header { padding: 1.25rem 0; }
 }
 
 .header-scrolled {
@@ -392,14 +400,26 @@ const handleLogoutMobil = async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+@media (min-width: 992px) {
+  .nav {
+    padding-left: 0;
+    padding-right: 0;
+  }
 }
 
 .logo {
   color: #ffffff;
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   font-weight: 800;
   text-decoration: none;
   letter-spacing: -0.5px;
+  white-space: nowrap;
+}
+@media (min-width: 992px) {
+  .logo { font-size: 1.5rem; }
 }
 
 .logo-accent {
@@ -474,35 +494,57 @@ const handleLogoutMobil = async () => {
   cursor: pointer;
 }
 
-.mobile-cart-btn {
+.mobile-icon-btn {
   color: #ffffff;
   text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+.mobile-badge {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  background: #ef4444;
+  color: white;
+  font-size: 0.6rem;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
 }
 
 
 .mobile-sidebar {
   position: fixed;
   top: 0;
-  right: -280px;
-  width: 280px;
+  right: -300px;
+  width: 300px;
   height: 100vh;
   background: #0f172a;
   z-index: 2000;
-  transition: transform 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+  transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
   display: flex;
   flex-direction: column;
-  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+  box-shadow: -15px 0 35px rgba(0, 0, 0, 0.4);
 }
 
 .mobile-sidebar.open {
-  transform: translateX(-280px);
+  transform: translateX(-300px);
 }
 
 .mobile-sidebar-header {
-  padding: 1.5rem;
+  padding: 1.75rem 1.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: rgba(255, 255, 255, 0.02);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -512,38 +554,46 @@ const handleLogoutMobil = async () => {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  gap: 2rem;
 }
 
 .mobile-nav-list {
   list-style: none;
   padding: 0;
-  margin: 0 0 2rem 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-.mobile-nav-list li {
-  margin-bottom: 1rem;
-}
-
-.mobile-nav-list a {
-  color: rgba(255, 255, 255, 0.8);
+.mobile-nav-list li a {
+  color: rgba(255, 255, 255, 0.9);
   text-decoration: none;
-  font-size: 1.1rem;
-  font-weight: 500;
+  font-size: 1.15rem;
+  font-weight: 600;
   display: flex;
   align-items: center;
-  padding: 0.75rem 1rem;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  padding: 1rem 1.25rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.mobile-nav-list a:active {
-  background: rgba(56, 189, 248, 0.1);
+.mobile-nav-list li a:hover, .mobile-nav-list li a.router-link-active {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(14, 165, 233, 0.1) 100%);
+  border-color: rgba(56, 189, 248, 0.3);
   color: #38bdf8;
+  transform: translateX(5px);
+}
+
+.mobile-nav-list i {
+  font-size: 1.3rem;
 }
 
 .mobile-sidebar-footer {
   margin-top: auto;
-  padding-top: 1.5rem;
+  padding: 1.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -553,39 +603,20 @@ const handleLogoutMobil = async () => {
   left: 0;
   width: 100%;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  background: rgba(2, 6, 23, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   z-index: 1500;
-}
-
-
-.cart-badge {
-  font-size: 0.65rem;
-  padding: 0.35em 0.5em;
-  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-.badge-bounce {
-  animation: badgeBounce 0.3s ease;
-}
-
-@keyframes badgeBounce {
-  0%,
-  100% {
-    transform: translate(-50%, -50%) scale(1);
-  }
-  50% {
-    transform: translate(-50%, -50%) scale(1.4);
-  }
 }
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s ease;
+  transition: all 0.4s ease;
 }
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+  backdrop-filter: blur(0);
 }
 .logo-img {
   height: 40px;

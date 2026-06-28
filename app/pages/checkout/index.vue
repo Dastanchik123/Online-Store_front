@@ -18,11 +18,6 @@ const shippingAddress = ref({
   first_name: "",
   last_name: "",
   phone: "",
-  email: "",
-  country: "Кыргызстан",
-  city: "Ош",
-  state: "",
-  postal_code: "",
   address_line_1: "",
   address_line_2: "",
   is_default: true,
@@ -188,15 +183,6 @@ onMounted(() => {
                       placeholder="+996 (___) __-__-__"
                     />
                   </div>
-                  <div class="col-md-6">
-                    <label class="form-label fw-medium">Email</label>
-                    <input
-                      v-model="shippingAddress.email"
-                      type="email"
-                      class="form-control form-control-lg rounded-3"
-                      placeholder="example@mail.com"
-                    />
-                  </div>
                 </div>
 
                 <div class="d-flex align-items-center mb-4 pt-3 border-top">
@@ -205,37 +191,6 @@ onMounted(() => {
                 </div>
 
                 <div class="row g-3 mb-4">
-                  <div class="col-12">
-                    <label class="form-label fw-medium">Страна *</label>
-                    <select
-                      v-model="shippingAddress.country"
-                      class="form-select form-select-lg rounded-3"
-                      required
-                    >
-                      <option value="Кыргызстан">Кыргызстан</option>
-                      <option value="Казахстан">Казахстан</option>
-                      <option value="Россия">Россия</option>
-                    </select>
-                  </div>
-                  <div class="col-md-6">
-                    <label class="form-label fw-medium">Город *</label>
-                    <input
-                      v-model="shippingAddress.city"
-                      type="text"
-                      class="form-control form-control-lg rounded-3"
-                      required
-                      placeholder="Ош"
-                    />
-                  </div>
-                  <div class="col-md-6">
-                    <label class="form-label fw-medium">Почтовый индекс</label>
-                    <input
-                      v-model="shippingAddress.postal_code"
-                      type="text"
-                      class="form-control form-control-lg rounded-3"
-                      placeholder="720000"
-                    />
-                  </div>
                   <div class="col-12">
                     <label class="form-label fw-medium"
                       >Адрес (улица, дом, квартира) *</label

@@ -220,6 +220,17 @@ export const useProducts = () => {
     }
   };
 
+  const generateAiDescription = async (name: string, categoryId?: string | number) => {
+    try {
+      return await api.apiFetch("/products/ai-description", {
+        method: "POST",
+        body: { name, category_id: categoryId },
+      });
+    } catch (error) {
+      throw error;
+    }
+  };
+
   return {
     getProducts,
     getProduct,
@@ -234,8 +245,10 @@ export const useProducts = () => {
     downloadProductsExport,
     downloadProductsExcel,
     generateSku,
+    generateAiDescription,
     downloadProductBarcode: async (id: number | string) => {
       return await api.printFile(`/reports/products/${id}/barcode`);
     },
   };
 };
+

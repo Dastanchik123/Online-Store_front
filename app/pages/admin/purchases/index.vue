@@ -511,7 +511,7 @@ onMounted(loadData);
 
       <div
         class="card border-0 shadow-sm rounded-4 overflow-hidden d-flex flex-column"
-        style="max-height: 600px"
+        style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px);"
       >
         <div
           class="table-responsive-cards flex-grow-1 overflow-auto custom-scrollbar"

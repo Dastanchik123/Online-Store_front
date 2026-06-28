@@ -1,5 +1,12 @@
 html {
   scrollbar-width: thin;
+  overflow-y: scroll !important;
+}
+
+body.modal-open {
+  padding-right: 0 !important;
+  margin-right: 0 !important;
+  overflow: hidden !important;
 }
 body::webkit-scrollbar {
   width: 8px;
@@ -65,5 +72,43 @@ body {
 @keyframes btn-spinner {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* === Сетка товаров === */
+.products-grid {
+  background-color: transparent;
+  border: none;
+  overflow: visible;
+}
+
+.product-grid-cell {
+  background-color: transparent;
+}
+
+.product-grid-cell > .product-card-container,
+.product-grid-cell > .product-card-container > .product-card-premium {
+  border-radius: 12px;
+  height: 100%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+@media (min-width: 576px) {
+  .product-grid-cell > .product-card-container,
+  .product-grid-cell > .product-card-container > .product-card-premium {
+    border-radius: 20px !important;
+  }
+}
+
+
+/* Принудительно 4 карточки в ряд от 576px и выше */
+@media (min-width: 576px) {
+  .products-grid {
+    display: flex !important;
+    gap: 0 !important; /* Убираем gap, чтобы 4 по 25% влезли ровно */
+  }
+  .products-grid .product-grid-cell {
+    flex: 0 0 25% !important;
+    max-width: 25% !important;
   }
 }

@@ -7,9 +7,9 @@ const { settings } = useSettings();
   <footer class="footer-section">
     <div class="container overflow-hidden">
       
-      <div class="footer-cta pt-5 pb-5">
-        <div class="row g-4 justify-content-center">
-          <div class="col-xl-4 col-md-6">
+      <div class="footer-cta py-4">
+        <div class="row g-3 justify-content-center">
+          <div class="col-12 col-md-4">
             <div class="single-cta d-flex align-items-center">
               <div class="cta-icon">
                 <i class="bi bi-geo-alt-fill"></i>
@@ -22,7 +22,7 @@ const { settings } = useSettings();
               </div>
             </div>
           </div>
-          <div class="col-xl-4 col-md-6">
+          <div class="col-12 col-md-4">
             <div class="single-cta d-flex align-items-center">
               <div class="cta-icon">
                 <i class="bi bi-telephone-fill"></i>
@@ -33,7 +33,7 @@ const { settings } = useSettings();
               </div>
             </div>
           </div>
-          <div class="col-xl-4 col-md-6">
+          <div class="col-12 col-md-4">
             <div class="single-cta d-flex align-items-center">
               <div class="cta-icon">
                 <i class="bi bi-envelope-open-fill"></i>
@@ -48,9 +48,9 @@ const { settings } = useSettings();
       </div>
 
       
-      <div class="footer-content pt-5 pb-5">
-        <div class="row g-5">
-          <div class="col-xl-4 col-lg-4">
+      <div class="footer-content py-4 py-md-5">
+        <div class="row g-4">
+          <div class="col-lg-6">
             <div class="footer-widget">
               <div class="footer-logo mb-4">
                 <NuxtLink to="/" class="logo d-flex align-items-center gap-2">
@@ -102,7 +102,7 @@ const { settings } = useSettings();
               </div>
             </div>
           </div>
-          <div class="col-xl-4 col-lg-4 col-md-6">
+          <div class="col-lg-6">
             <div class="footer-widget">
               <div class="footer-widget-heading">
                 <h3>Преимущества</h3>
@@ -117,33 +117,7 @@ const { settings } = useSettings();
               </ul>
             </div>
           </div>
-          <div class="col-xl-4 col-lg-4 col-md-6">
-            <div class="footer-widget">
-              <div class="footer-widget-heading">
-                <h3>Новости магазина</h3>
-              </div>
-              <div class="footer-text mb-4">
-                <p>
-                  Будьте в курсе всех новинок и закрытых распродаж. Обещаем
-                  присылать только самое интересное!
-                </p>
-              </div>
-              <div class="subscribe-form mt-4">
-                <form @submit.prevent>
-                  <div class="input-group">
-                    <input
-                      type="email"
-                      class="form-control"
-                      placeholder="Ваш Email"
-                    />
-                    <button class="btn btn-primary px-4">
-                      <i class="bi bi-send"></i>
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
+
         </div>
       </div>
     </div>
@@ -166,10 +140,8 @@ const { settings } = useSettings();
               <ul
                 class="d-flex justify-content-center justify-content-md-end gap-4 list-unstyled mb-0"
               >
-                <li><NuxtLink to="/">О нас</NuxtLink></li>
-                <li><NuxtLink to="/">Политика</NuxtLink></li>
-                <li><NuxtLink to="/">Доставка</NuxtLink></li>
-                <li><NuxtLink to="/">Контакты</NuxtLink></li>
+                <li><NuxtLink to="/about">О нас</NuxtLink></li>
+                <li><NuxtLink to="/contacts">Контакты</NuxtLink></li>
               </ul>
             </div>
           </div>

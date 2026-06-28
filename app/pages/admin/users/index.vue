@@ -34,24 +34,52 @@ const createModal = ref({
     password: "",
     role: "user",
     phone: "",
+    terminal_id: "",
   },
 });
 
 let debounceTimer = null;
 
+const viewMode = ref("customers"); // 'customers' or 'staff'
+
 const fetchUsers = async () => {
   isLoading.value = true;
   try {
+    let roleFilter = filters.value.role;
+    
+    // Если роль не выбрана вручную, фильтруем по текущей вкладке
+    if (!roleFilter) {
+      if (viewMode.value === "staff") {
+        // Мы отфильтруем сотрудников позже в коде или через API если оно поддерживает массив ролей
+      } else {
+        roleFilter = "user";
+      }
+    }
+
     const data = await getUsers({
       ...filters.value,
-      role: filters.value.role || undefined,
+      role: roleFilter || undefined,
     });
+
+    // Если мы в режиме сотрудников и роль не выбрана специально, 
+    // оставляем только тех, у кого роль НЕ 'user'
+    if (viewMode.value === "staff" && !filters.value.role) {
+      data.data = data.data.filter(u => u.role !== 'user');
+    }
+
     users.value = data;
   } catch (error) {
     console.error(error);
   } finally {
     isLoading.value = false;
   }
+};
+
+const setViewMode = (mode) => {
+  viewMode.value = mode;
+  filters.value.role = ""; // Сбрасываем фильтр роли при смене вкладки
+  filters.value.page = 1;
+  fetchUsers();
 };
 
 const openCreateModal = () => {
@@ -61,6 +89,7 @@ const openCreateModal = () => {
     password: "",
     role: "user",
     phone: "",
+    terminal_id: "",
   };
   createModal.value.isOpen = true;
 };
@@ -158,7 +187,31 @@ onMounted(() => {
       </div>
     </div>
 
-    
+    <!-- Переключатель вкладок -->
+    <div class="row g-3 mb-4">
+      <div class="col-12">
+        <div class="card border-0 shadow-sm rounded-4 p-2 bg-light">
+          <div class="nav nav-pills nav-fill">
+            <button 
+              class="nav-link rounded-pill py-2 fw-bold" 
+              :class="{ 'active bg-primary text-white': viewMode === 'customers' }"
+              @click="setViewMode('customers')"
+            >
+              <i class="bi bi-people me-2"></i>Клиенты
+            </button>
+            <button 
+              class="nav-link rounded-pill py-2 fw-bold" 
+              :class="{ 'active bg-primary text-white': viewMode === 'staff' }"
+              @click="setViewMode('staff')"
+            >
+              <i class="bi bi-shield-check me-2"></i>Сотрудники
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Фильтры -->
     <div class="card border-0 shadow-sm rounded-4 mb-4 p-3">
       <div class="row g-2 align-items-center">
         <div class="col-md-4">
@@ -181,10 +234,14 @@ onMounted(() => {
             @change="fetchUsers"
           >
             <option value="">Все роли</option>
-            <option value="user">Пользователь</option>
-            <option value="admin">Администратор</option>
-            <option value="manager">Менеджер</option>
-            <option value="cashier">Кассир</option>
+            <template v-if="viewMode === 'customers'">
+              <option value="user">Пользователь</option>
+            </template>
+            <template v-else>
+              <option value="admin">Администратор</option>
+              <option value="manager">Менеджер</option>
+              <option value="cashier">Кассир</option>
+            </template>
           </select>
         </div>
         <div class="col-auto ms-auto">
@@ -200,7 +257,7 @@ onMounted(() => {
       <div v-if="isLoading" class="p-5 text-center">
         <div class="spinner-border text-primary" role="status"></div>
       </div>
-      <div v-else class="table-responsive-cards">
+      <div v-else class="table-responsive-cards" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
         <table class="table table-hover align-middle mb-0 custom-table">
           <thead
             class="bg-light small text-muted text-uppercase d-none d-lg-table-header-group"
@@ -208,7 +265,7 @@ onMounted(() => {
             <tr>
               <th class="ps-4">Имя</th>
               <th>Контакты</th>
-              <th>Роль</th>
+              <th>Роль / Касса</th>
               <th>Дата регистрации</th>
               <th class="text-end pe-4">Действия</th>
             </tr>
@@ -239,8 +296,9 @@ onMounted(() => {
                 <div class="small">{{ user.email }}</div>
                 <div class="small text-muted">{{ user.phone || "-" }}</div>
               </td>
-              <td data-label="Роль">
+              <td data-label="Роль / Касса">
                 <span :class="getRoleBadge(user.role)">{{ user.role }}</span>
+                <span v-if="user.terminal_id" class="badge bg-secondary ms-1">{{ user.terminal_id }}</span>
               </td>
               <td data-label="Регистрация" class="text-muted small">
                 {{ new Date(user.created_at).toLocaleDateString() }}
@@ -346,6 +404,20 @@ onMounted(() => {
           <option value="cashier">Кассир</option>
           <option value="admin">Администратор</option>
         </select>
+      </div>
+      <div v-if="createModal.form.role !== 'user'" class="mb-3">
+        <label class="form-label">Номер кассы</label>
+        <div class="input-group">
+          <span class="input-group-text">k</span>
+          <input 
+            type="number" 
+            class="form-control" 
+            min="1"
+            placeholder="1"
+            :value="createModal.form.terminal_id ? createModal.form.terminal_id.replace('k', '') : ''"
+            @input="e => createModal.form.terminal_id = e.target.value ? 'k' + e.target.value : ''"
+          />
+        </div>
       </div>
 
       <template #footer>

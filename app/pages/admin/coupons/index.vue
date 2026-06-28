@@ -115,7 +115,7 @@ onMounted(fetchCoupons);
     </div>
 
     <div v-else class="card border-0 shadow-sm rounded-4 overflow-hidden">
-      <div class="table-responsive">
+      <div class="table-responsive" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
         <table class="table table-hover align-middle mb-0">
           <thead class="bg-light">
             <tr>

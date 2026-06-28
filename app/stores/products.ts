@@ -23,33 +23,29 @@ export const useProductsStore = defineStore("products", () => {
     return Date.now() - lastCategoriesFetch.value < cacheTimeout;
   });
 
-  async function fetchProducts(force = false) {
-    if (!force && areProductsFresh.value && products.value.length > 0) {
+  async function fetchProducts(params: any = {}, force = false) {
+    if (!force && areProductsFresh.value && products.value.length > 0 && Object.keys(params).length === 0) {
       return products.value;
     }
 
-    if (_fetchingProducts) return _fetchingProducts;
+    try {
+      const api = useApi();
+      const response: any = await api.apiFetch("/products", { params });
 
-    _fetchingProducts = (async () => {
-      try {
-        const api = useApi();
-        const response: any = await api.apiFetch("/products");
+      const data = Array.isArray(response)
+        ? response
+        : response?.data || [];
 
-        products.value = Array.isArray(response)
-          ? response
-          : response?.data || [];
-
+      if (Object.keys(params).length === 0) {
+        products.value = data;
         lastProductsFetch.value = Date.now();
-        return products.value;
-      } catch (error) {
-        console.error("Ошибка загрузки продуктов:", error);
-        throw error;
-      } finally {
-        _fetchingProducts = null;
       }
-    })();
-
-    return _fetchingProducts;
+      
+      return response; // Возвращаем полный ответ для пагинации
+    } catch (error) {
+      console.error("Ошибка загрузки продуктов:", error);
+      throw error;
+    }
   }
 
   async function fetchCategories(force = false) {

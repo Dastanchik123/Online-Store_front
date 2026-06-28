@@ -500,7 +500,7 @@ onMounted(() => {
         <span>Заказов не найдено. Попробуйте изменить фильтр.</span>
       </div>
 
-      <div v-else class="table-responsive-cards">
+      <div v-else class="table-responsive-cards" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
         <table class="table table-hover align-middle mb-0 custom-table">
           <thead class="d-none d-lg-table-header-group">
             <tr>

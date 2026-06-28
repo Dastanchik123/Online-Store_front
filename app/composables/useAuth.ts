@@ -41,6 +41,15 @@ export const useAuth = () => {
         localStorage.setItem("user", JSON.stringify(response.user));
         authStore.setUser(response.user);
         authStore.setToken(response.token);
+
+        // Save session to Electron SQLite for offline access & background sync
+        if ((window as any).electronAPI?.authSaveSession) {
+          (window as any).electronAPI.authSaveSession({
+            token: response.token,
+            user: response.user,
+            apiBase: useRuntimeConfig().public.apiBase,
+          }).catch(console.error);
+        }
       }
 
       return response;
@@ -60,6 +69,9 @@ export const useAuth = () => {
       if (import.meta.client) {
         localStorage.removeItem("auth_token");
         localStorage.removeItem("user");
+        if ((window as any).electronAPI?.authClearSession) {
+          (window as any).electronAPI.authClearSession().catch(console.error);
+        }
       }
       authStore.clearAuth();
       navigateTo("/auth/login");

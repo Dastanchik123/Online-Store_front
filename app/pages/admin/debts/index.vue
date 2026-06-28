@@ -385,7 +385,7 @@ onMounted(() => {
 
     
     <div class="card border-0 shadow-sm rounded-4">
-      <div class="table-responsive overflow-hidden">
+      <div class="table-responsive overflow-hidden" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto !important; background: #f8fafc;">
         <table class="table table-hover align-middle mb-0 custom-table">
           <thead
             class="bg-light small text-muted text-uppercase d-none d-lg-table-header-group"

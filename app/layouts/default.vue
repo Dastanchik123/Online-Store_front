@@ -5,7 +5,7 @@ import Footer from "../components/loyaut/Footer.vue";
 <template>
   <div class="pt-5 ">
     <Header />
-    <div class="container mt-5 py-4 mx-auto">
+    <div class="container main-content-wrapper mt-5 py-4 mx-auto">
       <slot />
     </div>
     <Footer />

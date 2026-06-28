@@ -14,11 +14,11 @@ const { addToCart } = useCart();
 const authStore = useAuthStore();
 const uiStore = useUiStore();
 const router = useRouter();
-const { items, toggleWishlist, isInWishlist } = useWishlist();
+const { toggleWishlist, isInWishlist } = useWishlist();
 const { getImageUrl } = useImageUrl();
 
 const formatPrice = (price) => {
-  if (!price) return "0.00";
+  if (!price) return "0";
   return parseFloat(price).toLocaleString("ru-RU", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
@@ -26,29 +26,29 @@ const formatPrice = (price) => {
 };
 
 const getProductImage = (product) => {
-  if (product.image) {
-    return getImageUrl(product.image);
-  }
-  return "https://dummyimage.com/300x300/0f172a/fff&text=Товар";
+  if (product.image) return getImageUrl(product.image);
+  return "https://dummyimage.com/300x300/e2e8f0/94a3b8&text=Фото";
 };
+
+const discountPercent = computed(() => {
+  if (!props.product.sale_price || !props.product.price) return 0;
+  return Math.round((1 - props.product.sale_price / props.product.price) * 100);
+});
 
 const handleAddToCart = async () => {
   if (!authStore.isAuthenticated) {
     await navigateTo("/auth/login");
     return;
   }
-
   try {
     await addToCart(props.product.id, 1);
     uiStore.success(
-      `
-      <div class="d-flex align-items-center">
+      `<div class="d-flex align-items-center">
         <span class="me-2">Товар добавлен!</span>
-        <a href="/cart" class="btn btn-sm btn-light rounded-pill px-3 fw-bold decoration-none text-primary shadow-sm" style="font-size: 0.75rem">
+        <a href="/cart" class="btn btn-sm btn-light rounded-pill px-3 fw-bold text-primary" style="font-size:0.75rem">
           В корзину <i class="bi bi-arrow-right ms-1"></i>
         </a>
-      </div>
-    `,
+      </div>`,
       true,
     );
   } catch (error) {
@@ -61,7 +61,6 @@ const handleBuyNow = async () => {
     await navigateTo("/auth/login");
     return;
   }
-
   try {
     await addToCart(props.product.id, 1);
     await router.push("/checkout");
@@ -73,331 +72,388 @@ const handleBuyNow = async () => {
 
 <template>
   <div class="product-card-container h-100">
-    <div
-      v-if="viewMode === 'grid'"
-      class="product-card-premium card h-100 shadow-sm border-0"
-    >
-      <div
-        class="product-image-wrapper position-relative ratio ratio-1x1 overflow-hidden"
-      >
-        <img
-          :src="getProductImage(product)"
-          :alt="product.name"
-          class="card-img-top product-img"
-          style="object-fit: cover"
-        />
 
-        <div
-          class="position-absolute top-0 start-0 m-3 d-flex flex-column gap-2 z-2"
-        >
-          <span
-            v-if="product.sale_price"
-            class="badge bg-danger rounded-pill shadow-sm px-3 py-2"
-          >
-            SALE
-          </span>
-          <span
-            v-if="!product.in_stock"
-            class="badge bg-secondary rounded-pill shadow-sm px-3 py-2"
-          >
-            Нет в наличии
-          </span>
+    <!-- ===== GRID MODE — Marketplace style ===== -->
+    <div v-if="viewMode === 'grid'" class="pc-grid h-100">
+
+      <!-- Фото -->
+      <NuxtLink :to="`/product/${product.id}`" class="pc-img-link">
+        <div class="pc-img-wrap ratio ratio-1x1">
+          <img :src="getProductImage(product)" :alt="product.name" class="pc-img" />
+
+          <!-- Бейдж скидки -->
+          <div v-if="discountPercent > 0" class="pc-discount">
+            -{{ discountPercent }}%
+          </div>
+
+          <!-- Нет в наличии -->
+          <div v-if="!product.in_stock" class="pc-unavailable">
+            <span>Нет в наличии</span>
+          </div>
+
+          <!-- Hover-оверлей: только на десктопе -->
+          <div class="pc-hover-overlay">
+            <span class="pc-quick-view">
+              <i class="bi bi-eye me-1"></i> Просмотр
+            </span>
+          </div>
+        </div>
+      </NuxtLink>
+
+      <!-- Кнопка избранного -->
+      <button
+        class="pc-wishlist"
+        :class="{ active: isInWishlist(product.id) }"
+        @click.stop.prevent="toggleWishlist(product.id)"
+      >
+        <i class="bi" :class="isInWishlist(product.id) ? 'bi-heart-fill' : 'bi-heart'"></i>
+      </button>
+
+      <!-- Инфо -->
+      <div class="pc-body">
+        <div class="pc-price-row">
+          <span class="pc-price">{{ formatPrice(product.sale_price || product.price) }} <span class="pc-currency">сом</span></span>
+          <span v-if="product.sale_price" class="pc-old-price">{{ formatPrice(product.price) }} сом</span>
+        </div>
+
+        <div class="pc-name">
+          <span class="pc-title">{{ product.name }}</span>
         </div>
 
         <button
-          class="btn-wishlist position-absolute top-0 end-0 m-3 z-3"
-          :class="{ active: isInWishlist(product.id) }"
-          @click.stop.prevent="toggleWishlist(product.id)"
+          class="pc-cart-btn"
+          :disabled="!product.in_stock"
+          @click="handleAddToCart"
         >
-          <i
-            class="bi"
-            :class="isInWishlist(product.id) ? 'bi-heart-fill' : 'bi-heart'"
-          ></i>
+          <i class="bi bi-cart2"></i> В корзину
         </button>
-
-        <div
-          class="product-overlay d-flex flex-column align-items-center justify-content-center"
+        <button
+          class="pc-buynow-btn"
+          :disabled="!product.in_stock"
+          @click="handleBuyNow"
         >
-          <NuxtLink
-            :to="`/product/${product.id}`"
-            class="btn btn-light rounded-pill px-4 py-2 fw-bold text-dark shadow-lg btn-quick-view mb-2"
-          >
-            <i class="bi bi-eye me-2"></i>Просмотр
-          </NuxtLink>
-        </div>
-      </div>
-
-      <div class="card-body d-flex flex-column p-4">
-        <div class="mb-2">
-          <NuxtLink
-            v-if="product.category"
-            :to="`/catalog?category_id=${product.category.id}`"
-            class="text-primary text-decoration-none small fw-bold text-uppercase ls-1"
-          >
-            {{ product.category.name }}
-          </NuxtLink>
-        </div>
-
-        <h5 class="card-title fw-bold mb-2 text-dark name-clamp">
-          {{ product.name }}
-        </h5>
-
-        <div class="price-block mb-3">
-          <template v-if="product.sale_price">
-            <span class="h4 fw-bolder text-primary mb-0 me-2">{{
-              formatPrice(product.sale_price)
-            }}</span>
-            <span class="text-muted text-decoration-line-through small">{{
-              formatPrice(product.price)
-            }}</span>
-          </template>
-          <template v-else>
-            <span class="h4 fw-bolder text-primary mb-0">{{
-              formatPrice(product.price)
-            }}</span>
-          </template>
-          <span class="text-muted small ms-1">сом</span>
-        </div>
-
-        <div class="d-grid gap-2 mt-auto">
-          <button
-            class="btn btn-primary d-flex align-items-center justify-content-center py-2 px-3 rounded-3 shadow-md transition-all btn-add-cart"
-            :disabled="!product.in_stock"
-            @click="handleAddToCart"
-          >
-            <i class="bi bi-cart-plus-fill me-2 fs-5"></i>
-            <span class="fw-bold">В КОРЗИНУ</span>
-          </button>
-
-          <button
-            class="btn btn-outline-secondary py-2 px-3 rounded-3 border-2 fw-bold small transition-all btn-one-click"
-            :disabled="!product.in_stock"
-            @click="handleBuyNow"
-          >
-            КУПИТЬ В 1 КЛИК
-          </button>
-        </div>
+          Купить в 1 клик
+        </button>
       </div>
     </div>
 
-    <div
-      v-else
-      class="product-card-list card shadow-sm border-0 p-3 overflow-hidden"
-    >
+    <!-- ===== LIST MODE ===== -->
+    <div v-else class="pc-list card shadow-sm border-0 overflow-hidden">
       <div class="row g-0 align-items-center">
         <div class="col-4 col-sm-3 col-md-2">
-          <div
-            class="ratio ratio-1x1 rounded-4 overflow-hidden shadow-sm product-image-wrapper"
-          >
-            <img
-              :src="getProductImage(product)"
-              class="img-fluid product-img"
-              :alt="product.name"
-              style="object-fit: cover"
-            />
+          <div class="ratio ratio-1x1 rounded-3 overflow-hidden">
+            <img :src="getProductImage(product)" :alt="product.name" class="pc-img" />
           </div>
         </div>
         <div class="col-8 col-sm-9 col-md-10">
-          <div class="card-body py-0 ps-3 ps-md-4">
-            <div class="d-flex justify-content-between align-items-start mb-2">
-              <div>
-                <span
-                  v-if="product.category"
-                  class="small text-primary fw-bold text-uppercase ls-1"
-                >
-                  {{ product.category.name }}
-                </span>
-                <h5 class="card-title fw-bold mt-1 text-dark mb-0">
-                  {{ product.name }}
-                </h5>
-              </div>
-              <div class="text-end">
-                <div class="h4 fw-bolder text-primary mb-0">
-                  {{ formatPrice(product.sale_price || product.price) }}
-                  <small class="fw-normal">сом</small>
-                </div>
-                <small
-                  v-if="product.sale_price"
-                  class="text-muted text-decoration-line-through"
-                >
-                  {{ formatPrice(product.price) }}
-                </small>
-              </div>
+          <div class="card-body py-2 ps-3 ps-md-4">
+            <h5 class="pc-list-name">{{ product.name }}</h5>
+            <div class="d-flex align-items-baseline gap-2 mb-2">
+              <span class="pc-price">{{ formatPrice(product.sale_price || product.price) }} сом</span>
+              <span v-if="product.sale_price" class="pc-old-price">{{ formatPrice(product.price) }}</span>
             </div>
-
-            <div class="d-flex flex-wrap gap-2 mt-3">
-              <button
-                class="btn btn-primary rounded-pill px-4 fw-bold shadow-md btn-add-cart"
-                :disabled="!product.in_stock"
-                @click="handleAddToCart"
-              >
-                <i class="bi bi-cart-plus me-2"></i>В корзину
+            <div class="d-flex flex-wrap gap-2">
+              <button class="btn btn-primary btn-sm rounded-pill fw-bold" :disabled="!product.in_stock" @click="handleAddToCart">
+                <i class="bi bi-cart-plus me-1"></i>В корзину
               </button>
-
-              <button
-                class="btn btn-outline-secondary rounded-pill px-4 fw-bold btn-one-click"
-                :disabled="!product.in_stock"
-                @click="handleBuyNow"
-              >
+              <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold" :disabled="!product.in_stock" @click="handleBuyNow">
                 Купить сейчас
               </button>
-
-              <NuxtLink
-                :to="`/product/${product.id}`"
-                class="btn btn-light rounded-pill px-3"
-              >
+              <NuxtLink :to="`/product/${product.id}`" class="btn btn-light btn-sm rounded-pill">
                 <i class="bi bi-info-circle"></i>
               </NuxtLink>
-
               <button
-                class="btn btn-light rounded-pill px-3 ms-1"
+                class="btn btn-light btn-sm rounded-pill"
                 :class="{ 'text-danger': isInWishlist(product.id) }"
                 @click.stop.prevent="toggleWishlist(product.id)"
               >
-                <i
-                  class="bi"
-                  :class="
-                    isInWishlist(product.id) ? 'bi-heart-fill' : 'bi-heart'
-                  "
-                ></i>
+                <i class="bi" :class="isInWishlist(product.id) ? 'bi-heart-fill' : 'bi-heart'"></i>
               </button>
             </div>
           </div>
         </div>
       </div>
     </div>
+
   </div>
 </template>
 
 <style scoped>
-.product-card-premium {
-  transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
-  border-radius: 20px;
-  background: #ffffff;
+/* =========== GRID CARD =========== */
+.pc-grid {
+  position: relative;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
 }
 
-.product-card-premium:hover {
-  transform: translateY(-10px);
-  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.12) !important;
+.pc-img-link {
+  display: block;
+  text-decoration: none;
 }
 
-.product-img {
-  transition: transform 0.8s ease;
+.pc-img-wrap {
+  overflow: hidden;
+  background: #f5f5f5;
 }
 
-.product-card-premium:hover .product-img {
-  transform: scale(1.1);
-}
-
-.product-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
+.pc-img {
   width: 100%;
   height: 100%;
-  background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(2px);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  z-index: 10;
-  pointer-events: none;
+  object-fit: cover;
+  transition: transform 0.4s ease;
+  position: absolute;
+  top: 0; left: 0;
 }
 
-.product-overlay .btn-quick-view {
-  pointer-events: auto;
+.pc-grid:hover .pc-img {
+  transform: scale(1.06);
 }
 
-.product-card-premium:hover .product-overlay {
-  opacity: 1;
+/* Скидка */
+.pc-discount {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 3;
+  background: #ff3f6c;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 4px;
 }
 
-.ls-1 {
-  letter-spacing: 0.05rem;
+/* Нет в наличии */
+.pc-unavailable {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+}
+.pc-unavailable span {
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 3px 12px;
+  border-radius: 20px;
 }
 
-.name-clamp {
+/* Кнопка избранного */
+.pc-wishlist {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 5;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.9);
+  color: #aaa;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  transition: color 0.2s;
+}
+.pc-wishlist:hover, .pc-wishlist.active { color: #ff3f6c; background: #fff; }
+
+/* Инфо-блок */
+.pc-body {
+  padding: 7px 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+/* Цена */
+.pc-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-wrap: wrap;
+  line-height: 1;
+}
+.pc-price {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.pc-currency {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: #64748b;
+}
+.pc-old-price {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+/* Название */
+.pc-name {
+  font-size: 0.76rem;
+  color: #64748b;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 2.8rem;
+  min-height: 2.1em;
+  line-height: 1.35;
 }
+.pc-brand { font-weight: 700; color: #334155; }
+.pc-sep  { color: #cbd5e1; }
+.pc-title { color: #64748b; }
 
-.shadow-md {
-  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
-}
-
-.btn-add-cart {
-  border: none;
-  background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 100%);
-  transition: all 0.3s ease;
-}
-
-.btn-add-cart:hover:not(:disabled) {
-  transform: scale(1.02);
-  filter: brightness(1.1);
-  box-shadow: 0 8px 20px rgba(56, 189, 248, 0.4);
-}
-
-.btn-add-cart:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.btn-one-click {
-  font-size: 0.8rem;
-  letter-spacing: 0.5px;
-  border-width: 2px !important;
-}
-
-.btn-one-click:hover:not(:disabled) {
-  background-color: #f8fafc;
-  color: #1e293b;
-  border-color: #1e293b;
-}
-
-.btn-quick-view {
-  transform: translateY(20px);
-  transition: all 0.3s ease;
-}
-
-.product-card-premium:hover .btn-quick-view {
-  transform: translateY(0);
-}
-
-.product-card-list {
-  border-radius: 20px;
-  transition: all 0.3s ease;
-}
-
-.product-card-list:hover {
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08) !important;
-}
-
-.btn-wishlist {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(255, 255, 255, 0.9);
-  color: #1e293b;
+/* Кнопка корзины */
+.pc-cart-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.2rem;
-  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(4px);
+  gap: 5px;
+  width: 100%;
+  padding: 7px 4px;
+  margin-top: 4px;
+  background: #38bdf8;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.pc-cart-btn:hover:not(:disabled) { background: #0ea5e9; }
+.pc-cart-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+/* Hover-оверлей (показывается при наведении мышкой) */
+.pc-hover-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.2);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 6;
+  text-decoration: none;
+  pointer-events: none;
+}
+.pc-quick-view {
+  background: #fff;
+  color: #0f172a;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 8px 22px;
+  border-radius: 24px;
+  transform: translateY(12px);
+  transition: transform 0.25s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
-.btn-wishlist:hover {
-  transform: scale(1.1);
-  background: #ffffff;
-  color: #ef4444;
+/* Кнопка «Купить в 1 клик» (скрыта на мобильных) */
+.pc-buynow-btn {
+  display: none;
+  width: 100%;
+  padding: 6px 4px;
+  background: transparent;
+  color: #64748b;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 4px;
+}
+.pc-buynow-btn:hover:not(:disabled) {
+  border-color: #38bdf8;
+  color: #0ea5e9;
+}
+.pc-buynow-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ===== Планшеты (≥576px) ===== */
+@media (min-width: 576px) {
+  .pc-grid {
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+  }
+  .pc-grid:hover {
+    box-shadow: 0 14px 32px rgba(0,0,0,0.13);
+    transform: translateY(-5px);
+  }
+  .pc-grid:hover .pc-hover-overlay {
+    opacity: 1;
+  }
+  .pc-grid:hover .pc-quick-view {
+    transform: translateY(0);
+  }
+  .pc-body { padding: 10px 12px 14px; }
+  .pc-price { font-size: 1.1rem; }
+  .pc-name { font-size: 0.85rem; }
+  .pc-cart-btn { font-size: 0.83rem; padding: 9px 8px; }
+  .pc-buynow-btn { display: flex; align-items: center; justify-content: center; }
 }
 
-.btn-wishlist.active {
-  color: #ef4444;
-  background: #ffffff;
+/* ===== Десктоп (≥992px) ===== */
+@media (min-width: 992px) {
+  .pc-body { padding: 12px 16px 16px; }
+  .pc-price { font-size: 1.25rem; }
+  .pc-name {
+    font-size: 0.9rem;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    min-height: 2.4em;
+  }
+  .pc-cart-btn {
+    font-size: 0.9rem;
+    padding: 11px 10px;
+    border-radius: 10px;
+  }
+  .pc-buynow-btn {
+    font-size: 0.8rem;
+    padding: 7px 8px;
+    border-radius: 8px;
+  }
+  .pc-wishlist { width: 36px; height: 36px; font-size: 1.1rem; }
+  .pc-discount { font-size: 0.8rem; padding: 3px 10px; }
+}
+
+/* =========== LIST CARD =========== */
+.pc-list {
+  border-radius: 16px;
+  transition: box-shadow 0.3s ease;
+}
+.pc-list:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.09) !important; }
+
+.pc-list-cat {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #38bdf8;
+  letter-spacing: 0.05em;
+}
+.pc-list-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 2px 0 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 </style>

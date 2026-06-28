@@ -7,10 +7,51 @@ const { getBanners } = useBanners();
 const { getPosts } = useBlog();
 const config = useRuntimeConfig();
 const { setSeo } = useSeo();
+const { getImageUrl } = useImageUrl();
 
 const productsStore = useProductsStore();
 const title = "Главная страница";
 
+const searchQuery = ref('');
+const showMoreLoading = ref(false);
+const currentPage = ref(1);
+const extendedProducts = ref([]);
+const hasMore = ref(true);
+
+const handleSearch = () => {
+  if (!searchQuery.value.trim()) return;
+  navigateTo(`/catalog?search=${encodeURIComponent(searchQuery.value.trim())}`);
+};
+
+const featuredProducts = computed(() => {
+  if (extendedProducts.value.length > 0) return extendedProducts.value;
+  return productsStore.products.slice(0, 8);
+});
+
+const handleShowMore = async () => {
+  showMoreLoading.value = true;
+  try {
+    currentPage.value++;
+    const res = await productsStore.fetchProducts({ 
+      page: currentPage.value, 
+      per_page: 40 
+    });
+    
+    if (res && res.data && res.data.length < 40) {
+      hasMore.value = false;
+    }
+    
+    if (extendedProducts.value.length === 0) {
+      extendedProducts.value = [...productsStore.products.slice(0, 8), ...res.data];
+    } else {
+      extendedProducts.value = [...extendedProducts.value, ...res.data];
+    }
+  } catch (e) {
+    uiStore.error('Ошибка загрузки');
+  } finally {
+    showMoreLoading.value = false;
+  }
+};
 
 setSeo({
   title: "Главная",
@@ -27,9 +68,6 @@ const recentPosts = ref([]);
 
 
 const categories = computed(() => productsStore.categories);
-const featuredProducts = computed(() => productsStore.products.slice(0, 8));
-
-
 const loadData = async () => {
   loading.value = true;
   try {
@@ -37,7 +75,7 @@ const loadData = async () => {
       getBanners(),
       getPosts({ per_page: 3 }),
       productsStore.fetchProducts(),
-      productsStore.fetchCategories(),
+      productsStore.fetchCategories(true),
     ]);
     banners.value = bannerRes;
     recentPosts.value = postRes.data || postRes;
@@ -60,12 +98,27 @@ const formatPrice = (price) => {
 
 
 const getProductImage = (product) => {
-  if (product.image) {
-    return product.image.startsWith("http")
-      ? product.image
-      : `${storageURL}${product.image}`;
+  if (product && product.image) {
+    return getImageUrl(product.image);
   }
   return "https://dummyimage.com/300x300/0f172a/fff&text=Товар";
+};
+
+const getCategoryImage = (category) => {
+  if (category && category.image) {
+    return getImageUrl(category.image);
+  }
+  const name = category ? category.name : "Категория";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+    <rect width="100%" height="100%" fill="#1e293b"/>
+    <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="28" font-weight="bold" fill="#38bdf8">${name}</text>
+  </svg>`;
+  try {
+    const base64 = btoa(unescape(encodeURIComponent(svg)));
+    return `data:image/svg+xml;base64,${base64}`;
+  } catch (e) {
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }
 };
 
 
@@ -94,8 +147,29 @@ onMounted(() => {
   </Head>
 
   <div class="home-page">
-    
-    <section class="hero-section mb-5">
+
+    <!-- Поиск -->
+    <div class="search-top-bar">
+      <div class="container px-3">
+        <form class="search-bar-wrap" @submit.prevent="handleSearch">
+          <div class="search-bar">
+            <i class="bi bi-search search-icon"></i>
+            <input
+              v-model="searchQuery"
+              type="text"
+              class="search-input"
+              placeholder="Поиск товаров..."
+              autocomplete="off"
+            />
+            <button type="submit" class="search-btn">
+              <i class="bi bi-search"></i> <span class="d-none d-sm-inline">Найти</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <section class="hero-section mb-3 mb-md-5">
       <div
         id="heroCarousel"
         class="carousel slide carousel-fade"
@@ -113,13 +187,12 @@ onMounted(() => {
             :aria-label="'Slide ' + (index + 1)"
           ></button>
         </div>
-        <div class="carousel-inner shadow-lg rounded-5 overflow-hidden">
+        <div class="carousel-inner shadow-lg rounded-4 rounded-md-5 overflow-hidden">
           <div
             v-for="(banner, index) in banners"
             :key="banner.id"
             class="carousel-item"
             :class="{ active: index === 0 }"
-            style="height: 500px"
           >
             <div
               class="h-100 w-100 position-relative"
@@ -130,21 +203,21 @@ onMounted(() => {
               <div class="container h-100 d-flex align-items-center">
                 <div class="row w-100">
                   <div
-                    class="col-12 col-lg-8 col-xl-7 text-white animate-slide-up py-4 py-md-5"
+                    class="col-12 col-lg-8 col-xl-7 text-white animate-slide-up py-3 py-md-5"
                   >
                     <h1
-                      class="display-4 display-md-3 fw-bold mb-3 mb-md-4 shadow-text"
+                      class="hero-banner-title fw-bold mb-2 mb-md-4 shadow-text"
                     >
                       {{ banner.title }}
                     </h1>
                     <p
-                      class="lead fs-5 fs-md-4 mb-3 mb-md-4 shadow-text opacity-90"
+                      class="hero-banner-text mb-2 mb-md-4 shadow-text opacity-90"
                     >
                       {{ banner.subtitle }}
                     </p>
                     <NuxtLink
                       :to="banner.link_url || '/catalog'"
-                      class="btn btn-primary rounded-pill px-4 px-md-5 py-2 py-md-3 fw-bold shadow-lg transition-all"
+                      class="btn btn-primary rounded-pill px-4 py-2 px-md-5 py-md-3 fw-bold shadow-lg transition-all"
                     >
                       {{ banner.button_text || "СМОТРЕТЬ КАТАЛОГ" }}
                     </NuxtLink>
@@ -175,49 +248,48 @@ onMounted(() => {
       </div>
 
       
-      <div v-else class="hero-fallback container">
+      <div v-else class="hero-fallback container px-3">
         <div
-          class="p-5 mb-4 bg-dark text-white rounded-5 shadow-lg position-relative overflow-hidden luxury-hero"
-          style="min-height: 450px; display: flex; align-items: center"
+          class="p-3 p-md-5 mb-4 bg-dark text-white rounded-4 shadow-lg position-relative overflow-hidden luxury-hero"
+          style="min-height: 260px; display: flex; align-items: center"
         >
-          <div class="col-lg-7 position-relative z-1 px-4">
-            <h1 class="display-3 fw-bold mb-4">Строительные инструменты</h1>
-            <p class="lead mb-5 opacity-75">
-              Профессиональные решения для вашего дома и бизнеса. Качество,
-              проверенное временем.
+          <div class="col-lg-7 position-relative z-1 px-2 px-md-4">
+            <h1 class="hero-banner-title fw-bold mb-3">Строительные инструменты</h1>
+            <p class="hero-banner-text mb-4 opacity-75">
+              Профессиональные решения для вашего дома и бизнеса.
             </p>
             <NuxtLink
               to="/catalog"
-              class="btn btn-primary btn-lg rounded-pill px-5 py-3 fw-bold shadow-lg"
+              class="btn btn-primary rounded-pill px-4 py-2 px-md-5 py-md-3 fw-bold shadow-lg"
               >Начать покупки</NuxtLink
             >
           </div>
-          <div class="position-absolute bottom-0 end-0 opacity-10 p-5">
+          <div class="position-absolute bottom-0 end-0 opacity-10 p-3 p-md-5 d-none d-md-block">
             <i class="bi bi-tools display-1" style="font-size: 15rem"></i>
           </div>
         </div>
       </div>
     </section>
 
-    
-    <section class="categories-section py-5 mb-5">
-      <div class="container">
-        <div class="d-flex justify-content-between align-items-end mb-5">
+
+    <section class="categories-section py-3 py-md-5 mb-3 mb-md-5">
+      <div class="container px-3">
+        <div class="d-flex justify-content-between align-items-end mb-3 mb-md-5">
           <div>
-            <h2 class="section-title mb-2">
+            <h2 class="section-title mb-1">
               <span class="section-title-text">Категории</span>
             </h2>
-            <p class="text-muted mb-0">Найдите всё необходимое по разделам</p>
+            <p class="text-muted mb-0 d-none d-md-block">Найдите всё необходимое по разделам</p>
           </div>
           <NuxtLink
             to="/catalog"
-            class="btn btn-outline-dark btn-sm rounded-pill px-4"
+            class="btn btn-outline-dark btn-sm rounded-pill px-3 px-md-4"
           >
-            Все категории
+            Все
           </NuxtLink>
         </div>
 
-        <div class="row g-4">
+        <div class="row g-2 g-md-4">
           <div
             v-for="(category, index) in categories"
             :key="index"
@@ -229,14 +301,10 @@ onMounted(() => {
             >
               <div class="category-image-container">
                 <img
-                  v-if="category.image"
-                  :src="storageURL + category.image"
+                  :src="getCategoryImage(category)"
                   class="category-img"
                   :alt="category.name"
                 />
-                <div v-else class="category-img-placeholder">
-                  <i class="bi bi-tag fs-2 text-white opacity-50"></i>
-                </div>
                 <div class="category-overlay"></div>
                 <div class="category-content">
                   <h5 class="category-name text-white mb-1">
@@ -254,26 +322,25 @@ onMounted(() => {
     </section>
 
     
-    <section class="products-section py-5 mb-5 bg-light">
-      <div class="container">
-        <div class="d-flex justify-content-between align-items-center mb-5">
+    <section class="products-section py-3 py-md-5 mb-3 mb-md-5 bg-light">
+      <div class="container px-3">
+        <div class="d-flex justify-content-between align-items-center mb-3 mb-md-5">
           <h2 class="section-title mb-0">
             <span class="section-title-text">Популярные товары</span>
           </h2>
-          <NuxtLink to="/catalog" class="btn btn-link text-decoration-none">
-            Смотреть все товары
-            <i class="bi bi-arrow-right ms-2"></i>
+          <NuxtLink to="/catalog" class="btn btn-link text-decoration-none small">
+            Все товары
+            <i class="bi bi-arrow-right ms-1"></i>
           </NuxtLink>
         </div>
 
         <div
           v-if="productsStore.products.length === 0 && loading"
-          class="text-center py-5"
+          class="row g-2 g-md-3 products-grid"
         >
-          <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Загрузка...</span>
+          <div v-for="i in 8" :key="i" class="col-6 col-md-3 product-grid-cell">
+             <ProductCardSkeleton />
           </div>
-          <p class="mt-3 text-muted">Загрузка товаров...</p>
         </div>
         <div
           v-else-if="productsStore.products.length === 0 && !loading"
@@ -282,14 +349,35 @@ onMounted(() => {
           <p class="text-muted">Товары временно отсутствуют</p>
         </div>
 
-        <div v-else class="row g-4">
+        <div v-else class="row g-2 g-md-3 products-grid">
           <div
             v-for="product in featuredProducts"
             :key="product.id"
-            class="col-md-6 col-lg-4 col-xl-3"
+            class="col-6 col-md-3 product-grid-cell"
           >
             <ProductCard :product="product" />
           </div>
+        </div>
+
+        <div v-if="productsStore.products.length > 0 && hasMore" class="text-center mt-4">
+          <button
+            class="btn-show-more"
+            :disabled="showMoreLoading"
+            @click="handleShowMore"
+          >
+            <span v-if="showMoreLoading">
+              <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+              Загрузка...
+            </span>
+            <span v-else>
+              <i class="bi bi-grid me-2"></i>Показать ещё
+            </span>
+          </button>
+        </div>
+        <div v-if="!hasMore" class="text-center mt-4">
+          <NuxtLink to="/catalog" class="btn btn-outline-primary rounded-pill px-5 py-2 fw-bold">
+            Перейти в полный каталог <i class="bi bi-arrow-right ms-2"></i>
+          </NuxtLink>
         </div>
       </div>
     </section>
@@ -407,6 +495,89 @@ onMounted(() => {
   box-shadow: 0 8px 15px rgba(0, 0, 0, 0.3);
 }
 
+/* ===== ПОИСК (над банером) ===== */
+.search-top-bar {
+  background: #ffffff;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f4f8;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.search-bar-wrap {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.search-bar {
+  display: flex;
+  align-items: center;
+  background: #f1f5f9;
+  border: 2px solid #e2e8f0;
+  border-radius: 50px;
+  padding: 5px 6px 5px 18px;
+  transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+.search-bar:focus-within {
+  border-color: #38bdf8;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1);
+}
+.search-icon {
+  color: #94a3b8;
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-right: 10px;
+}
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+.search-input::placeholder { color: #94a3b8; }
+.search-btn {
+  background: #38bdf8;
+  color: #fff;
+  border: none;
+  border-radius: 40px;
+  padding: 7px 20px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.search-btn:hover { background: #0ea5e9; }
+
+/* ===== КНОПКА «ПОКАЗАТЬ ЕЩЁ» ===== */
+.btn-show-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 40px;
+  background: #fff;
+  color: #0f172a;
+  border: 2px solid #e2e8f0;
+  border-radius: 50px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.btn-show-more:hover:not(:disabled) {
+  border-color: #38bdf8;
+  color: #0ea5e9;
+  box-shadow: 0 6px 20px rgba(56, 189, 248, 0.2);
+  transform: translateY(-2px);
+}
+.btn-show-more:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
 
 .hero-section {
   position: relative;
@@ -417,110 +588,47 @@ onMounted(() => {
   height: 500px;
 }
 
-.hero-slide {
-  padding: 5rem 2rem;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  background-size: cover;
-  background-position: center;
-  position: relative;
+.hero-banner-title {
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+.hero-banner-text {
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
-.hero-slide::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(
-    135deg,
-    rgba(15, 23, 42, 0.85) 0%,
-    rgba(30, 41, 59, 0.75) 100%
-  );
-  z-index: 1;
+@media (min-width: 768px) {
+  .hero-banner-title { font-size: 2.5rem; }
+  .hero-banner-text { font-size: 1.15rem; }
+}
+@media (min-width: 1200px) {
+  .hero-banner-title { font-size: 3rem; }
+  .hero-banner-text { font-size: 1.25rem; }
 }
 
-.hero-slide > .container {
-  position: relative;
-  z-index: 2;
+@media (max-width: 576px) {
+  .carousel-item { height: 280px; }
 }
-
-.hero-slide-1 {
-  background-image: linear-gradient(
-      135deg,
-      rgba(15, 23, 42, 0.9) 0%,
-      rgba(30, 41, 59, 0.8) 100%
-    ),
-    url("https://images.unsplash.com/photo-1504307651254-35680f05301a?w=1920");
+@media (min-width: 577px) and (max-width: 768px) {
+  .carousel-item { height: 350px; }
 }
-
-.hero-slide-2 {
-  background-image: linear-gradient(
-      135deg,
-      rgba(15, 23, 42, 0.9) 0%,
-      rgba(30, 41, 59, 0.8) 100%
-    ),
-    url("https://images.unsplash.com/photo-1581092160562-40aa08e78837?w=1920");
-}
-
-.hero-slide-3 {
-  background-image: linear-gradient(
-      135deg,
-      rgba(15, 23, 42, 0.9) 0%,
-      rgba(30, 41, 59, 0.8) 100%
-    ),
-    url("https://images.unsplash.com/photo-1504148455328-c376907d081c?w=1920");
-}
-
-.hero-title {
-  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-  animation: fadeInUp 0.8s ease;
-}
-
-.hero-text {
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
-  animation: fadeInUp 1s ease;
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 
 .section-title {
   position: relative;
-  display: inline-block;
+  margin-bottom: 1rem;
 }
 
 .section-title-text {
-  position: relative;
-  padding-bottom: 15px;
-  font-size: 2rem;
-  font-weight: 700;
-  color: #1e293b;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.5px;
 }
 
-.section-title-text::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 60px;
-  height: 4px;
-  background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 100%);
-  border-radius: 2px;
+@media (min-width: 768px) {
+  .section-title { margin-bottom: 2rem; }
+  .section-title-text { font-size: 2.25rem; }
 }
-
 
 .category-card-premium {
   display: block;
@@ -528,19 +636,20 @@ onMounted(() => {
   overflow: hidden;
   position: relative;
   transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-  background: #1e293b;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .category-image-container {
-  height: 200px;
+  height: 220px;
   position: relative;
-  overflow: hidden;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 576px) {
   .category-image-container {
-    height: 160px;
+    height: 140px;
+  }
+  .category-name {
+    font-size: 0.95rem !important;
   }
 }
 
@@ -548,16 +657,7 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.6s ease;
-}
-
-.category-img-placeholder {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, #334155 0%, #0f172a 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  transition: transform 0.8s ease;
 }
 
 .category-overlay {
@@ -566,12 +666,7 @@ onMounted(() => {
   left: 0;
   width: 100%;
   height: 100%;
-  background: linear-gradient(
-    to top,
-    rgba(15, 23, 42, 0.9) 0%,
-    rgba(15, 23, 42, 0.2) 60%
-  );
-  transition: opacity 0.3s ease;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 70%);
 }
 
 .category-content {
@@ -581,40 +676,38 @@ onMounted(() => {
   width: 100%;
   padding: 1.25rem;
   z-index: 2;
-  transition: transform 0.3s ease;
 }
 
 .category-name {
   font-weight: 700;
-  font-size: 1.1rem;
-  margin-bottom: 0;
-}
-
-.category-explore {
-  opacity: 0.8;
-  transform: translateY(10px);
-  transition: all 0.3s ease;
-}
-
-
-.category-card-premium:hover {
-  transform: translateY(-8px);
-  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+  color: white;
 }
 
 .category-card-premium:hover .category-img {
-  transform: scale(1.1);
+  transform: scale(1.15);
 }
 
-.category-card-premium:hover .category-explore {
-  opacity: 1;
-  transform: translateY(0);
+.feature-icon {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #38bdf8;
+  border-radius: 16px;
+  color: white;
+  box-shadow: 0 8px 16px rgba(56, 189, 248, 0.2);
 }
 
-.category-card-premium:hover .category-content {
-  transform: translateY(-5px);
+.blog-card {
+  transition: all 0.3s ease;
 }
 
+.blog-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1) !important;
+}
 
 .product-card {
   transition: all 0.3s ease;

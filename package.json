@@ -4,20 +4,30 @@
   "private": true,
   "scripts": {
     "build": "nuxt build",
-    "dev": "nuxt dev",
+    "dev": "nuxt dev --host",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "electron": "electron electron-main.cjs --no-sandbox",
+    "kiosk": "google-chrome --kiosk --kiosk-printing --disable-print-preview http://localhost:3000/cashier"
   },
   "dependencies": {
     "@nuxtjs/bootstrap": "^0.0.1",
     "@pinia/nuxt": "^0.11.3",
     "@popperjs/core": "^2.11.8",
+    "axios": "^1.16.1",
+    "better-sqlite3": "^12.10.0",
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.1",
-    "jsrsasign": "^11.1.0",
     "nuxt": "^4.2.2",
+    "uuid": "^14.0.0",
     "vue": "^3.5.25",
     "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/uuid": "^10.0.0",
+    "electron": "^31.0.0",
+    "electron-rebuild": "^3.2.9"
   }
 }

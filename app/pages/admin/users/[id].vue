@@ -128,6 +128,7 @@ const saveRole = async () => {
       phone: user.value.phone,
       name: user.value.name,
       email: user.value.email,
+      terminal_id: user.value.terminal_id,
     };
     if (passwordForm.value.password) {
       payload.password = passwordForm.value.password;
@@ -308,8 +309,25 @@ onMounted(loadData);
                   <option value="user">Пользователь</option>
                   <option value="purchaser">Закупщик</option>
                   <option value="cashier">Кассир</option>
+                  <option value="manager">Менеджер</option>
                   <option value="admin">Администратор</option>
                 </select>
+              </div>
+
+              <div v-if="user.role !== 'user'" class="mb-3">
+                <label class="small text-muted form-label">Номер кассы (Terminal ID)</label>
+                <div class="input-group">
+                  <span class="input-group-text">k</span>
+                  <input 
+                    type="number" 
+                    class="form-control" 
+                    min="1"
+                    placeholder="1"
+                    :value="user.terminal_id ? user.terminal_id.replace('k', '') : ''"
+                    @input="e => user.terminal_id = e.target.value ? 'k' + e.target.value : ''"
+                  />
+                </div>
+                <div class="form-text small opacity-75">Влияет на номера чеков (k1-1, k1-2...)</div>
               </div>
 
               <hr class="my-4 op-1" />

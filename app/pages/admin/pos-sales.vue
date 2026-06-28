@@ -187,9 +187,9 @@ watch(
 
     <div
       class="card border-0 shadow-sm rounded-4 overflow-hidden d-flex flex-column"
-      style="max-height: 600px"
+      style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); background: #f8fafc;"
     >
-      <div class="card-header bg-white p-4 border-0 flex-shrink-0">
+      <div class="card-header bg-white p-4 border-0 shrink-0">
         <div class="row g-3">
           <div class="col-md-4">
             <h5 class="fw-bold mb-0">История операций</h5>
@@ -229,7 +229,7 @@ watch(
         </div>
       </div>
 
-      <div class="table-responsive flex-grow-1 overflow-auto custom-scrollbar">
+      <div class="table-responsive grow overflow-auto custom-scrollbar" style="background: #f8fafc;">
         <table class="table table-hover align-middle mb-0">
           <thead class="bg-light">
             <tr>
@@ -447,7 +447,7 @@ watch(
 .modal-content {
   background: white;
   width: 100%;
-  max-width: 500px;
+  max-width: 650px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;

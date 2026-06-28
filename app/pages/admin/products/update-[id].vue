@@ -8,13 +8,14 @@ const route = useRoute();
 const router = useRouter();
 const uiStore = useUiStore();
 const productsStore = useProductsStore();
-const { getProduct, updateProduct, getCategories } = useProducts();
+const { getProduct, updateProduct, getCategories, generateAiDescription } = useProducts();
 const { getImageUrl } = useImageUrl();
 const id = route.params.id;
 
 const categories = ref([]);
 const isLoading = ref(false);
 const isSaving = ref(false);
+const isGeneratingDescription = ref(false);
 const errors = ref({});
 
 const form = ref({
@@ -36,6 +37,7 @@ const form = ref({
 
 const selectedFile = ref(null);
 const imagePreview = ref(null);
+const gallery = ref([]);
 
 const attributeList = ref([]);
 
@@ -64,6 +66,9 @@ const fetchProduct = async () => {
 
     if (product.image) {
       imagePreview.value = getImageUrl(product.image);
+    }
+    if (product.images && Array.isArray(product.images)) {
+      gallery.value = product.images.map(path => ({ type: 'existing', path, preview: getImageUrl(path) }));
     }
 
     if (product.attributes && typeof product.attributes === "object") {
@@ -103,6 +108,57 @@ const handleFileUpload = (event) => {
   }
 };
 
+const handleGalleryUpload = (event) => {
+  const files = Array.from(event.target.files);
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      gallery.value.push({ type: 'new', file, preview: e.target.result });
+    };
+    reader.readAsDataURL(file);
+  });
+  event.target.value = '';
+};
+
+const removeGalleryImage = (index) => {
+  gallery.value.splice(index, 1);
+};
+
+const draggedGalleryIndex = ref(null);
+
+const startDrag = (event, index) => {
+  draggedGalleryIndex.value = index;
+  event.dataTransfer.effectAllowed = 'move';
+};
+
+const onDrop = (event, toIndex) => {
+  const fromIndex = draggedGalleryIndex.value;
+  if (fromIndex !== null && fromIndex !== toIndex) {
+    const item = gallery.value.splice(fromIndex, 1)[0];
+    gallery.value.splice(toIndex, 0, item);
+  }
+  draggedGalleryIndex.value = null;
+};
+
+const handleGenerateDescription = async () => {
+  if (!form.value.name) {
+    uiStore.error("Сначала введите название товара");
+    return;
+  }
+
+  isGeneratingDescription.value = true;
+  try {
+    const res = await generateAiDescription(form.value.name, form.value.category_id);
+    form.value.description = res.description;
+    uiStore.success("Описание сгенерировано");
+  } catch (error) {
+    console.error("Error generating description", error);
+    uiStore.error("Не удалось сгенерировать описание");
+  } finally {
+    isGeneratingDescription.value = false;
+  }
+};
+
 const handleSubmit = async () => {
   isSaving.value = true;
   errors.value = {};
@@ -129,6 +185,21 @@ const handleSubmit = async () => {
 
     if (selectedFile.value) {
       formData.append("image", selectedFile.value);
+    }
+
+    if (gallery.value.length > 0) {
+      let newFileIndex = 0;
+      gallery.value.forEach((item) => {
+        if (item.type === 'existing') {
+          formData.append('gallery_order[]', `existing:${item.path}`);
+        } else {
+          formData.append('gallery_order[]', `new:${newFileIndex}`);
+          formData.append('gallery_files[]', item.file);
+          newFileIndex++;
+        }
+      });
+    } else {
+      formData.append('clear_gallery', '1');
     }
 
     attributeList.value.forEach((item, index) => {
@@ -326,7 +397,18 @@ onMounted(async () => {
           </div>
 
           <div class="mb-4">
-            <label class="form-label">Полное описание</label>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <label class="form-label mb-0">Полное описание</label>
+              <button 
+                type="button" 
+                class="btn btn-sm btn-outline-info"
+                @click="handleGenerateDescription"
+                :disabled="isGeneratingDescription"
+              >
+                <i class="bi" :class="isGeneratingDescription ? 'spinner-border spinner-border-sm' : 'bi-robot'"></i>
+                {{ isGeneratingDescription ? 'Генерирую...' : 'Сгенерировать ИИ' }}
+              </button>
+            </div>
             <textarea
               v-model="form.description"
               rows="5"
@@ -355,6 +437,46 @@ onMounted(async () => {
                 class="img-thumbnail"
                 style="max-height: 150px"
               />
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label">Дополнительные фото (Галерея)</label>
+            <div class="mb-2">
+              <input
+                @change="handleGalleryUpload"
+                type="file"
+                class="form-control"
+                accept="image/*"
+                multiple
+              />
+            </div>
+            
+            <div v-if="gallery.length > 0" class="d-flex flex-wrap gap-2 mt-3">
+              <div 
+                v-for="(item, index) in gallery" 
+                :key="item.preview + index"
+                class="position-relative border rounded p-1 bg-light d-flex flex-column align-items-center"
+                style="width: 120px; cursor: grab; transition: transform 0.2s;"
+                draggable="true"
+                @dragstart="startDrag($event, index)"
+                @drop="onDrop($event, index)"
+                @dragover.prevent
+                @dragenter.prevent
+                @dragend="draggedGalleryIndex = null"
+                :style="draggedGalleryIndex === index ? 'opacity: 0.5' : ''"
+              >
+                <img :src="item.preview" class="rounded" style="width: 100%; height: 100px; object-fit: cover;" draggable="false" />
+                <button 
+                  @click.prevent="removeGalleryImage(index)" 
+                  class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1 p-0"
+                  style="width: 24px; height: 24px; line-height: 22px; border-radius: 50%; opacity: 0.9;"
+                  title="Удалить"
+                ><i class="bi bi-x"></i></button>
+                <div class="w-100 mt-2 text-center text-muted small user-select-none">
+                  <i class="bi bi-arrows-move me-1"></i> {{ index + 1 }}
+                </div>
+              </div>
             </div>
           </div>
 

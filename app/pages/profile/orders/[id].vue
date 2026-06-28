@@ -256,27 +256,28 @@ onMounted(() => {
           </div>
 
           
-          <div class="card shadow-sm border-0 mb-4">
-            <div class="card-header bg-white">
-              <h5 class="mb-0">Товары в заказе</h5>
+          <div class="card shadow-sm border-0 mb-4 overflow-hidden rounded-4">
+            <div class="card-header bg-white py-3">
+              <h5 class="mb-0 fw-bold">Товары в заказе</h5>
             </div>
-            <div class="card-body">
+            <div class="card-body p-0">
               <div class="table-responsive">
-                <table class="table">
-                  <thead>
+                <table class="table table-hover align-middle mb-0">
+                  <thead class="bg-light">
                     <tr>
-                      <th>Товар</th>
-                      <th>Количество</th>
-                      <th>Цена</th>
-                      <th>Итого</th>
+                      <th class="ps-4 py-3 border-0">Товар</th>
+                      <th class="py-3 border-0 text-center">Кол-во</th>
+                      <th class="py-3 border-0 text-end pe-4">Итог</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="item in order.items" :key="item.id">
-                      <td>{{ item.product_name }}</td>
-                      <td>{{ item.quantity }}</td>
-                      <td>{{ formatPrice(item.price) }} сом</td>
-                      <td>{{ formatPrice(item.total) }} сом</td>
+                      <td class="ps-4">
+                        <div class="fw-bold text-dark text-wrap" style="max-width: 200px; font-size: 0.9rem;">{{ item.product_name }}</div>
+                        <small class="text-muted d-block x-small">Цена: {{ formatPrice(item.price) }} сом</small>
+                      </td>
+                      <td class="text-center">{{ item.quantity }}</td>
+                      <td class="text-end fw-bold text-primary pe-4">{{ formatPrice(item.total) }} сом</td>
                     </tr>
                   </tbody>
                 </table>

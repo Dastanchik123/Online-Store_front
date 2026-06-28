@@ -43,6 +43,10 @@ export const useAuthStore = defineStore("auth", {
       this.isAuthenticated = !!user;
       if (user) {
         this.fetchPermissions();
+        // Автоматически настраиваем кассу (terminal_id) для сотрудника
+        if (import.meta.client && user.terminal_id && (window as any).electronAPI) {
+          (window as any).electronAPI.setTerminalId(user.terminal_id);
+        }
       }
     },
 

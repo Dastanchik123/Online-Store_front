@@ -1,130 +1,59 @@
 
-import { KEYUTIL, KJUR, stob64, hextorstr } from "jsrsasign";
+interface ElectronPrinter {
+  name: string;
+  displayName: string;
+  description: string;
+  status: number;
+  isDefault: boolean;
+  options: any;
+}
 
-declare const qz: any;
+declare global {
+  interface Window {
+    electronAPI?: {
+      getPrinters: () => Promise<ElectronPrinter[]>;
+      printHTML: (data: { html: string; printerName?: string }) => void;
+    };
+  }
+}
 
 const isConnected = ref(false);
 const printers = ref<string[]>([]);
 const activePrinter = ref("");
 
-
 if (typeof window !== "undefined") {
   activePrinter.value = localStorage.getItem("selected_printer") || "";
 }
 
-
-const privateKey = `-----BEGIN PRIVATE KEY-----
-MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDgzSC5PFbex8Kh
-KGJb8Yz5ouSQRyVZyeWzs+0BsWtuPAvxdBYrB24uTr+MpGzw3b6Jp3Cmr/d5J6ll
-KJFaDN8CZfanFzSi8pOyLHE7P41ALgAKjLNug7hBwfvvRjHRPXAvpbVT/x5iYOGc
-OFO9J+LmTFA/2ldCeo0GGz1ChXYYc1BpZW23Y8OGsWgKVTSWrjyB4FQL0PVLFLjn
-G1cZTpS3QE5AQnBDrunQuycD7nW4IPlNxgu6ehNfwZ2VLpa9fU8Q7QmSD2myiAtF
-9ZcycKIh5qzSG3jHKq+OiHTFh/uYxm8mtEK67tbIhtJbB++3ra2iK9Eo3Acrq+KX
-mYWTwln3AgMBAAECggEAGTk6/j3Ue3vLjVykKK/iQxJxdfTdroT2ZqL+KW34YW6Q
-Yn/Fiv9y7/Q7DvNWG/KtkfF9NN7StD/shGK4aHPARBsfwWDbsZrpUpkk/WJknXpr
-28Ms0O4rqwkylQb5yQINR/NedLXP+XboaahyUOucTH3slTWRC+8HStOcnI2wEg8M
-dH6Uk06n/Il5ytrBv6f4x9rpzZheo1ggXOVBo7ieDbm/137PZUOF0vb7rIbjyYoO
-9GjbGYd7uhEqxHjSytfjLF+PyWnEKmME2VqZh6g+Bi6hBZPrAQ8RwjyGODHIS6MY
-2cRllLOrzHvykwLDbPSrW9rqp8F7P7BFz0juziahQQKBgQDy2ABHD8Adr7WQ8RBp
-KgzEmvfPd16R+Rz8EaBwM615OULQnI9s9mg+OjfBKsY5egYObBuG+ZTf908RBvkU
-IFz04SiPptTyOOUH3EGvKIRhn+QnRswE9WeCyYCYkQwdJ3Fo9aR6xR/ZArRg0HjL
-cS7AkeGE90MaY/7RwYDJoentNwKBgQDs+uVQXXqOzdRDbSZYxQOgdy96ujaa9j4j
-80aytmnZWiyS0JpryqRMN5nzutCrNm8mDEROZX1uQhqvlx46cJx6jc69mM5Q91vY
-vHS08PPD7k8Rsg9J3r7G/+PmRp8eJ2jiuLh97Riw7yv2ynKCitTDyqLzEMfwsMkX
-MBAzpcNZQQKBgD2KP4fClgzv2jNA48fCwDmSi/onZe/YEWBPlzjX3744pJX5Ft+m
-EgSy/C4XiORH6AD/pHowBWo8Ye0Ot1BCY0wrQvwkaxJ3GJNFXd/lhKa4vji12D3p
-crHSHqSLHWbF+BeBKI10Jv33kX53ViU4KYDjdyMbBgZKEOlXACwYvA9BAoGADvlH
-dg2CCfXtfJkv/BnuwbvmLx4HB0GZ6ZGcnPwzsf0lpd0ydK8oNHyq6KCcQMU+vqu1
-wTJee5IHt6KX0V9+M6w0LPyzxJ/smMRHp4s2C+JJ8rdKigNeEJronotF0JTy5qh/
-V82casmiAIUIOUFmcjyikTM1Pvscqa9qxqipsEECgYBEqsxKKYoGzLJnxKsOxv+z
-xDfObLiicP2Pf48a/8J07MRBFYKp8j55TMj+SSA5ROS/Z8NCCwoa5VoCnrMDvRka
-sd5ug4NKrAiBMrdpoJIe38y5IUUktF+FK+cCzZ2GVwAFP+vgaZCLiZ7YZVdVKruv
-RGRagCN5TlGPHiM0PeJYnw==
------END PRIVATE KEY-----`;
-
 export const usePrinter = () => {
   const uiStore = useUiStore();
 
-  const initQZ = async () => {
-    if (typeof qz === "undefined") return;
-
-    
-    qz.security.setCertificatePromise((resolve: any) => {
-      resolve(`-----BEGIN CERTIFICATE-----
-MIID5zCCAs+gAwIBAgIUWjY6h/u4WjKDr/fF6q6S59w/5jUwDQYJKoZIhvcNAQEL
-BQAwgYExCzAJBgNVBAYTAlVTAC4xLDIqBgNVBAoMI1FaIEluZHVzdHJpZXMsIExM
-QyAoY29tbXVuaXR5IHN1cHBvcnQpMRMwEQYDVQQDDApxei5pbyBkZW1vMRgwFgYJ
-KoZIhvcNABkCCA5sb2NhbGhvc3QxGDAWBgkqhkiG9w0BCQIMCWxvY2FsaG9zdDAe
-Fw0yNjAxMTIyMTI2MDZaFw0yNjAyMTIyMTI2MDZaMIGBMQswCQYDVQQGEwJVUzAu
-MSwyKgYDQQQKDCNRWiBJbmR1c3RyaWVzLCBMTEMgKGNvbW11bml0eSBzdXBwb3J0
-KTETMBEGA1UEAwwKcXouaW8gZGVtbzEYMBYGCSqGSIb3DQEJAgwObG9jYWxob3N0
-MRgwFgYJKoZIhvcNABkCDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IB
-DwAwggEKAoIBAQDgzSC5PFbex8KhKGJb8Yz5ouSQRyVZyeWzs+0BsWtuPAvxdBYr
-B24uTr+MpGzw3b6Jp3Cmr/d5J6llKJFaDN8CZfanFzSi8pOyLHE7P41ALgAKjLNu
-g7hBwfvvRjHRPXAvpbVT/x5iYOGcOFO9J+LmTFA/2ldCeo0GGz1ChXYYc1BpZW23
-Y8OGsWgKVTSWrjyB4FQL0PVLFLjnG1cZTpS3QE5AQnBDrunQuycD7nW4IPlNxgu6
-ehNfwZ2VLpa9fU8Q7QmSD2myiAtF9ZcycKIh5qzSG3jHKq+OiHTFh/uYxm8mtEK67
-tbIhtJbB++3ra2iK9Eo3Acrq+KXmYWTwln3AgMBAAGjRDBCMAkGA1UdEwQCMAAw
-CwYDVR0PBAQDAgeAMB0GA1UdDgQWBBQyH29/rU2X4F8Vb9dF1aW+2U+WqTAPBgNV
-HREBAf8EBTAHgAAwDQYJKoZIhvcNAQELBQADggEBAE4W0xVb9G0pQ4i5V177j5mB
-89eD0xW93aH7Y8Q4/cQ5x3005Q1J3LwN/y8a4T4LwA/1D6R+j4W/8x9z9Z6y4o4k
-c8H005v7v7u4tJ5n8w9y2x2q2z5l0p9j5k4x4d4c8v6u6w5x5y5t7z8v9x9n0o1r
-2s3t4u5v6w6x7y8z9A0b1c2d3e4f5g6h7i8j9k0l0m0n0o1p2q3r4s5t6u7v8w9x
-+z0r1t2u3v4w5x6y7z809B1c2d3e4f5g6h7i8j9k0l0m0n0o1p2q3r4s5t6u7v8w
-9x+z0r1t2u3v4w5x6y7z809B1c2d3e4f5g6h7i8j9k0l0m0n0o2r3s4t6u7v8w9x
-+J0r1t2u3v4w5x6y7z809B1c2d3e4f5g6h7i8j9k0l0m0n0o1p2q3r4s5t6u7v8w
-9x+z0r1t2u3v4w5x6y7z809B1c2d3e4f5g6h7i8j9k0l0m0n0o1p2q3r4s5t6u7v
-8w9x+z0r1t2u3v4w5x6y7z809B1c2d3e4f5g6h7i8j9k0l0m0n0o1p2q3r4s5t6u
-7v8w9x+z0r1t2u3v4w5x6y7z809B1c2d3e4f5g6h7i8j9k0l0m0n0o1p2q3r4s5t
-6u7v8w9x+z0r1t2u3v4w5x6y7z809B1c2d3e4f5g6h7i8j9k0l0m0n0o1p2q3r4s
-5t6u7v8w9x+z0r1t2u3v4w5x6y7z809B1c2d3e4f5g6h7i8=\n-----END CERTIFICATE-----`);
-    });
-
-    qz.security.setSignaturePromise((toSign: string) => {
-      return function (resolve: any, reject: any) {
-        try {
-          var pk = KEYUTIL.getKey(privateKey);
-          var sig = new KJUR.crypto.Signature({ alg: "SHA1withRSA" });
-          sig.init(pk);
-          sig.updateString(toSign);
-          var hex = sig.sign();
-          resolve(stob64(hextorstr(hex)));
-        } catch (e: any) {
-          console.error(e);
-          reject(e);
-        }
-      };
-    });
-
-    if (qz.websocket.isActive()) {
+  const initPrinter = async () => {
+    if (typeof window !== "undefined" && window.electronAPI) {
       isConnected.value = true;
       await fetchPrinters();
-      return;
-    }
-
-    try {
-      await qz.websocket.connect();
-      isConnected.value = true;
-      console.log("QZ Tray Connected");
-      await fetchPrinters();
-    } catch (e: any) {
-      
-      if (e.message && e.message.includes("Open")) {
-        isConnected.value = true;
-        return;
-      }
-      console.error("QZ Connection Error:", e);
+    } else {
+      console.warn("Electron API not found. Printing will use browser default.");
       isConnected.value = false;
     }
   };
 
   const fetchPrinters = async () => {
-    if (!isConnected.value) return;
-    try {
-      const list = await qz.printers.find();
-      printers.value = list;
-    } catch (e) {
-      console.error("Failed to fetch printers:", e);
+    if (typeof window !== "undefined" && window.electronAPI) {
+      try {
+        const list = await window.electronAPI.getPrinters();
+        printers.value = list.map(p => p.name);
+        
+        // If no printer selected but we have a default one, use it
+        if (!activePrinter.value) {
+          const defaultPrinter = list.find(p => p.isDefault);
+          if (defaultPrinter) {
+            setPrinter(defaultPrinter.name);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch printers:", e);
+      }
     }
   };
 
@@ -133,103 +62,264 @@ c8H005v7v7u4tJ5n8w9y2x2q2z5l0p9j5k4x4d4c8v6u6w5x5y5t7z8v9x9n0o1r
     localStorage.setItem("selected_printer", name);
   };
 
+  const generateInvoiceHtml = (order: any, settings: any = {}) => {
+    const itemsHtml = order?.items?.map((item: any, index: number) => `
+      <tr style="border-bottom: 1px solid #f1f5f9;">
+        <td style="padding: 10px 8px; color: #64748b; font-size: 11px;">${index + 1}</td>
+        <td style="padding: 10px 8px; font-weight: 500; color: #1e293b; font-size: 12px;">${item.product_name || item.name}</td>
+        <td style="padding: 10px 8px; text-align: center; color: #64748b; font-size: 12px;">${item.quantity} шт.</td>
+        <td style="padding: 10px 8px; text-align: right; color: #64748b; font-size: 12px;">${Math.round(item.price).toLocaleString()}</td>
+        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: #0f172a; font-size: 12px;">${Math.round(item.price * item.quantity).toLocaleString()}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" style="text-align:center; padding: 20px;">Нет данных</td></tr>';
+
+    const shopName = settings.receipt_title || settings.site_name || 'BRAND STORE';
+    const dateStr = new Date(order?.created_at || new Date()).toLocaleString('ru-RU', { 
+      day: '2-digit', 
+      month: 'long', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    const orderNum = order?.order_number || order?.id || '_______';
+    
+    const subtotal = Number(order?.total_amount || order?.total || 0);
+    const discount = Number(order?.discount || 0);
+    const total = Number(order?.total || subtotal);
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <style>
+          body { font-family: 'Inter', sans-serif; color: #1e293b; margin: 0; padding: 30px; background: white; line-height: 1.5; }
+          .invoice-box { max-width: 800px; margin: auto; }
+          .header { display: flex; justify-content: space-between; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 30px; }
+          .brand { color: #0ea5e9; font-size: 22px; font-weight: 800; }
+          .meta { text-align: right; font-size: 11px; color: #64748b; }
+          .meta strong { color: #1e293b; }
+          .doc-title { font-size: 22px; font-weight: 800; margin: 20px 0; color: #0f172a; }
+          .badges { display: flex; gap: 8px; margin-bottom: 30px; }
+          .badge { padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+          .badge-blue { background: #f0f9ff; color: #0369a1; border: 1px solid #e0f2fe; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 30px; font-size: 12px; }
+          .info-label { color: #94a3b8; text-transform: uppercase; font-size: 9px; font-weight: 700; margin-bottom: 6px; letter-spacing: 1px; }
+          table { width: 100%; border-collapse: collapse; }
+          th { text-align: left; background: #f8fafc; padding: 10px 8px; color: #64748b; font-size: 9px; text-transform: uppercase; font-weight: 700; letter-spacing: 1px; }
+          .total-box { margin-top: 30px; margin-left: auto; width: 220px; border-top: 1.5px solid #f1f5f9; padding-top: 15px; }
+          .total-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #64748b; }
+          .grand-total { margin-top: 10px; padding-top: 10px; font-size: 15px; font-weight: 800; color: #0ea5e9; }
+          .signatures { margin-top: 60px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; }
+          .sig-line { width: 120px; border-bottom: 1px solid #e2e8f0; display: inline-block; margin: 0 8px; }
+        </style>
+      </head>
+      <body>
+        <div class="invoice-box">
+          <div class="header">
+            <div class="brand">${shopName}</div>
+            <div class="meta">
+              <div>Электронный документ: <strong>#${orderNum}</strong></div>
+              <div>Дата: <strong>${dateStr}</strong></div>
+            </div>
+          </div>
+
+          <div class="doc-title">Расходная накладная</div>
+          
+          <div class="badges">
+            <div class="badge badge-blue">Оплачено</div>
+            <div class="badge badge-blue">Электронная копия</div>
+          </div>
+
+          <div class="info-grid">
+            <div>
+              <div class="info-label">Поставщик</div>
+              <div style="font-weight: 600;">${shopName}</div>
+              <div style="color: #64748b;">Розничная торговля</div>
+            </div>
+            <div>
+              <div class="info-label">Покупатель</div>
+              <div style="font-weight: 600;">${order?.user?.name || 'Розничный покупатель'}</div>
+              ${order?.user?.id && !String(order.user.id).includes('retail') ? `<div style="color: #64748b;">ID: ${order.user.id}</div>` : ''}
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 40px;">№</th>
+                <th>Товар</th>
+                <th style="text-align: center; width: 80px;">Кол-во</th>
+                <th style="text-align: right; width: 100px;">Цена</th>
+                <th style="text-align: right; width: 120px;">Сумма</th>
+              </tr>
+            </thead>
+            <tbody>${itemsHtml}</tbody>
+          </table>
+
+          <div class="total-box">
+            <div class="total-row">
+              <span>Подытог:</span>
+              <span>${Math.round(subtotal).toLocaleString()}</span>
+            </div>
+            ${discount > 0 ? `<div class="total-row" style="color: #ef4444;"><span>Скидка:</span><span>-${discount.toLocaleString()}</span></div>` : ''}
+            <div class="total-row grand-total">
+              <span>ИТОГО:</span>
+              <span>${Math.round(total).toLocaleString()} сом</span>
+            </div>
+          </div>
+
+          <div class="signatures">
+            <div>Отпустил (подпись): <span class="sig-line"></span></div>
+            <div>Получил (подпись): <span class="sig-line"></span></div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  };
+
+  const generateReceiptHtml = (order: any, settings: any = {}) => {
+    const itemsHtml = order.items.map((item: any) => `
+      <tr>
+        <td style="padding: 1mm 0; font-size: 10px;">${item.product_name || item.name}</td>
+        <td style="padding: 1mm 0; font-size: 10px; text-align: center;">${item.quantity}</td>
+        <td style="padding: 1mm 0; font-size: 10px; text-align: right;">${Math.round(item.price)}</td>
+        <td style="padding: 1mm 0; font-size: 10px; text-align: right;">${Math.round(item.price * item.quantity)}</td>
+      </tr>
+    `).join('');
+
+    const shopName = settings.receipt_title || settings.site_name || 'МОЙ МАГАЗИН';
+    const dateStr = new Date().toLocaleString('ru-RU');
+    const orderNum = order.order_number || 'OFF-LINE';
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          @page { size: 80mm auto; margin: 0; }
+          body { font-family: sans-serif; width: 72mm; padding: 5mm; font-size: 12px; line-height: 1.2; }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .divider { border-top: 1px dashed black; margin: 2mm 0; }
+          table { width: 100%; border-collapse: collapse; }
+          th { text-align: left; border-bottom: 1px solid black; font-size: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="center">
+          <div style="font-size: 16px; font-weight: bold;">${shopName}</div>
+          <div style="font-size: 10px; margin-top: 1mm;">${dateStr}</div>
+          <div style="font-size: 10px;">ЧЕК №: ${orderNum}</div>
+        </div>
+        <div class="divider"></div>
+        <table>
+          <thead>
+            <tr><th>Товар</th><th>Кол</th><th>Цена</th><th style="text-align: right;">Сумма</th></tr>
+          </thead>
+          <tbody>${itemsHtml}</tbody>
+        </table>
+        <div class="divider"></div>
+        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
+          <span>ИТОГО:</span>
+          <span>${Math.round(order.total || order.total_amount || 0)} сом</span>
+        </div>
+        ${order.discount > 0 ? `<div style="text-align: right; font-size: 10px;">Скидка: -${order.discount}</div>` : ''}
+        <div class="divider"></div>
+        <div class="center" style="font-size: 10px; font-style: italic; margin-top: 5mm;">
+          СПАСИБО ЗА ПОКУПКУ!<br>Товар обмену и возврату подлежит<br>в течение 14 дней при наличии чека
+        </div>
+        <div style="margin-top: 5mm; border-bottom: 2px solid black;"></div>
+      </body>
+      </html>
+    `;
+  };
+
   const printReceipt = async (
-    orderId: string | number,
+    orderData: any, // Теперь можно передавать либо ID (для API), либо весь объект заказа (для локальной печати)
     type: "thermal" | "full" = "thermal"
   ) => {
-    if (!isConnected.value) {
-      await initQZ();
-    }
-
-    if (!activePrinter.value) {
-      uiStore.addToast("Принтер не выбран в настройках кассы", "warning");
-      return;
-    }
-
     try {
-      const { getAuthToken, baseURL } = useApi();
-      const token = getAuthToken();
-
-      uiStore.addToast("Получение данных чека...", "info");
-
-      const endpoint =
-        type === "thermal"
-          ? `/reports/order/${orderId}/thermal/html`
-          : `/reports/order/${orderId}/html`;
-
-      const url = `${baseURL}${endpoint}`;
-
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Не удалось загрузить данные (Статус: ${response.status})`
-        );
+      let htmlContent = "";
+      // Если передали объект, НО в нем нет товаров — переключаемся на загрузку по ID (Fallback)
+      if (typeof orderData === 'object' && orderData !== null && (!orderData.items || !Array.isArray(orderData.items))) {
+        console.warn("Order data has no items, falling back to server-side printing");
+        const fallbackId = orderData.uuid || orderData.id;
+        if (fallbackId) {
+          orderData = fallbackId;
+        }
       }
 
-      const htmlContent = await response.text();
+      // Если передали объект (офлайн/быстрый режим)
+      if (typeof orderData === 'object' && orderData !== null) {
+        htmlContent = generateReceiptHtml(orderData);
+      } else {
+        // Иначе запрашиваем с сервера (для истории или если нужно специфическое оформление)
+        const { getAuthToken, baseURL } = useApi();
+        const token = getAuthToken();
 
-      if (!htmlContent || htmlContent.length < 100) {
-        throw new Error("Файл документа пустой или не загружен");
+        const endpoint = type === "thermal"
+          ? `/reports/order/${orderData}/thermal/html`
+          : `/reports/order/${orderData}/html`;
+
+        const response = await fetch(`${baseURL}${endpoint}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error("Ошибка сервера при получении чека");
+        htmlContent = await response.text();
       }
 
-      uiStore.addToast("Отправка на принтер...", "info");
-
-      const config = qz.configs.create(activePrinter.value);
-      const printData = [
-        {
-          type: "html",
-          format: "plain",
-          data: htmlContent,
-        },
-      ];
-
-      await qz.print(config, printData);
-      uiStore.addToast("Чек успешно напечатан", "success");
+      if (typeof window !== "undefined" && window.electronAPI) {
+        window.electronAPI.printHTML({
+          html: htmlContent,
+          printerName: activePrinter.value
+        });
+      } else {
+        const frame = document.createElement('iframe');
+        frame.style.display = 'none';
+        document.body.appendChild(frame);
+        const doc = frame.contentWindow?.document;
+        if (doc) {
+          doc.open(); doc.write(htmlContent); doc.close();
+          setTimeout(() => { frame.contentWindow?.print(); document.body.removeChild(frame); }, 500);
+        }
+      }
     } catch (e: any) {
-      console.error("Printing failed:", e);
-      uiStore.addToast("Ошибка печати: " + (e.message || e), "error");
+      console.error("Printing failing:", e);
+      uiStore.addToast("Ошибка печати: " + e.message, "error");
     }
   };
 
   const testPrint = async () => {
-    if (!isConnected.value) {
-      await initQZ();
-    }
+    const testHtml = `
+      <div style="font-family: sans-serif; padding: 20px; border: 2px solid black; text-align: center;">
+        <h2 style="margin: 0;">ТЕСТ ПЕЧАТИ</h2>
+        <p>Магазин: ${typeof window !== "undefined" ? window.location.hostname : 'Local'}</p>
+        <p>Принтер: ${activePrinter.value || 'По умолчанию'}</p>
+        <hr>
+        <p>Если вы видите этот текст, значит система настроена верно!</p>
+        <p style="font-size: 12px; color: gray;">Дата: ${new Date().toLocaleString()}</p>
+      </div>
+    `;
 
-    if (!activePrinter.value) {
-      uiStore.addToast("Сначала выберите принтер в настройках", "warning");
-      return;
-    }
-
-    try {
-      const config = qz.configs.create(activePrinter.value);
-      
-      const printData = [
-        {
-          type: "html",
-          format: "plain",
-          data: `
-            <div style="font-family: sans-serif; padding: 20px; border: 2px solid black; text-align: center;">
-              <h2 style="margin: 0;">ТЕСТ ПЕЧАТИ</h2>
-              <p>Магазин: ${window.location.hostname}</p>
-              <p>Принтер: ${activePrinter.value}</p>
-              <hr>
-              <p>Если вы видите этот текст, значит система настроена верно!</p>
-              <p style="font-size: 12px; color: gray;">Дата: ${new Date().toLocaleString()}</p>
-            </div>
-          `,
-        },
-      ];
-
-      await qz.print(config, printData);
+    if (typeof window !== "undefined" && window.electronAPI) {
+      window.electronAPI.printHTML({
+        html: testHtml,
+        printerName: activePrinter.value
+      });
       uiStore.addToast("Тестовая страница отправлена", "success");
-    } catch (e: any) {
-      uiStore.addToast("Тест не прошел: " + e, "error");
+    } else {
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(testHtml);
+        printWindow.document.close();
+        printWindow.print();
+        printWindow.close();
+      }
     }
   };
 
@@ -237,10 +327,12 @@ c8H005v7v7u4tJ5n8w9y2x2q2z5l0p9j5k4x4d4c8v6u6w5x5y5t7z8v9x9n0o1r
     isConnected,
     printers,
     activePrinter,
-    initQZ,
+    initPrinter,
     fetchPrinters,
     setPrinter,
     printReceipt,
     testPrint,
+    generateReceiptHtml,
+    generateInvoiceHtml,
   };
 };

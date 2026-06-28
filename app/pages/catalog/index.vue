@@ -53,8 +53,6 @@ const applyFilters = () => {
     }
   });
 
-  if (query.page === filters.value.page && route.query.page) {
-  }
   router.push({ query });
 };
 
@@ -82,13 +80,6 @@ const handleSortChange = (event) => {
   filters.value.sort_order = order;
   filters.value.page = 1;
   applyFilters();
-};
-
-const formatPrice = (price) => {
-  return parseFloat(price).toLocaleString("ru-RU", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 };
 
 const { getImageUrl } = useImageUrl();
@@ -168,6 +159,27 @@ const isMobileFiltersOpen = ref(false);
 const toggleMobileFilters = () => {
   isMobileFiltersOpen.value = !isMobileFiltersOpen.value;
 };
+
+// Улучшаем отступы и адаптивность глобально через стили
+useHead({
+  style: [
+    {
+      innerHTML: `
+        .main-content-wrapper { 
+          max-width: 2100px !important; 
+          padding-left: 15px !important;
+          padding-right: 15px !important;
+        }
+        @media (max-width: 576px) {
+          .main-content-wrapper {
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+          }
+        }
+      `
+    }
+  ]
+});
 </script>
 
 <template>
@@ -184,17 +196,19 @@ const toggleMobileFilters = () => {
       </div>
 
       <div class="row g-4">
+        <!-- Sidebar -->
         <aside class="col-lg-3">
           <div
             class="filter-sidebar"
             :class="{ 'mobile-open': isMobileFiltersOpen }"
           >
             <div class="filter-header d-lg-none">
-              <h5 class="mb-0">Фильтры</h5>
+              <h5 class="mb-0 fw-bold">Фильтры</h5>
               <button class="btn-close" @click="toggleMobileFilters"></button>
             </div>
 
             <div class="filter-card shadow-sm">
+              <!-- Search -->
               <div class="filter-section p-4 border-bottom">
                 <div class="d-flex align-items-center mb-3">
                   <i class="bi bi-search text-primary me-2"></i>
@@ -212,6 +226,7 @@ const toggleMobileFilters = () => {
                 </div>
               </div>
 
+              <!-- Categories -->
               <div class="filter-section p-0 border-bottom">
                 <div
                   class="d-flex align-items-center justify-content-between p-4 cursor-pointer"
@@ -258,6 +273,7 @@ const toggleMobileFilters = () => {
                 </transition>
               </div>
 
+              <!-- Price -->
               <div class="filter-section p-4 border-bottom">
                 <div class="d-flex align-items-center mb-3">
                   <i class="bi bi-currency-dollar text-primary me-2"></i>
@@ -265,58 +281,36 @@ const toggleMobileFilters = () => {
                 </div>
                 <div class="price-inputs row g-2">
                   <div class="col-6">
-                    <div class="input-group input-group-sm">
-                      <span class="input-group-text bg-white">От</span>
-                      <input
-                        v-model.number="filters.min_price"
-                        type="number"
-                        class="form-control"
-                        placeholder="0"
-                      />
-                    </div>
+                    <input
+                      v-model.number="filters.min_price"
+                      type="number"
+                      class="form-control"
+                      placeholder="От"
+                    />
                   </div>
                   <div class="col-6">
-                    <div class="input-group input-group-sm">
-                      <span class="input-group-text bg-white">До</span>
-                      <input
-                        v-model.number="filters.max_price"
-                        type="number"
-                        class="form-control"
-                        placeholder="Max"
-                      />
-                    </div>
+                    <input
+                      v-model.number="filters.max_price"
+                      type="number"
+                      class="form-control"
+                      placeholder="До"
+                    />
                   </div>
                 </div>
               </div>
 
-              <div class="filter-section p-4 border-bottom">
-                <div class="form-check form-switch mb-0">
-                  <input
-                    id="inStockCheck"
-                    v-model="filters.in_stock"
-                    class="form-check-input"
-                    type="checkbox"
-                    :true-value="true"
-                    :false-value="undefined"
-                    @change="applyFilters"
-                  />
-                  <label class="form-check-label fw-bold" for="inStockCheck">
-                    Только в наличии
-                  </label>
-                </div>
-              </div>
-
+              <!-- Actions -->
               <div class="p-4 d-grid gap-2">
                 <button class="btn btn-primary" @click="applyFilters">
-                  Применить фильтры
+                  Применить
                 </button>
-                <button class="btn btn-light text-muted" @click="resetFilters">
-                  Сбросить всё
+                <button class="btn btn-light" @click="resetFilters">
+                  Сбросить
                 </button>
               </div>
             </div>
           </div>
-
+          <!-- Overlay for mobile -->
           <div
             v-if="isMobileFiltersOpen"
             class="filter-overlay"
@@ -324,113 +318,65 @@ const toggleMobileFilters = () => {
           ></div>
         </aside>
 
+        <!-- Main Content -->
         <main class="col-lg-9">
           <div
             class="catalog-toolbar d-flex justify-content-between align-items-center mb-4 p-3 bg-white shadow-sm rounded-3"
           >
             <div class="text-muted small">
-              Найдено:
-              <span class="fw-bold text-dark">{{ products?.total || 0 }}</span>
-              товаров
+              Найдено: <span class="fw-bold">{{ products?.total || 0 }}</span>
             </div>
             <div class="d-flex gap-3 align-items-center">
               <select
                 class="form-select form-select-sm border-0 bg-light"
-                style="width: auto"
                 :value="`${filters.sort_by}:${filters.sort_order}`"
                 @change="handleSortChange"
               >
-                <option value="created_at:desc">Сначала новые</option>
-                <option value="price:asc">Сначала дешевые</option>
-                <option value="price:desc">Сначала дорогие</option>
-                <option value="name:asc">По названию (А-Я)</option>
+                <option value="created_at:desc">Новинки</option>
+                <option value="price:asc">Дешевле</option>
+                <option value="price:desc">Дороже</option>
               </select>
-              <div class="view-toggles d-none d-sm-flex">
-                <button
-                  class="btn btn-sm btn-light"
-                  :class="{ active: viewMode === 'grid' }"
-                  @click="viewMode = 'grid'"
-                >
-                  <i class="bi bi-grid-3x3-gap"></i>
-                </button>
-                <button
-                  class="btn btn-sm btn-light"
-                  :class="{ active: viewMode === 'list' }"
-                  @click="viewMode = 'list'"
-                >
-                  <i class="bi bi-view-list"></i>
-                </button>
-              </div>
             </div>
           </div>
 
-          <div v-if="loading" class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-              <span class="visually-hidden">Загрузка...</span>
+          <!-- Grid -->
+          <div v-if="loading" class="row g-2 g-md-3 products-grid">
+            <div 
+              v-for="i in 8" 
+              :key="i"
+              class="col-6 col-md-4 col-lg-3 product-grid-cell"
+            >
+              <ProductCardSkeleton />
             </div>
           </div>
 
-          <div v-else-if="error" class="alert alert-danger" role="alert">
-            {{ error }}
-          </div>
-
-          <div v-else-if="products && products.data?.length" class="row g-4">
+          <div v-else-if="products?.data?.length" class="row g-2 g-md-3 products-grid">
             <div
               v-for="product in products.data"
               :key="product.id"
-              :class="viewMode === 'grid' ? 'col-md-6 col-xl-4' : 'col-12'"
-              class="product-card-wrapper"
+              class="col-6 col-md-4 col-lg-3 product-grid-cell"
             >
-              <ProductCard :product="product" :view-mode="viewMode" />
+              <ProductCard :product="product" />
             </div>
           </div>
 
           <div v-else class="text-center py-5">
-            <p class="text-muted">Товары не найдены</p>
+            <p class="text-muted">Ничего не нашли...</p>
           </div>
 
-          <nav
-            v-if="products && products.last_page > 1"
-            aria-label="Навигация по страницам"
-            class="mt-4"
-          >
+          <!-- Pagination -->
+          <nav v-if="products?.last_page > 1" class="mt-5">
             <ul class="pagination justify-content-center">
-              <li
-                class="page-item"
-                :class="{ disabled: products.current_page === 1 }"
-              >
-                <button
-                  class="page-link"
-                  @click="goToPage(products.current_page - 1)"
-                >
+              <li class="page-item" :class="{ disabled: products.current_page === 1 }">
+                <button class="page-link rounded-circle mx-1" @click="goToPage(products.current_page - 1)">
                   <i class="bi bi-chevron-left"></i>
                 </button>
               </li>
-
-              <li
-                v-for="page in visiblePages"
-                :key="page"
-                class="page-item"
-                :class="{
-                  active: page === products.current_page,
-                  disabled: page === '...',
-                }"
-              >
-                <button class="page-link" @click="goToPage(page)">
-                  {{ page }}
-                </button>
+              <li v-for="page in visiblePages" :key="page" class="page-item" :class="{ active: page === products.current_page }">
+                <button class="page-link rounded-circle mx-1" @click="goToPage(page)">{{ page }}</button>
               </li>
-
-              <li
-                class="page-item"
-                :class="{
-                  disabled: products.current_page === products.last_page,
-                }"
-              >
-                <button
-                  class="page-link"
-                  @click="goToPage(products.current_page + 1)"
-                >
+              <li class="page-item" :class="{ disabled: products.current_page === products.last_page }">
+                <button class="page-link rounded-circle mx-1" @click="goToPage(products.current_page + 1)">
                   <i class="bi bi-chevron-right"></i>
                 </button>
               </li>
@@ -446,12 +392,18 @@ const toggleMobileFilters = () => {
 .catalog-page {
   background-color: #f8fafc;
   min-height: 100vh;
+  width: 100%;
+}
+.catalog-page .container {
+  max-width: 1840px;
+  margin: 0 auto;
 }
 
 .filter-sidebar {
   position: sticky;
   top: 100px;
   z-index: 100;
+  transition: all 0.3s ease;
 }
 
 .filter-card {
@@ -461,45 +413,21 @@ const toggleMobileFilters = () => {
   border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
-.filter-section {
-  padding: 1.25rem;
-}
-
 .category-list {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   max-height: 280px;
   overflow-y: auto;
-  padding-right: 8px;
-}
-
-.category-list::-webkit-scrollbar {
-  width: 4px;
-}
-
-.category-list::-webkit-scrollbar-track {
-  background: #f1f5f9;
-  border-radius: 10px;
-}
-
-.category-list::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 10px;
-}
-
-.category-list::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
 }
 
 .category-item {
-  padding: 0.5rem 0.8rem;
-  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s;
   font-size: 0.9rem;
   color: #64748b;
-  border: 1px solid transparent;
 }
 
 .category-item:hover {
@@ -511,48 +439,15 @@ const toggleMobileFilters = () => {
   background: #38bdf8;
   color: white;
   font-weight: 600;
-  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
 }
 
-.search-input-wrapper {
-  position: relative;
-}
-
-.search-icon {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #94a3b8;
-  font-size: 0.9rem;
-}
-
-.input-group-text {
-  border: none;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #94a3b8;
-}
-
-.form-control:focus {
-  border-color: #38bdf8;
-  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1);
-}
-
-.catalog-toolbar {
-  border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.view-toggles .btn {
-  border: none;
-  background: transparent;
-  color: #94a3b8;
-  padding: 0.4rem 0.6rem;
-}
-
-.view-toggles .btn.active {
-  color: #38bdf8;
-  background: #f1f5f9;
+.filter-header {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: #f8fafc;
 }
 
 @media (max-width: 991.98px) {
@@ -560,125 +455,50 @@ const toggleMobileFilters = () => {
     position: fixed;
     top: 0;
     left: -100%;
-    width: 300px;
+    width: 100% !important;
+    max-width: 320px;
     height: 100vh;
     background: white;
-    z-index: 1050;
-    transition: left 0.3s ease;
+    z-index: 2000;
+    margin: 0;
+    box-shadow: 20px 0 50px rgba(0, 0, 0, 0.2);
     overflow-y: auto;
-    padding-bottom: 2rem;
+    display: flex;
+    flex-direction: column;
   }
-
   .filter-sidebar.mobile-open {
     left: 0;
   }
-
+  .filter-card {
+    border: none;
+    border-radius: 0;
+    box-shadow: none !important;
+    background: transparent;
+  }
   .filter-overlay {
     position: fixed;
     top: 0;
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(15, 23, 42, 0.6);
+    background: rgba(15, 23, 42, 0.5);
     backdrop-filter: blur(4px);
-    z-index: 1040;
-  }
-
-  .filter-card {
-    border-radius: 0;
-    box-shadow: none !important;
+    z-index: 1540;
   }
 }
-.product-card {
-  transition: all 0.3s ease;
-  border-radius: 12px;
-  overflow: hidden;
+
+.page-link {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  color: #64748b;
 }
 
-.product-card:hover {
-  transform: translateY(-8px);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15) !important;
-}
-
-.product-image-wrapper {
-  overflow: hidden;
-  background: #f8fafc;
-}
-
-.product-image-wrapper img {
-  transition: transform 0.5s ease;
-}
-
-.product-card:hover .product-image-wrapper img {
-  transform: scale(1.1);
-}
-
-.transition-transform {
-  transition: transform 0.3s ease;
-}
-
-.rotate-180 {
-  transform: rotate(180deg);
-}
-
-.cursor-pointer {
-  cursor: pointer;
-}
-
-.collapse-enter-active,
-.collapse-leave-active {
-  transition: all 0.3s ease-in-out;
-  max-height: 500px;
-  overflow: hidden;
-}
-
-.collapse-enter-from,
-.collapse-leave-to {
-  max-height: 0;
-  opacity: 0;
-  padding-bottom: 0 !important;
-}
-
-.line-clamp-1 {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.product-card-wrapper {
-  transition: transform 0.3s ease;
-}
-
-.product-card-wrapper:hover {
-  transform: translateY(-5px);
-}
-
-.list-card {
-  transition: all 0.3s ease;
-}
-
-.list-card:hover {
-  background-color: #f1f5f9;
-  border-color: #38bdf8 !important;
-}
-
-.product-overlay {
-  background: rgba(15, 23, 42, 0.7);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.product-card:hover .product-overlay {
-  opacity: 1;
+.page-item.active .page-link {
+  background-color: #38bdf8;
+  color: white;
 }
 </style>

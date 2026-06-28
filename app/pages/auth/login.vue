@@ -170,7 +170,7 @@ const handleSubmit = async () => {
   padding: 2rem;
 }
 
-
+/* Background Bubbles */
 .auth-bubble {
   position: absolute;
   border-radius: 50%;
@@ -370,7 +370,7 @@ const handleSubmit = async () => {
   padding: 1rem;
 }
 
-
+/* Animations */
 .animate-fade-in {
   animation: fadeIn 0.6s ease-out forwards;
 }
@@ -434,6 +434,27 @@ const handleSubmit = async () => {
   .bubble-2 {
     width: 200px;
     height: 200px;
+  }
+}
+
+
+.modal-footer-premium {
+  padding: 1.5rem 2rem;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.3s ease-out forwards;
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 </style>

@@ -102,12 +102,6 @@ onMounted(() => {
             ><i class="bi bi-shop me-2"></i>Оффлайн Продажи</NuxtLink
           >
           <NuxtLink
-            to="/cashier/pos"
-            v-if="authStore.hasPermission('pos.access')"
-            @click="closeSidebar"
-            ><i class="bi bi-calculator me-2"></i>POS Терминал</NuxtLink
-          >
-          <NuxtLink
             to="/admin/orders"
             v-if="authStore.hasPermission('orders.view')"
             @click="closeSidebar"
@@ -136,6 +130,12 @@ onMounted(() => {
           "
         >
           <div class="section-title">СКЛАД</div>
+          <NuxtLink
+            to="/admin/stock"
+            v-if="authStore.hasPermission('inventory.manage')"
+            @click="closeSidebar"
+            ><i class="bi bi-layers me-2"></i>Остатки товаров</NuxtLink
+          >
           <NuxtLink
             to="/admin/purchases"
             v-if="authStore.hasPermission('purchases.manage')"

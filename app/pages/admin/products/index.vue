@@ -243,18 +243,19 @@ onMounted(async () => {
       <div
         v-else
         class="table-responsive-cards custom-scrollbar"
-        style="max-height: 600px; overflow-y: auto"
+        style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;"
       >
         <table class="table table-hover align-middle mb-0 custom-table">
-          <thead>
+          <thead class="sticky-top bg-white z-2">
             <tr>
-              <th scope="col" class="ps-4" style="width: 50px">#</th>
-              <th scope="col">Товар / Артикул</th>
-              <th scope="col">Категория</th>
-              <th scope="col">Стоимость</th>
-              <th scope="col">Остаток</th>
-              <th scope="col">Статус</th>
-              <th scope="col" class="text-center text-lg-end pe-4">Действия</th>
+              <th scope="col" class="ps-4 py-2" style="width: 50px; font-size: 0.7rem;">#</th>
+              <th scope="col" class="py-2" style="width: 140px; font-size: 0.7rem;">Артикул</th>
+              <th scope="col" class="py-2" style="font-size: 0.7rem;">Товар</th>
+              <th scope="col" class="py-2" style="font-size: 0.7rem;">Категория</th>
+              <th scope="col" class="py-2" style="font-size: 0.7rem;">Стоимость</th>
+              <th scope="col" class="py-2" style="font-size: 0.7rem;">Остаток</th>
+              <th scope="col" class="py-2" style="font-size: 0.7rem;">Статус</th>
+              <th scope="col" class="text-center text-lg-end pe-4 py-2" style="font-size: 0.7rem;">Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -262,106 +263,93 @@ onMounted(async () => {
               v-for="(product, index) in products.data"
               :key="product.id"
               class="product-row"
+              style="cursor: pointer;"
+              @dblclick="navigateTo(`/admin/products/update-${product.uuid || product.id}`)"
             >
-              <td class="ps-4 text-muted small fw-bold" data-label="#">
+              <td class="ps-4 text-muted py-1" style="font-size: 0.75rem;" data-label="#">
                 {{ index + 1 }}
               </td>
-              <td data-label="Товар">
+              <td data-label="Артикул" class="py-1">
+                <div class="text-muted font-monospace fw-bold" style="font-size: 0.75rem;">
+                  {{ product.sku }}
+                </div>
+              </td>
+              <td data-label="Товар" class="py-1">
                 <div class="d-flex align-items-center">
-                  <div class="product-img-box me-3">
-                    <img
-                      v-if="product.image_url"
-                      :src="product.image_url"
-                      class="rounded-3"
-                      alt=""
-                    />
-                    <div v-else class="rounded-3 bg-light no-img">
-                      <i class="bi bi-image"></i>
-                    </div>
-                  </div>
-                  <div>
-                    <div class="fw-bold text-dark">{{ product.name }}</div>
-                    <div class="small text-muted font-monospace">
-                      {{ product.sku }}
-                    </div>
+                  <div class="lh-1">
+                    <div class="fw-bold text-dark small">{{ product.name }}</div>
                   </div>
                 </div>
               </td>
-              <td data-label="Категория">
-                <span class="category-pill shadow-xs">{{
-                  product.category?.name || "Без категории"
+              <td data-label="Категория" class="py-1">
+                <span class="category-pill shadow-xs" style="font-size: 0.7rem; padding: 0.1rem 0.6rem;">{{
+                  product.category?.name || "—"
                 }}</span>
               </td>
-              <td data-label="Стоимость">
-                <div class="fw-bold text-dark font-monospace">
+              <td data-label="Стоимость" class="py-1">
+                <div class="fw-bold text-dark font-monospace small">
                   {{ formatPrice(product.price) }}
                 </div>
                 <div
                   v-if="product.sale_price"
                   class="small text-danger fw-bold"
+                  style="font-size: 0.65rem;"
                 >
-                  Акция: {{ formatPrice(product.sale_price) }}
-                </div>
-                <div class="small text-muted op-5 mt-1">
-                  Закуп:
-                  <span class="text-primary fw-semi-bold">{{
-                    formatPrice(product.purchase_price || 0)
-                  }}</span>
+                  % {{ formatPrice(product.sale_price) }}
                 </div>
               </td>
-              <td data-label="Остаток">
-                <div class="stock-badge" :class="stockClass(product)">
+              <td data-label="Остаток" class="py-1">
+                <div class="stock-badge py-0 px-2" :class="stockClass(product)" style="font-size: 0.7rem;">
                   <span class="count">{{ product.stock_quantity }}</span>
-                  <span class="unit">шт.</span>
+                  <span class="unit ms-1">шт.</span>
                 </div>
               </td>
-              <td data-label="Статус">
+              <td data-label="Статус" class="py-1">
                 <div
                   class="d-flex gap-1 flex-wrap justify-content-end justify-content-lg-start"
                 >
                   <span
                     class="badge-status"
                     :class="product.is_active ? 'active' : 'inactive'"
+                    style="font-size: 0.6rem; padding: 0.1rem 0.5rem;"
                   >
                     {{ product.is_active ? "Активен" : "Скрыт" }}
                   </span>
-                  <span
-                    v-if="!product.in_stock"
-                    class="badge-status out-of-stock"
-                    >Нет в наличии</span
-                  >
                 </div>
               </td>
-              <td class="text-end pe-4 mobile-actions">
-                <div class="d-flex justify-content-end gap-2">
+              <td class="text-end pe-4 py-1 mobile-actions">
+                <div class="d-flex justify-content-end gap-1">
                   <NuxtLink
                     :to="`/admin/products/update-${product.id}`"
                     class="btn-action edit shadow-sm"
+                    style="width: 28px; height: 28px; font-size: 0.8rem;"
                     title="Изменить"
                   >
-                    <i class="bi bi-pencil-square"></i>
+                    <i class="bi bi-pencil"></i>
                   </NuxtLink>
                   <NuxtLink
                     :to="`/admin/inventory?product_id=${product.id}`"
                     class="btn-action inventory shadow-sm"
                     title="Инвентаризация"
-                    style="background: #e0f2fe; color: #0369a1"
+                    style="background: #e0f2fe; color: #0369a1; width: 28px; height: 28px; font-size: 0.8rem;"
                   >
                     <i class="bi bi-box-seam"></i>
                   </NuxtLink>
                   <button
                     @click="downloadProductBarcode(product.id)"
                     class="btn-action barcode shadow-sm"
-                    title="Печать штрих-кода"
+                    style="width: 28px; height: 28px; font-size: 0.8rem;"
+                    title="Штрих-код"
                   >
                     <i class="bi bi-upc-scan"></i>
                   </button>
                   <button
                     @click="handleDelete(product.id)"
                     class="btn-action delete shadow-sm"
+                    style="width: 28px; height: 28px; font-size: 0.8rem;"
                     title="Удалить"
                   >
-                    <i class="bi bi-trash3"></i>
+                    <i class="bi bi-trash"></i>
                   </button>
                 </div>
               </td>

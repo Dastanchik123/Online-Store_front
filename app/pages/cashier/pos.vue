@@ -6,7 +6,7 @@ definePageMeta({
 
 const authStore = useAuthStore();
 const ui = useUiStore();
-const { printReceipt, initQZ } = usePrinter();
+const { printReceipt, initPrinter } = usePrinter();
 const { settings, fetchPublicSettings } = useSettings();
 
 const cart = ref([]);
@@ -348,7 +348,7 @@ onMounted(async () => {
     if (savedCart) {
       cart.value = JSON.parse(savedCart);
     }
-    await initQZ();
+      await initPrinter();
   }
 });
 
@@ -470,6 +470,7 @@ const addToCart = (product) => {
   } else {
     cart.value.push({
       product_id: product.id,
+      uuid: product.uuid,
       name: product.name,
       price: product.sale_price || product.price,
       purchase_price: product.purchase_price,
@@ -721,6 +722,7 @@ const finalizeSale = async () => {
     const res = await createPosSale({
       items: cart.value,
       user_id: selectedUser.value?.id,
+      user_uuid: selectedUser.value?.uuid,
       cash_amount: Number(cashAmount.value),
       transfer_amount: Number(transferAmount.value),
       is_debt: isDebt.value,
@@ -728,15 +730,14 @@ const finalizeSale = async () => {
       discount: Number(couponDiscount.value),
     });
 
-    ui.addToast("Продажа успешно оформлена!", "success");
+    // Продажа оформлена
 
     const tpl = localStorage.getItem("print_template") || "thermal";
-    const orderId = res?.order_id || res?.id || res?.order?.id;
-
-    if (orderId) {
-      await printReceipt(orderId, tpl);
+    // Печатаем, передавая ВЕСЬ объект заказа для локальной генерации чека
+    if (res) {
+      await printReceipt(res, tpl);
     } else {
-      console.warn("Could not find orderId in response:", res);
+      console.warn("No order data returned for printing");
     }
 
     resetPos();
@@ -939,6 +940,13 @@ watch(couponDiscount, (newDiscount) => {
               >
                 <i class="bi bi-person-badge text-primary fs-6"></i>
                 <span class="small fw-bold">{{ authStore.user?.name }}</span>
+              </div>
+              <div
+                class="badge px-3 py-2 border rounded-pill d-flex align-items-center gap-2 shadow-sm"
+                :class="isConnected ? 'bg-success-subtle text-success' : 'bg-light text-muted'"
+              >
+                <i class="bi bi-printer-fill fs-6"></i>
+                <span class="small fw-bold">{{ isConnected ? 'Electron' : 'Browser' }}</span>
               </div>
               <button
                 @click="loadAllProducts"
