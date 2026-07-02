@@ -171,6 +171,7 @@ const handleSubmit = async () => {
 
       if (key === "attributes") return;
       if (key === "image") return;
+      if (key === "images") return;
       if (key === "category") return;
       if (key === "reviews") return;
 
