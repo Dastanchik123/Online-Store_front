@@ -46,6 +46,9 @@ const loadData = async () => {
 };
 
 const applyFilters = () => {
+  clearTimeout(filtersDebounceTimer);
+  filters.value.page = 1;
+
   const query = {};
   Object.entries(filters.value).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
@@ -54,6 +57,13 @@ const applyFilters = () => {
   });
 
   router.push({ query });
+  isMobileFiltersOpen.value = false;
+};
+
+let filtersDebounceTimer = null;
+const applyFiltersDebounced = () => {
+  clearTimeout(filtersDebounceTimer);
+  filtersDebounceTimer = setTimeout(applyFilters, 450);
 };
 
 const resetFilters = () => {
@@ -78,7 +88,6 @@ const handleSortChange = (event) => {
   const [by, order] = value.split(":");
   filters.value.sort_by = by;
   filters.value.sort_order = order;
-  filters.value.page = 1;
   applyFilters();
 };
 
@@ -220,6 +229,7 @@ useHead({
                     type="text"
                     class="form-control"
                     placeholder="Название товара..."
+                    @input="applyFiltersDebounced"
                     @keyup.enter="applyFilters"
                   />
                   <i class="bi bi-arrow-return-left search-icon"></i>
@@ -286,6 +296,7 @@ useHead({
                       type="number"
                       class="form-control"
                       placeholder="От"
+                      @input="applyFiltersDebounced"
                     />
                   </div>
                   <div class="col-6">
@@ -294,9 +305,26 @@ useHead({
                       type="number"
                       class="form-control"
                       placeholder="До"
+                      @input="applyFiltersDebounced"
                     />
                   </div>
                 </div>
+              </div>
+
+              <!-- В наличии -->
+              <div class="filter-section p-4 border-bottom">
+                <label class="d-flex align-items-center gap-2 cursor-pointer mb-0">
+                  <input
+                    type="checkbox"
+                    class="form-check-input mt-0"
+                    :checked="!!filters.in_stock"
+                    @change="
+                      filters.in_stock = $event.target.checked ? true : undefined;
+                      applyFilters();
+                    "
+                  />
+                  <span class="fw-medium">Только в наличии</span>
+                </label>
               </div>
 
               <!-- Actions -->
