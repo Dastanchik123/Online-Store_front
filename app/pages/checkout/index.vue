@@ -54,6 +54,28 @@ const getImageUrl = (url) => {
 };
 
 
+const CUSTOMER_STORAGE_KEY = "checkout_customer_info";
+
+const loadCustomerInfoFromStorage = () => {
+  try {
+    const saved = localStorage.getItem(CUSTOMER_STORAGE_KEY);
+    if (saved) {
+      Object.assign(shippingAddress.value, JSON.parse(saved));
+    }
+  } catch (err) {
+
+  }
+};
+
+const saveCustomerInfoToStorage = () => {
+  const { first_name, last_name, phone, address_line_1, address_line_2 } =
+    shippingAddress.value;
+  localStorage.setItem(
+    CUSTOMER_STORAGE_KEY,
+    JSON.stringify({ first_name, last_name, phone, address_line_1, address_line_2 })
+  );
+};
+
 const loadData = async () => {
   loading.value = true;
   error.value = null;
@@ -65,7 +87,9 @@ const loadData = async () => {
       return;
     }
 
-    
+    loadCustomerInfoFromStorage();
+
+
     try {
       const addresses = await getAddresses({ type: "shipping" });
       if (addresses.length > 0) {
@@ -74,7 +98,7 @@ const loadData = async () => {
         Object.assign(shippingAddress.value, defaultAddress);
       }
     } catch (err) {
-      
+
     }
   } catch (err) {
     error.value = err.data?.message || "Ошибка загрузки данных";
@@ -93,11 +117,14 @@ const handleSubmit = async () => {
       shipping_address: shippingAddress.value,
       payment_method: paymentMethod.value,
       notes: notes.value,
+      coupon_code: cartStore.appliedCoupon || undefined,
     };
 
     const order = await createOrder(orderData);
 
-    
+    saveCustomerInfoToStorage();
+
+
     cartStore.clearCart();
 
     
@@ -323,7 +350,7 @@ onMounted(() => {
                   <div class="position-relative flex-shrink-0">
                     <img
                       :src="getImageUrl(item.product.image_url)"
-                      class="rounded-3 shadow-sm border border-light"
+                      class="rounded-3 shadow-sm border border-light img-loading"
                       style="width: 64px; height: 64px; object-fit: cover"
                     />
                     <span
@@ -389,9 +416,9 @@ onMounted(() => {
                   <span class="h5 mb-0 fw-bold">Итого</span>
                   <div class="text-end">
                     <div class="h3 mb-0 fw-black text-primary">
-                      {{ formatPrice(cartStore.total) }} сом
+                      {{ formatPrice(cartStore.getFinalTotal) }} сом
                     </div>
-                    
+
                   </div>
                 </div>
               </div>

@@ -5,7 +5,7 @@
         <img
           :src="getProductImage(item.product)"
           :alt="item.product?.name"
-          class="item-image"
+          class="item-image img-loading"
         />
         <div class="item-badge" v-if="item.product?.sale_price">Sale</div>
       </div>

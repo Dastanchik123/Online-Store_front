@@ -164,16 +164,18 @@ onMounted(() => {
         Нет категорий
       </div>
 
-      <div v-else class="table-responsive" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
+      <div v-else class="table-responsive" style="max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th scope="col" class="ps-4">ID</th>
-              <th scope="col">Фото</th>
+              <th scope="col" class="ps-4" style="width: 60px">ID</th>
+              <th scope="col" style="width: 70px">Фото</th>
               <th scope="col">Название</th>
-              <th scope="col">Slug</th>
-              <th scope="col">Активность</th>
-              <th scope="col" class="text-end pe-4">Действия</th>
+              <th scope="col" style="width: 220px">Slug</th>
+              <th scope="col" style="width: 130px">Активность</th>
+              <th scope="col" class="text-end pe-4" style="width: 110px">
+                Действия
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -227,6 +229,12 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mt-4 px-2">
+      <div class="small fw-semi-bold text-muted">
+        Всего категорий: <span class="text-dark">{{ categories.length }}</span>
       </div>
     </div>
 

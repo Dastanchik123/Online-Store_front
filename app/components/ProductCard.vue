@@ -77,9 +77,9 @@ const handleBuyNow = async () => {
     <div v-if="viewMode === 'grid'" class="pc-grid h-100">
 
       <!-- Фото -->
-      <NuxtLink :to="`/product/${product.id}`" class="pc-img-link">
+      <NuxtLink :to="`/product/${product.id}`" class="pc-img-link stretched-link">
         <div class="pc-img-wrap ratio ratio-1x1">
-          <img :src="getProductImage(product)" :alt="product.name" class="pc-img" />
+          <img :src="getProductImage(product)" :alt="product.name" class="pc-img img-loading" />
 
           <!-- Бейдж скидки -->
           <div v-if="discountPercent > 0" class="pc-discount">
@@ -142,7 +142,7 @@ const handleBuyNow = async () => {
       <div class="row g-0 align-items-center">
         <div class="col-4 col-sm-3 col-md-2">
           <div class="ratio ratio-1x1 rounded-3 overflow-hidden">
-            <img :src="getProductImage(product)" :alt="product.name" class="pc-img" />
+            <img :src="getProductImage(product)" :alt="product.name" class="pc-img img-loading" />
           </div>
         </div>
         <div class="col-8 col-sm-9 col-md-10">
@@ -152,14 +152,14 @@ const handleBuyNow = async () => {
               <span class="pc-price">{{ formatPrice(product.sale_price || product.price) }} сом</span>
               <span v-if="product.sale_price" class="pc-old-price">{{ formatPrice(product.price) }}</span>
             </div>
-            <div class="d-flex flex-wrap gap-2">
+            <div class="d-flex flex-wrap gap-2 pc-list-actions">
               <button class="btn btn-primary btn-sm rounded-pill fw-bold" :disabled="!product.in_stock" @click="handleAddToCart">
                 <i class="bi bi-cart-plus me-1"></i>В корзину
               </button>
               <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold" :disabled="!product.in_stock" @click="handleBuyNow">
                 Купить сейчас
               </button>
-              <NuxtLink :to="`/product/${product.id}`" class="btn btn-light btn-sm rounded-pill">
+              <NuxtLink :to="`/product/${product.id}`" class="btn btn-light btn-sm rounded-pill stretched-link">
                 <i class="bi bi-info-circle"></i>
               </NuxtLink>
               <button
@@ -315,6 +315,8 @@ const handleBuyNow = async () => {
 
 /* Кнопка корзины */
 .pc-cart-btn {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -363,6 +365,8 @@ const handleBuyNow = async () => {
 
 /* Кнопка «Купить в 1 клик» (скрыта на мобильных) */
 .pc-buynow-btn {
+  position: relative;
+  z-index: 2;
   display: none;
   width: 100%;
   padding: 6px 4px;
@@ -445,7 +449,12 @@ const handleBuyNow = async () => {
   color: #38bdf8;
   letter-spacing: 0.05em;
 }
+.pc-list-actions {
+  position: relative;
+  z-index: 2;
+}
 .pc-list-name {
+  cursor: pointer;
   font-size: 0.95rem;
   font-weight: 700;
   color: #0f172a;

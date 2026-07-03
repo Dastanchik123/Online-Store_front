@@ -139,6 +139,25 @@ const handleAddToCart = async (productId) => {
 onMounted(() => {
   loadData();
 });
+
+useHead({
+  style: [
+    {
+      innerHTML: `
+        .main-content-wrapper {
+          padding-left: 8px !important;
+          padding-right: 8px !important;
+        }
+        @media (min-width: 768px) {
+          .main-content-wrapper {
+            padding-left: 12px !important;
+            padding-right: 12px !important;
+          }
+        }
+      `
+    }
+  ]
+});
 </script>
 
 <template>
@@ -302,7 +321,7 @@ onMounted(() => {
               <div class="category-image-container">
                 <img
                   :src="getCategoryImage(category)"
-                  class="category-img"
+                  class="category-img img-loading"
                   :alt="category.name"
                 />
                 <div class="category-overlay"></div>
@@ -385,8 +404,8 @@ onMounted(() => {
     
     <section class="features-section py-5">
       <div class="container">
-        <div class="row g-4">
-          <div class="col-md-6 col-lg-3">
+        <div class="row g-4 features-row">
+          <div class="col-md-6 col-lg-3 features-col">
             <div class="feature-item text-center">
               <div class="feature-icon mb-3">
                 <i class="bi bi-truck fs-1 text-white"></i>
@@ -397,7 +416,7 @@ onMounted(() => {
               </p>
             </div>
           </div>
-          <div class="col-md-6 col-lg-3">
+          <div class="col-md-6 col-lg-3 features-col">
             <div class="feature-item text-center">
               <div class="feature-icon mb-3">
                 <i class="bi bi-shield-check fs-1 text-white"></i>
@@ -408,7 +427,7 @@ onMounted(() => {
               </p>
             </div>
           </div>
-          <div class="col-md-6 col-lg-3">
+          <div class="col-md-6 col-lg-3 features-col">
             <div class="feature-item text-center">
               <div class="feature-icon mb-3">
                 <i class="bi bi-currency-exchange fs-1 text-white"></i>
@@ -419,7 +438,7 @@ onMounted(() => {
               </p>
             </div>
           </div>
-          <div class="col-md-6 col-lg-3">
+          <div class="col-md-6 col-lg-3 features-col">
             <div class="feature-item text-center">
               <div class="feature-icon mb-3">
                 <i class="bi bi-headset fs-1 text-white"></i>
@@ -456,7 +475,7 @@ onMounted(() => {
                   <img
                     v-if="post.image_url"
                     :src="post.image_url"
-                    class="w-100 h-100 object-fit-cover"
+                    class="w-100 h-100 object-fit-cover img-loading"
                   />
                   <div
                     v-else
@@ -748,6 +767,30 @@ onMounted(() => {
 .feature-item {
   padding: 30px 20px;
   transition: transform 0.3s ease;
+}
+
+@media (max-width: 767.98px) {
+  .features-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 8px;
+    margin-left: 0;
+    margin-right: 0;
+    scrollbar-width: none;
+  }
+  .features-row::-webkit-scrollbar {
+    display: none;
+  }
+  .features-col {
+    flex: 0 0 78%;
+    max-width: 78%;
+    scroll-snap-align: center;
+  }
+  .feature-item {
+    padding: 24px 16px;
+  }
 }
 
 .feature-item:hover {

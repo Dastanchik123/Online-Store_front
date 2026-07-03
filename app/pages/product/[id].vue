@@ -5,6 +5,7 @@ const { addToCart } = useCart();
 const authStore = useAuthStore();
 const uiStore = useUiStore();
 const { setProductSeo, setBreadcrumbs } = useSeo();
+const { settings, fetchPublicSettings } = useSettings();
 
 const product = ref(null);
 const relatedProducts = ref([]);
@@ -181,9 +182,18 @@ const handleBuyNow = async () => {
 
 onMounted(() => {
   loadProduct();
+  fetchPublicSettings();
 });
 
 const activeTab = ref('description');
+
+const whatsappLink = computed(() => {
+  const base = settings.value?.social_whatsapp;
+  if (!base || !product.value) return null;
+  const message = `Добрый день. Меня интересует ${product.value.name}`;
+  const separator = base.includes('?') ? '&' : '?';
+  return `${base}${separator}text=${encodeURIComponent(message)}`;
+});
 </script>
 
 <template>
@@ -239,10 +249,10 @@ const activeTab = ref('description');
                   <i class="bi bi-chevron-left"></i>
                 </button>
                 
-                <img 
-                  :src="currentDisplayImage" 
-                  :alt="product.name" 
-                  class="img-fluid main-img-zoom" 
+                <img
+                  :src="currentDisplayImage"
+                  :alt="product.name"
+                  class="img-fluid main-img-zoom img-loading"
                   style="cursor: zoom-in;"
                   @click="openLightbox"
                 />
@@ -264,7 +274,7 @@ const activeTab = ref('description');
                   :class="{ active: activeImageIndex === index }"
                   @click="setActiveImage(index)"
                 >
-                  <img :src="img" :alt="product.name" />
+                  <img :src="img" :alt="product.name" class="img-loading" />
                 </div>
              </div>
           </div>
@@ -314,13 +324,22 @@ const activeTab = ref('description');
                 >
                   <i class="bi bi-cart3 me-1"></i> {{ isAdding ? 'Добавляем...' : 'В КОРЗИНУ' }}
                 </button>
-                <button 
+                <button
                   class="btn btn-outline-dark rounded-pill w-100 fw-bold py-2"
                   @click="handleBuyNow"
                   :disabled="!product.in_stock"
                 >
                   КУПИТЬ В 1 КЛИК
                 </button>
+                <a
+                  v-if="whatsappLink"
+                  :href="whatsappLink"
+                  target="_blank"
+                  rel="noopener"
+                  class="btn btn-whatsapp rounded-pill w-100 fw-bold py-2"
+                >
+                  <i class="bi bi-whatsapp me-1"></i> ЗАКАЗАТЬ ЧЕРЕЗ WHATSAPP
+                </a>
               </div>
             </div>
 
@@ -334,37 +353,64 @@ const activeTab = ref('description');
       <!-- Вкладки / Детальное описание -->
       <div class="row mt-4 pt-2">
         <div class="col-12 col-lg-8">
-           <div class="details-nav d-flex gap-2 border-bottom mb-4">
-             <button 
-               class="btn btn-tab" 
-               :class="{ active: activeTab === 'description' }"
-               @click="activeTab = 'description'"
-             >Описание</button>
-             <button 
-               class="btn btn-tab" 
-               :class="{ active: activeTab === 'attributes' }"
-               @click="activeTab = 'attributes'"
-               v-if="product.attributes && Object.keys(product.attributes).length"
-             >Характеристики</button>
-           </div>
+           <!-- Планшет / моб.: табы -->
+           <div class="d-lg-none">
+             <div class="details-nav d-flex gap-2 border-bottom mb-4">
+               <button
+                 class="btn btn-tab"
+                 :class="{ active: activeTab === 'description' }"
+                 @click="activeTab = 'description'"
+               >Описание</button>
+               <button
+                 class="btn btn-tab"
+                 :class="{ active: activeTab === 'attributes' }"
+                 @click="activeTab = 'attributes'"
+                 v-if="product.attributes && Object.keys(product.attributes).length"
+               >Характеристики</button>
+             </div>
 
-           <div v-if="activeTab === 'description'" class="content-block mb-5">
-              <div class="description-text text-secondary" style="white-space: pre-wrap; line-height: 1.8; font-size: 1rem;">
-                {{ product.description || 'Описание отсутствует' }}
-              </div>
-           </div>
-
-           <div v-if="activeTab === 'attributes' && product.attributes" class="content-block mb-5">
-              <div class="row g-2">
-                <div 
-                  v-for="(value, key) in product.attributes" 
-                  :key="key"
-                  class="col-12 p-3 rounded-3 bg-light-soft d-flex justify-content-between align-items-center"
-                >
-                  <span class="text-muted fw-medium">{{ key }}</span>
-                  <span class="fw-bold text-dark text-end ms-3">{{ value }}</span>
+             <div v-if="activeTab === 'description'" class="content-block mb-5">
+                <div class="description-text text-secondary" style="white-space: pre-wrap; line-height: 1.8; font-size: 1rem;">
+                  {{ product.description || 'Описание отсутствует' }}
                 </div>
-              </div>
+             </div>
+
+             <div v-if="activeTab === 'attributes' && product.attributes" class="content-block mb-5">
+                <div class="row g-2">
+                  <div
+                    v-for="(value, key) in product.attributes"
+                    :key="key"
+                    class="col-12 p-3 rounded-3 bg-light-soft d-flex justify-content-between align-items-center"
+                  >
+                    <span class="text-muted fw-medium">{{ key }}</span>
+                    <span class="fw-bold text-dark text-end ms-3">{{ value }}</span>
+                  </div>
+                </div>
+             </div>
+           </div>
+
+           <!-- Десктоп: описание и характеристики отдельными блоками, без табов -->
+           <div class="d-none d-lg-block">
+             <div class="content-block mb-5">
+                <h2 class="section-title fw-bold mb-3">Описание</h2>
+                <div class="description-text text-secondary" style="white-space: pre-wrap; line-height: 1.8; font-size: 1rem;">
+                  {{ product.description || 'Описание отсутствует' }}
+                </div>
+             </div>
+
+             <div v-if="product.attributes && Object.keys(product.attributes).length" class="content-block mb-5">
+                <h2 class="section-title fw-bold mb-3">Характеристики</h2>
+                <div class="row g-2">
+                  <div
+                    v-for="(value, key) in product.attributes"
+                    :key="key"
+                    class="col-12 p-3 rounded-3 bg-light-soft d-flex justify-content-between align-items-center"
+                  >
+                    <span class="text-muted fw-medium">{{ key }}</span>
+                    <span class="fw-bold text-dark text-end ms-3">{{ value }}</span>
+                  </div>
+                </div>
+             </div>
            </div>
         </div>
       </div>
@@ -543,6 +589,19 @@ const activeTab = ref('description');
 .shadow-primary {
   box-shadow: 0 10px 20px -5px rgba(var(--bs-primary-rgb), 0.3);
 }
+.btn-whatsapp {
+  background: #25d366;
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+.btn-whatsapp:hover {
+  background: #1ebe5b;
+  color: #fff;
+}
 
 /* Вкладки */
 .btn-tab {
@@ -570,6 +629,11 @@ const activeTab = ref('description');
 
 .bg-light-soft {
   background: #f1f5f9;
+}
+
+.section-title {
+  font-size: 1.35rem;
+  color: #1e293b;
 }
 
 @media (max-width: 991px) {

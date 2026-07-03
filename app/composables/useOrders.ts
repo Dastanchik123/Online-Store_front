@@ -41,6 +41,7 @@ export const useOrders = () => {
     shipping_address?: any;
     billing_address?: any;
     notes?: string;
+    coupon_code?: string;
   }) => {
     try {
       return await api.apiFetch("/orders", {

@@ -123,7 +123,7 @@ onMounted(() => {
 
 <template>
   <div class="cart-page">
-    <div class="container py-5">
+    <div class="container-fluid px-0 py-5">
       <h2 class="mb-4">Корзина</h2>
 
       

@@ -341,8 +341,8 @@ useHead({
 
           <!-- Grid -->
           <div v-if="loading" class="row g-2 g-md-3 products-grid">
-            <div 
-              v-for="i in 8" 
+            <div
+              v-for="i in filters.per_page"
               :key="i"
               class="col-6 col-md-4 col-lg-3 product-grid-cell"
             >

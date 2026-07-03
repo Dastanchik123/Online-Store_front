@@ -3,6 +3,17 @@ html {
   overflow-y: scroll !important;
 }
 
+/* Ненавязчивый плейсхолдер на время загрузки изображений (товары, категории и т.д.) */
+img.img-loading {
+  background: linear-gradient(100deg, #f1f5f9 30%, #f8fafc 50%, #f1f5f9 70%);
+  background-size: 200% 100%;
+  animation: img-loading-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes img-loading-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 body.modal-open {
   padding-right: 0 !important;
   margin-right: 0 !important;
