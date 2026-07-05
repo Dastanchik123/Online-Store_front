@@ -15,7 +15,7 @@ const filters = ref({
   in_stock: route.query.in_stock === "true" ? true : undefined,
   sort_by: route.query.sort_by || "created_at",
   sort_order: route.query.sort_order || "desc",
-  per_page: 15,
+  per_page: 84,
   page: route.query.page ? Number(route.query.page) : 1,
 });
 
@@ -75,7 +75,7 @@ const resetFilters = () => {
     in_stock: undefined,
     sort_by: "created_at",
     sort_order: "desc",
-    per_page: 15,
+    per_page: 84,
     page: 1,
   };
   router.push({ query: {} });
@@ -229,10 +229,12 @@ useHead({
                     type="text"
                     class="form-control"
                     placeholder="Название товара..."
-                    @input="applyFiltersDebounced"
                     @keyup.enter="applyFilters"
                   />
-                  <i class="bi bi-arrow-return-left search-icon"></i>
+                  <i
+                    class="bi bi-arrow-return-left search-icon"
+                    title="Нажмите Enter для поиска"
+                  ></i>
                 </div>
               </div>
 
@@ -380,11 +382,11 @@ useHead({
 
           <div v-else-if="products?.data?.length" class="row g-2 g-md-3 products-grid">
             <div
-              v-for="product in products.data"
+              v-for="(product, index) in products.data"
               :key="product.id"
               class="col-6 col-md-4 col-lg-3 product-grid-cell"
             >
-              <ProductCard :product="product" />
+              <ProductCard :product="product" :eager="index < 8" />
             </div>
           </div>
 
@@ -439,6 +441,40 @@ useHead({
   border-radius: 20px;
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.search-input-wrapper {
+  position: relative;
+}
+
+.search-input-wrapper .form-control {
+  padding-right: 2.6rem;
+}
+
+.search-input-wrapper .search-icon {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  pointer-events: none;
+}
+
+.search-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
 }
 
 .category-list {

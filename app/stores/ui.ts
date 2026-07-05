@@ -7,6 +7,11 @@ export interface Toast {
   duration?: number;
 }
 
+// Сколько уведомлений можно показывать одновременно — чтобы при массовом
+// добавлении товаров в корзину экран не покрывался стопкой алертов.
+const MAX_VISIBLE_TOASTS = 3;
+let toastIdCounter = 0;
+
 export const useUiStore = defineStore("ui", {
   state: () => ({
     toasts: [] as Toast[],
@@ -19,9 +24,22 @@ export const useUiStore = defineStore("ui", {
   }),
 
   actions: {
-    addToast(message: string, type: Toast["type"] = "info", duration = 3000) {
-      const id = Date.now();
+    addToast(message: string, type: Toast["type"] = "info", duration = 2500) {
+      // Не дублируем подряд одно и то же сообщение одного типа (например,
+      // если пользователь быстро тыкает "+" в нескольких карточках подряд)
+      const duplicate = this.toasts.find(
+        (t) => t.message === message && t.type === type,
+      );
+      if (duplicate) {
+        this.removeToast(duplicate.id);
+      }
+
+      const id = ++toastIdCounter;
       this.toasts.push({ id, message, type, duration });
+
+      if (this.toasts.length > MAX_VISIBLE_TOASTS) {
+        this.toasts.splice(0, this.toasts.length - MAX_VISIBLE_TOASTS);
+      }
 
       setTimeout(() => {
         this.removeToast(id);

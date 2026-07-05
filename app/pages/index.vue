@@ -5,6 +5,7 @@ const authStore = useAuthStore();
 const uiStore = useUiStore();
 const { getBanners } = useBanners();
 const { getPosts } = useBlog();
+const { fetchPublicSettings } = useSettings();
 const config = useRuntimeConfig();
 const { setSeo } = useSeo();
 const { getImageUrl } = useImageUrl();
@@ -63,6 +64,9 @@ setSeo({
 });
 
 const loading = ref(false);
+// Пока true — на странице показан полноэкранный лоадер, чтобы название
+// магазина, первый баннер и категории не "мигали" недогруженными.
+const initialLoading = ref(true);
 const banners = ref([]);
 const recentPosts = ref([]);
 
@@ -76,6 +80,7 @@ const loadData = async () => {
       getPosts({ per_page: 3 }),
       productsStore.fetchProducts(),
       productsStore.fetchCategories(true),
+      fetchPublicSettings(),
     ]);
     banners.value = bannerRes;
     recentPosts.value = postRes.data || postRes;
@@ -84,6 +89,7 @@ const loadData = async () => {
     uiStore.error("Ошибка при загрузке данных");
   } finally {
     loading.value = false;
+    initialLoading.value = false;
   }
 };
 
@@ -166,6 +172,16 @@ useHead({
   </Head>
 
   <div class="home-page">
+
+    <!-- Полноэкранный лоадер: скрывает страницу, пока не загрузятся название магазина, баннер, категории и товары -->
+    <Transition name="app-loader-fade">
+      <div v-if="initialLoading" class="app-loader-overlay">
+        <div class="app-loader-content">
+          <span class="app-loader-logo-text">KurulushStore</span>
+          <div class="app-loader-spinner"></div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Поиск -->
     <div class="search-top-bar">
@@ -323,6 +339,9 @@ useHead({
                   :src="getCategoryImage(category)"
                   class="category-img img-loading"
                   :alt="category.name"
+                  :loading="index < 4 ? 'eager' : 'lazy'"
+                  :fetchpriority="index < 4 ? 'high' : 'auto'"
+                  decoding="async"
                 />
                 <div class="category-overlay"></div>
                 <div class="category-content">
@@ -370,11 +389,11 @@ useHead({
 
         <div v-else class="row g-2 g-md-3 products-grid">
           <div
-            v-for="product in featuredProducts"
+            v-for="(product, index) in featuredProducts"
             :key="product.id"
             class="col-6 col-md-3 product-grid-cell"
           >
-            <ProductCard :product="product" />
+            <ProductCard :product="product" :eager="index < 4" />
           </div>
         </div>
 
@@ -476,6 +495,8 @@ useHead({
                     v-if="post.image_url"
                     :src="post.image_url"
                     class="w-100 h-100 object-fit-cover img-loading"
+                    loading="lazy"
+                    decoding="async"
                   />
                   <div
                     v-else
@@ -826,5 +847,60 @@ useHead({
   .section-title-text {
     font-size: 1.5rem;
   }
+}
+
+/* ===== ПОЛНОЭКРАННЫЙ ЛОАДЕР ГЛАВНОЙ СТРАНИЦЫ ===== */
+.app-loader-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+}
+
+.app-loader-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.app-loader-logo-text {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: #fff;
+  background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.app-loader-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 4px solid rgba(56, 189, 248, 0.2);
+  border-top-color: #38bdf8;
+  animation: app-loader-spin 0.8s linear infinite;
+}
+
+@keyframes app-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-loader-fade-enter-active {
+  transition: opacity 0.25s ease;
+}
+.app-loader-fade-leave-active {
+  transition: opacity 0.4s ease;
+}
+.app-loader-fade-enter-from,
+.app-loader-fade-leave-to {
+  opacity: 0;
 }
 </style>

@@ -8,11 +8,16 @@ const props = defineProps({
     type: String,
     default: "grid",
   },
+  eager: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-const { addToCart } = useCart();
+const { addToCart, updateCartItem, removeCartItem } = useCart();
 const authStore = useAuthStore();
 const uiStore = useUiStore();
+const cartStore = useCartStore();
 const router = useRouter();
 const { toggleWishlist, isInWishlist } = useWishlist();
 const { getImageUrl } = useImageUrl();
@@ -35,24 +40,68 @@ const discountPercent = computed(() => {
   return Math.round((1 - props.product.sale_price / props.product.price) * 100);
 });
 
+// Если товар уже лежит в корзине — вместо кнопки "В корзину" показываем
+// степпер количества, чтобы можно было сразу добавить несколько штук
+const cartItem = computed(() =>
+  cartStore.getItems.find((item) => item.product_id === props.product.id),
+);
+const cartQty = computed(() => cartItem.value?.quantity || 0);
+const qtyBusy = ref(false);
+
 const handleAddToCart = async () => {
   if (!authStore.isAuthenticated) {
     await navigateTo("/auth/login");
     return;
   }
+  if (qtyBusy.value) return;
+  qtyBusy.value = true;
   try {
     await addToCart(props.product.id, 1);
-    uiStore.success(
-      `<div class="d-flex align-items-center">
-        <span class="me-2">Товар добавлен!</span>
-        <a href="/cart" class="btn btn-sm btn-light rounded-pill px-3 fw-bold text-primary" style="font-size:0.75rem">
-          В корзину <i class="bi bi-arrow-right ms-1"></i>
-        </a>
-      </div>`,
-      true,
-    );
+    uiStore.success('Товар добавлен в корзину <a href="/cart">перейти →</a>');
   } catch (error) {
     uiStore.error(error.data?.message || "Ошибка добавления в корзину");
+  } finally {
+    qtyBusy.value = false;
+  }
+};
+
+const incrementQty = async () => {
+  if (!authStore.isAuthenticated) {
+    await navigateTo("/auth/login");
+    return;
+  }
+  if (qtyBusy.value) return;
+  qtyBusy.value = true;
+  try {
+    if (cartItem.value) {
+      await updateCartItem(cartItem.value.id, cartQty.value + 1);
+    } else {
+      await addToCart(props.product.id, 1);
+    }
+  } catch (error) {
+    uiStore.error(error.data?.message || "Ошибка обновления корзины");
+  } finally {
+    qtyBusy.value = false;
+  }
+};
+
+const decrementQty = async () => {
+  if (!authStore.isAuthenticated) {
+    await navigateTo("/auth/login");
+    return;
+  }
+  if (qtyBusy.value || !cartItem.value) return;
+  qtyBusy.value = true;
+  try {
+    if (cartQty.value <= 1) {
+      await removeCartItem(cartItem.value.id);
+    } else {
+      await updateCartItem(cartItem.value.id, cartQty.value - 1);
+    }
+  } catch (error) {
+    uiStore.error(error.data?.message || "Ошибка обновления корзины");
+  } finally {
+    qtyBusy.value = false;
   }
 };
 
@@ -79,7 +128,14 @@ const handleBuyNow = async () => {
       <!-- Фото -->
       <NuxtLink :to="`/product/${product.id}`" class="pc-img-link stretched-link">
         <div class="pc-img-wrap ratio ratio-1x1">
-          <img :src="getProductImage(product)" :alt="product.name" class="pc-img img-loading" />
+          <img
+            :src="getProductImage(product)"
+            :alt="product.name"
+            class="pc-img img-loading"
+            :loading="eager ? 'eager' : 'lazy'"
+            :fetchpriority="eager ? 'high' : 'auto'"
+            decoding="async"
+          />
 
           <!-- Бейдж скидки -->
           <div v-if="discountPercent > 0" class="pc-discount">
@@ -121,12 +177,25 @@ const handleBuyNow = async () => {
         </div>
 
         <button
+          v-if="cartQty === 0"
           class="pc-cart-btn"
           :disabled="!product.in_stock"
           @click="handleAddToCart"
         >
           <i class="bi bi-cart2"></i> В корзину
         </button>
+        <div v-else class="pc-qty-stepper">
+          <button class="pc-qty-btn" :disabled="qtyBusy" @click="decrementQty">
+            <i class="bi bi-dash"></i>
+          </button>
+          <span class="pc-qty-value">
+            <span v-if="!qtyBusy">{{ cartQty }}</span>
+            <span v-else class="pc-qty-spinner"></span>
+          </span>
+          <button class="pc-qty-btn" :disabled="qtyBusy" @click="incrementQty">
+            <i class="bi bi-plus"></i>
+          </button>
+        </div>
         <button
           class="pc-buynow-btn"
           :disabled="!product.in_stock"
@@ -142,7 +211,14 @@ const handleBuyNow = async () => {
       <div class="row g-0 align-items-center">
         <div class="col-4 col-sm-3 col-md-2">
           <div class="ratio ratio-1x1 rounded-3 overflow-hidden">
-            <img :src="getProductImage(product)" :alt="product.name" class="pc-img img-loading" />
+            <img
+              :src="getProductImage(product)"
+              :alt="product.name"
+              class="pc-img img-loading"
+              :loading="eager ? 'eager' : 'lazy'"
+              :fetchpriority="eager ? 'high' : 'auto'"
+              decoding="async"
+            />
           </div>
         </div>
         <div class="col-8 col-sm-9 col-md-10">
@@ -153,9 +229,26 @@ const handleBuyNow = async () => {
               <span v-if="product.sale_price" class="pc-old-price">{{ formatPrice(product.price) }}</span>
             </div>
             <div class="d-flex flex-wrap gap-2 pc-list-actions">
-              <button class="btn btn-primary btn-sm rounded-pill fw-bold" :disabled="!product.in_stock" @click="handleAddToCart">
+              <button
+                v-if="cartQty === 0"
+                class="btn btn-primary btn-sm rounded-pill fw-bold"
+                :disabled="!product.in_stock"
+                @click="handleAddToCart"
+              >
                 <i class="bi bi-cart-plus me-1"></i>В корзину
               </button>
+              <div v-else class="pc-qty-stepper pc-qty-stepper--inline">
+                <button class="pc-qty-btn" :disabled="qtyBusy" @click="decrementQty">
+                  <i class="bi bi-dash"></i>
+                </button>
+                <span class="pc-qty-value">
+                  <span v-if="!qtyBusy">{{ cartQty }}</span>
+                  <span v-else class="pc-qty-spinner"></span>
+                </span>
+                <button class="pc-qty-btn" :disabled="qtyBusy" @click="incrementQty">
+                  <i class="bi bi-plus"></i>
+                </button>
+              </div>
               <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold" :disabled="!product.in_stock" @click="handleBuyNow">
                 Купить сейчас
               </button>
@@ -335,6 +428,65 @@ const handleBuyNow = async () => {
 }
 .pc-cart-btn:hover:not(:disabled) { background: #0ea5e9; }
 .pc-cart-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+/* Степпер количества (появляется в корзине вместо кнопки "В корзину") */
+.pc-qty-stepper {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 4px;
+  padding: 3px;
+  background: #eff6ff;
+  border: 1.5px solid #38bdf8;
+  border-radius: 8px;
+}
+.pc-qty-stepper--inline {
+  width: auto;
+  min-width: 108px;
+  margin-top: 0;
+}
+.pc-qty-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: #fff;
+  color: #0ea5e9;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.pc-qty-btn:hover:not(:disabled) { background: #38bdf8; color: #fff; }
+.pc-qty-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pc-qty-value {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: #0f172a;
+}
+.pc-qty-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(56, 189, 248, 0.3);
+  border-top-color: #38bdf8;
+  animation: pc-qty-spin 0.7s linear infinite;
+}
+@keyframes pc-qty-spin {
+  to { transform: rotate(360deg); }
+}
 
 /* Hover-оверлей (показывается при наведении мышкой) */
 .pc-hover-overlay {
