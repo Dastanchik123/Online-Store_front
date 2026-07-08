@@ -263,6 +263,57 @@ const getPaymentStatusText = (status) => {
   return texts[status] || status;
 };
 
+// Быстрая смена статуса/оплаты прямо в таблице, без открытия модалки
+const STATUS_QUICK_OPTIONS = [
+  { value: "pending", label: "Ожидает" },
+  { value: "processing", label: "В обработке" },
+  { value: "shipped", label: "Отправлен" },
+  { value: "delivered", label: "Доставлен" },
+  { value: "cancelled", label: "Отменен" },
+  { value: "refunded", label: "Возврат" },
+];
+
+const PAYMENT_STATUS_QUICK_OPTIONS = [
+  { value: "pending", label: "Ожидает" },
+  { value: "paid", label: "Оплачено" },
+  { value: "failed", label: "Ошибка" },
+];
+
+const quickUpdatingId = ref(null);
+
+const quickUpdateOrder = async (order, payload) => {
+  if (quickUpdatingId.value) return;
+  quickUpdatingId.value = order.id;
+  try {
+    await updateOrder(order.id, {
+      status: payload.status ?? order.status,
+      payment_status: payload.payment_status ?? order.payment_status,
+      payment_method: payload.payment_method ?? order.payment_method,
+    });
+    Object.assign(order, payload);
+    uiStore.success("Статус обновлён");
+  } catch (error) {
+    console.error(error);
+    uiStore.error(error.data?.message || "Ошибка при обновлении статуса");
+  } finally {
+    quickUpdatingId.value = null;
+  }
+};
+
+const quickSetStatus = (order, status) => {
+  if (status === order.status) return;
+  quickUpdateOrder(order, { status });
+};
+
+const quickSetPaymentStatus = (order, payment_status) => {
+  if (payment_status === order.payment_status) return;
+  const payload = { payment_status };
+  if (payment_status === "paid" && !order.payment_method) {
+    payload.payment_method = "cash";
+  }
+  quickUpdateOrder(order, payload);
+};
+
 const getPaymentMethodText = (method) => {
   const texts = {
     cash: "Оплата при получении (Нал/Безнал)",
@@ -536,29 +587,81 @@ onMounted(() => {
                   </div>
                 </div>
               </td>
-              <td data-label="Статус">
-                <span
-                  class="badge-modern-status"
-                  :class="statusLabelClass(order.status)"
-                >
-                  {{ getStatusText(order.status) }}
-                </span>
+              <td data-label="Статус" @click.stop>
+                <div class="dropdown quick-status-dropdown">
+                  <button
+                    type="button"
+                    class="badge-modern-status border-0 dropdown-toggle"
+                    :class="statusLabelClass(order.status)"
+                    data-bs-toggle="dropdown"
+                    :disabled="quickUpdatingId === order.id"
+                  >
+                    <span
+                      v-if="quickUpdatingId === order.id"
+                      class="spinner-border spinner-border-sm"
+                      style="width: 0.7rem; height: 0.7rem"
+                    ></span>
+                    <template v-else>{{ getStatusText(order.status) }}</template>
+                  </button>
+                  <ul class="dropdown-menu shadow-sm">
+                    <li v-for="opt in STATUS_QUICK_OPTIONS" :key="opt.value">
+                      <button
+                        type="button"
+                        class="dropdown-item d-flex align-items-center gap-2"
+                        :class="{ active: order.status === opt.value }"
+                        @click="quickSetStatus(order, opt.value)"
+                      >
+                        <span
+                          class="status-dot"
+                          :class="statusLabelClass(opt.value)"
+                        ></span>
+                        {{ opt.label }}
+                      </button>
+                    </li>
+                  </ul>
+                </div>
               </td>
-              <td data-label="Оплата">
-                <div
-                  class="d-flex align-items-center justify-content-end justify-content-lg-start"
-                >
-                  <i
-                    :class="
-                      order.payment_status === 'paid'
-                        ? 'bi bi-check-circle-fill text-success'
-                        : 'bi bi-dash-circle text-warning'
-                    "
-                    class="me-2"
-                  ></i>
-                  <span class="small fw-bold">{{
-                    getPaymentStatusText(order.payment_status)
-                  }}</span>
+              <td data-label="Оплата" @click.stop>
+                <div class="dropdown quick-status-dropdown">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-light border rounded-pill dropdown-toggle d-flex align-items-center gap-1"
+                    data-bs-toggle="dropdown"
+                    :disabled="quickUpdatingId === order.id"
+                  >
+                    <span
+                      v-if="quickUpdatingId === order.id"
+                      class="spinner-border spinner-border-sm"
+                      style="width: 0.7rem; height: 0.7rem"
+                    ></span>
+                    <template v-else>
+                      <i
+                        :class="
+                          order.payment_status === 'paid'
+                            ? 'bi bi-check-circle-fill text-success'
+                            : 'bi bi-dash-circle text-warning'
+                        "
+                      ></i>
+                      <span class="small fw-bold">{{
+                        getPaymentStatusText(order.payment_status)
+                      }}</span>
+                    </template>
+                  </button>
+                  <ul class="dropdown-menu shadow-sm">
+                    <li
+                      v-for="opt in PAYMENT_STATUS_QUICK_OPTIONS"
+                      :key="opt.value"
+                    >
+                      <button
+                        type="button"
+                        class="dropdown-item d-flex align-items-center gap-2"
+                        :class="{ active: order.payment_status === opt.value }"
+                        @click="quickSetPaymentStatus(order, opt.value)"
+                      >
+                        {{ opt.label }}
+                      </button>
+                    </li>
+                  </ul>
                   <div
                     v-if="order.payment_method"
                     class="x-small text-muted mt-1 opacity-75"
@@ -1074,6 +1177,47 @@ onMounted(() => {
   background: #f1f5f9;
   color: #64748b;
 }
+
+/* Быстрые дропдауны статуса/оплаты прямо в таблице */
+.quick-status-dropdown {
+  display: inline-block;
+  position: relative;
+}
+.quick-status-dropdown .dropdown-toggle {
+  cursor: pointer;
+}
+.quick-status-dropdown .dropdown-toggle::after {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.quick-status-dropdown .dropdown-menu {
+  min-width: 170px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.quick-status-dropdown .dropdown-item {
+  border-radius: 8px;
+  font-size: 0.85rem;
+  padding: 7px 10px;
+}
+.quick-status-dropdown .dropdown-item.active,
+.quick-status-dropdown .dropdown-item:active {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.badge-pending { background: #d97706; }
+.status-dot.badge-processing { background: #4f46e5; }
+.status-dot.badge-shipped { background: #0284c7; }
+.status-dot.badge-delivered { background: #16a34a; }
+.status-dot.badge-cancelled { background: #dc2626; }
+.status-dot.badge-refunded { background: #64748b; }
 
 .badge-mini {
   padding: 2px 8px;

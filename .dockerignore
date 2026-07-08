@@ -1,0 +1,14 @@
+node_modules
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+.git
+.env
+.env.*
+!.env.example
+src-electron
+electron-main.cjs
+electron-preload.cjs

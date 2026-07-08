@@ -1,27 +1,14 @@
 <script setup>
 const { trackOrder } = useOrders();
 const ui = useUiStore();
+const { $echo } = useNuxtApp();
 
 const orderNumber = ref("");
 const order = ref(null);
 const loading = ref(false);
 const searched = ref(false);
 
-const track = async () => {
-  if (!orderNumber.value) return;
-
-  loading.value = true;
-  searched.value = true;
-  order.value = null;
-
-  try {
-    order.value = await trackOrder(orderNumber.value);
-  } catch (e) {
-    ui.addToast("Заказ не найден. Проверьте номер.", "warning");
-  } finally {
-    loading.value = false;
-  }
-};
+let trackingChannelName = null;
 
 const getStatusLabel = (status) => {
   const map = {
@@ -35,10 +22,53 @@ const getStatusLabel = (status) => {
   return map[status] || status;
 };
 
+const unsubscribeTracking = () => {
+  if (import.meta.client && $echo && trackingChannelName) {
+    $echo.leave(`order.${trackingChannelName}`);
+    trackingChannelName = null;
+  }
+};
+
+const subscribeToOrderUpdates = (num) => {
+  if (!import.meta.client || !$echo) return;
+  unsubscribeTracking();
+  trackingChannelName = num;
+  $echo.channel(`order.${num}`).listen(".OrderStatusUpdated", (e) => {
+    if (order.value) {
+      order.value.status = e.status;
+      order.value.payment_status = e.payment_status;
+      order.value.shipped_at = e.shipped_at;
+      order.value.delivered_at = e.delivered_at;
+      ui.info(`Статус вашего заказа обновлён: ${getStatusLabel(e.status)}`);
+    }
+  });
+};
+
+const track = async () => {
+  if (!orderNumber.value) return;
+
+  loading.value = true;
+  searched.value = true;
+  order.value = null;
+
+  try {
+    order.value = await trackOrder(orderNumber.value);
+    subscribeToOrderUpdates(order.value.order_number);
+  } catch (e) {
+    ui.addToast("Заказ не найден. Проверьте номер.", "warning");
+  } finally {
+    loading.value = false;
+  }
+};
+
 const getStatusStep = (status) => {
   const steps = ["pending", "processing", "shipped", "delivered", "completed"];
   return steps.indexOf(status) + 1;
 };
+
+onUnmounted(() => {
+  unsubscribeTracking();
+});
 </script>
 
 <template>

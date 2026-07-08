@@ -150,15 +150,11 @@ onMounted(async () => {
     <div class="card border-0 shadow-sm rounded-4 luxury-header mb-3 overflow-hidden">
       <div class="luxury-header-pattern"></div>
       <div class="card-body p-3 position-relative z-1">
-        <div class="row align-items-center">
-          <div class="col">
-            <h5 class="fw-bold mb-0 text-white"><i class="bi bi-layers me-2"></i>Мониторинг остатков</h5>
-          </div>
-          <div class="col-auto">
-            <div class="stats-badge bg-white bg-opacity-10 rounded-pill px-3 py-1 text-white border border-white border-opacity-10 small">
-              <span class="opacity-75 me-2">ВСЕГО SKU:</span>
-              <span class="fw-bold">{{ products.total }}</span>
-            </div>
+        <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+          <h5 class="fw-bold mb-0 text-white"><i class="bi bi-layers me-2"></i>Мониторинг остатков</h5>
+          <div class="stats-badge bg-white bg-opacity-10 rounded-pill px-3 py-1 text-white border border-white border-opacity-10 small align-self-start align-self-sm-center">
+            <span class="opacity-75 me-2">ВСЕГО SKU:</span>
+            <span class="fw-bold">{{ products.total }}</span>
           </div>
         </div>
       </div>
@@ -212,20 +208,16 @@ onMounted(async () => {
 
     <!-- Table: Scrollable & Denser -->
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden inventory-table-card flex-grow-1">
-      <div class="table-container custom-scrollbar" style="max-height: calc(100vh - 250px); overflow-y: auto;">
+      <div class="table-container table-responsive-cards custom-scrollbar" style="max-height: calc(100vh - 250px); overflow-y: auto;">
         <table class="table table-hover align-middle mb-0" style="table-layout: fixed;">
-          <thead class="sticky-top bg-white z-2 shadow-sm">
+          <thead class="sticky-top bg-white z-2 shadow-sm d-none d-lg-table-header-group">
             <tr>
-              <th class="ps-4 py-2 col-resize" style="width: 140px; font-size: 0.7rem;">
-                Артикул
+              <th class="ps-4 py-2 col-resize" style="font-size: 0.7rem;">
+                Товар / Артикул
                 <div class="resizer" @mousedown="initResize($event)"></div>
               </th>
-              <th class="py-2 col-resize" style="font-size: 0.7rem;">
-                Товар
-                <div class="resizer" @mousedown="initResize($event)"></div>
-              </th>
-              <th 
-                class="text-center py-2 col-resize position-relative" 
+              <th
+                class="text-center py-2 col-resize position-relative"
                 style="width: 130px; font-size: 0.7rem; cursor: pointer; user-select: none;"
                 @click="toggleSort('stock_quantity')"
               >
@@ -241,32 +233,26 @@ onMounted(async () => {
           </thead>
           <tbody>
             <tr v-if="isLoading">
-              <td colspan="4" class="text-center p-4">
+              <td colspan="3" class="text-center p-4">
                 <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
               </td>
             </tr>
             <tr v-else-if="filteredProducts.length === 0">
-              <td colspan="4" class="text-center p-4 text-muted small">
+              <td colspan="3" class="text-center p-4 text-muted small">
                 Ничего не найдено
               </td>
             </tr>
             <tr v-for="p in filteredProducts" :key="p.id" :class="getRowClass(p.stock_quantity)">
-              <td class="ps-4 py-1 text-truncate">
+              <td class="ps-4 py-1">
+                <div class="fw-bold text-dark mb-0 small text-truncate">{{ p.name }}</div>
                 <div class="text-muted font-monospace fw-bold" style="font-size: 0.7rem;">{{ p.sku }}</div>
               </td>
-              <td class="py-1">
-                <div class="d-flex align-items-center overflow-hidden">
-                  <div class="lh-1 text-truncate">
-                    <div class="fw-bold text-dark mb-0 small text-truncate">{{ p.name }}</div>
-                  </div>
-                </div>
-              </td>
-              <td class="text-center py-1 text-nowrap">
+              <td class="text-center py-1 text-nowrap" data-label="Остаток">
                 <div class="small fw-bold" :class="parseFloat(p.stock_quantity) <= 5 ? 'text-danger' : 'text-dark'">
                   {{ p.stock_quantity }} <span class="fw-normal text-muted" style="font-size: 0.7rem;">шт.</span>
                 </div>
               </td>
-              <td class="text-end pe-4 py-1">
+              <td class="text-end pe-4 py-1 mobile-actions" data-label="Действия">
                 <div class="d-flex justify-content-end gap-1">
                   <NuxtLink :to="`/admin/inventory?product_id=${p.id}`" class="btn btn-xs btn-outline-primary rounded-pill p-1 px-2" title="Списать/Принять">
                     <i class="bi bi-plus-slash-minus" style="font-size: 0.8rem;"></i>

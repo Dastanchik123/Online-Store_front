@@ -242,7 +242,7 @@ onMounted(async () => {
 
       <div
         v-else
-        class="table-responsive-cards custom-scrollbar"
+        class="table-responsive custom-scrollbar"
         style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;"
       >
         <table class="table table-hover align-middle mb-0 custom-table">
@@ -250,12 +250,12 @@ onMounted(async () => {
             <tr>
               <th scope="col" class="ps-4 py-2" style="width: 50px; font-size: 0.7rem;">#</th>
               <th scope="col" class="py-2" style="width: 140px; font-size: 0.7rem;">Артикул</th>
-              <th scope="col" class="py-2" style="font-size: 0.7rem;">Товар</th>
-              <th scope="col" class="py-2" style="font-size: 0.7rem;">Категория</th>
-              <th scope="col" class="py-2" style="font-size: 0.7rem;">Стоимость</th>
-              <th scope="col" class="py-2" style="font-size: 0.7rem;">Остаток</th>
-              <th scope="col" class="py-2" style="font-size: 0.7rem;">Статус</th>
-              <th scope="col" class="text-center text-lg-end pe-4 py-2" style="font-size: 0.7rem;">Действия</th>
+              <th scope="col" class="py-2" style="min-width: 180px; font-size: 0.7rem;">Товар</th>
+              <th scope="col" class="py-2" style="min-width: 140px; font-size: 0.7rem;">Категория</th>
+              <th scope="col" class="py-2" style="min-width: 110px; font-size: 0.7rem;">Стоимость</th>
+              <th scope="col" class="py-2" style="min-width: 100px; font-size: 0.7rem;">Остаток</th>
+              <th scope="col" class="py-2" style="min-width: 100px; font-size: 0.7rem;">Статус</th>
+              <th scope="col" class="text-end pe-4 py-2" style="min-width: 150px; font-size: 0.7rem;">Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -266,27 +266,27 @@ onMounted(async () => {
               style="cursor: pointer;"
               @dblclick="navigateTo(`/admin/products/update-${product.uuid || product.id}`)"
             >
-              <td class="ps-4 text-muted py-1" style="font-size: 0.75rem;" data-label="#">
+              <td class="ps-4 text-muted py-1" style="font-size: 0.75rem;">
                 {{ index + 1 }}
               </td>
-              <td data-label="Артикул" class="py-1">
+              <td class="py-1">
                 <div class="text-muted font-monospace fw-bold" style="font-size: 0.75rem;">
                   {{ product.sku }}
                 </div>
               </td>
-              <td data-label="Товар" class="py-1">
+              <td class="py-1">
                 <div class="d-flex align-items-center">
                   <div class="lh-1">
                     <div class="fw-bold text-dark small">{{ product.name }}</div>
                   </div>
                 </div>
               </td>
-              <td data-label="Категория" class="py-1">
+              <td class="py-1">
                 <span class="category-pill shadow-xs" style="font-size: 0.7rem; padding: 0.1rem 0.6rem;">{{
                   product.category?.name || "—"
                 }}</span>
               </td>
-              <td data-label="Стоимость" class="py-1">
+              <td class="py-1">
                 <div class="fw-bold text-dark font-monospace small">
                   {{ formatPrice(product.price) }}
                 </div>
@@ -298,16 +298,14 @@ onMounted(async () => {
                   % {{ formatPrice(product.sale_price) }}
                 </div>
               </td>
-              <td data-label="Остаток" class="py-1">
+              <td class="py-1">
                 <div class="stock-badge py-0 px-2" :class="stockClass(product)" style="font-size: 0.7rem;">
                   <span class="count">{{ product.stock_quantity }}</span>
                   <span class="unit ms-1">шт.</span>
                 </div>
               </td>
-              <td data-label="Статус" class="py-1">
-                <div
-                  class="d-flex gap-1 flex-wrap justify-content-end justify-content-lg-start"
-                >
+              <td class="py-1">
+                <div class="d-flex gap-1 flex-wrap">
                   <span
                     class="badge-status"
                     :class="product.is_active ? 'active' : 'inactive'"
@@ -317,7 +315,7 @@ onMounted(async () => {
                   </span>
                 </div>
               </td>
-              <td class="text-end pe-4 py-1 mobile-actions">
+              <td class="text-end pe-4 py-1">
                 <div class="d-flex justify-content-end gap-1">
                   <NuxtLink
                     :to="`/admin/products/update-${product.id}`"

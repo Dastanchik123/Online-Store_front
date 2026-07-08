@@ -1,3 +1,4 @@
+import { useUiStore } from "~/stores/ui";
 
 interface ElectronPrinter {
   name: string;
@@ -238,6 +239,44 @@ export const usePrinter = () => {
     `;
   };
 
+  const printViaBrowser = (html: string) => {
+    const frame = document.createElement('iframe');
+    frame.style.position = 'fixed';
+    frame.style.width = '0';
+    frame.style.height = '0';
+    frame.style.border = '0';
+    frame.style.visibility = 'hidden';
+    document.body.appendChild(frame);
+
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      if (frame.parentNode) document.body.removeChild(frame);
+    };
+
+    const win = frame.contentWindow;
+    const doc = win?.document;
+    if (!win || !doc) {
+      cleanup();
+      return;
+    }
+
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    // Дать браузеру время отрисовать документ перед печатью,
+    // и не удалять iframe до завершения/отмены печати (иначе окно
+    // печати может остаться пустым или не открыться вовсе).
+    setTimeout(() => {
+      win.onafterprint = cleanup;
+      win.focus();
+      win.print();
+      setTimeout(cleanup, 10000);
+    }, 300);
+  };
+
   const printReceipt = async (
     orderData: any, // Теперь можно передавать либо ID (для API), либо весь объект заказа (для локальной печати)
     type: "thermal" | "full" = "thermal"
@@ -279,14 +318,7 @@ export const usePrinter = () => {
           printerName: activePrinter.value
         });
       } else {
-        const frame = document.createElement('iframe');
-        frame.style.display = 'none';
-        document.body.appendChild(frame);
-        const doc = frame.contentWindow?.document;
-        if (doc) {
-          doc.open(); doc.write(htmlContent); doc.close();
-          setTimeout(() => { frame.contentWindow?.print(); document.body.removeChild(frame); }, 500);
-        }
+        printViaBrowser(htmlContent);
       }
     } catch (e: any) {
       console.error("Printing failing:", e);
@@ -313,13 +345,7 @@ export const usePrinter = () => {
       });
       uiStore.addToast("Тестовая страница отправлена", "success");
     } else {
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.write(testHtml);
-        printWindow.document.close();
-        printWindow.print();
-        printWindow.close();
-      }
+      printViaBrowser(testHtml);
     }
   };
 

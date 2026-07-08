@@ -4,6 +4,8 @@ const authStore = useAuthStore();
 const config = useRuntimeConfig();
 const { settings, fetchPublicSettings } = useSettings();
 const isSidebarOpen = ref(false);
+const uiStore = useUiStore();
+const { $echo } = useNuxtApp();
 
 const toggleSidebar = () => {
   isSidebarOpen.value = !isSidebarOpen.value;
@@ -12,8 +14,26 @@ const closeSidebar = () => {
   isSidebarOpen.value = false;
 };
 
+let adminOrdersSubscribed = false;
+
 onMounted(() => {
   fetchPublicSettings();
+
+  if (import.meta.client && $echo) {
+    ($echo as any)
+      .private("admin.orders")
+      .listen(".NewOrderPlaced", (e: any) => {
+        uiStore.info(`Новый заказ #${e.order_number} на сумму ${e.total} сом`);
+      });
+    adminOrdersSubscribed = true;
+  }
+});
+
+onUnmounted(() => {
+  if (import.meta.client && $echo && adminOrdersSubscribed) {
+    ($echo as any).leave("admin.orders");
+    adminOrdersSubscribed = false;
+  }
 });
 </script>
 

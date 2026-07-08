@@ -68,6 +68,50 @@ const form = ref({
 });
 const editingPurchaseId = ref(null);
 
+// Черновик накладной сохраняется в localStorage, чтобы случайное обновление
+// страницы (F5) не стирало уже подобранные товары и поставщика
+const PURCHASE_DRAFT_KEY = "purchase_draft_v1";
+
+const saveDraftToStorage = () => {
+  if (!import.meta.client || editingPurchaseId.value) return;
+  if (!form.value.supplier_id && form.value.items.length === 0) {
+    localStorage.removeItem(PURCHASE_DRAFT_KEY);
+    return;
+  }
+  localStorage.setItem(PURCHASE_DRAFT_KEY, JSON.stringify(form.value));
+};
+
+const clearDraftFromStorage = () => {
+  if (!import.meta.client) return;
+  localStorage.removeItem(PURCHASE_DRAFT_KEY);
+};
+
+const restoreDraftFromStorage = () => {
+  if (!import.meta.client) return;
+  try {
+    const raw = localStorage.getItem(PURCHASE_DRAFT_KEY);
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    if (draft && (draft.items?.length || draft.supplier_id)) {
+      form.value = { supplier_id: "", paid_amount: 0, items: [], ...draft };
+      activeTab.value = "create";
+      uiStore.success("Восстановлен несохранённый черновик приёма товара");
+    }
+  } catch (e) {
+    console.error("Failed to restore purchase draft", e);
+  }
+};
+
+let draftSaveTimer = null;
+watch(
+  form,
+  () => {
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(saveDraftToStorage, 300);
+  },
+  { deep: true },
+);
+
 const showPaymentModal = ref(false);
 const selectedPurchaseForPayment = ref(null);
 const paymentForm = ref({
@@ -322,6 +366,7 @@ const handleSubmit = async () => {
       await createPurchase(form.value);
       uiStore.success("Поставка успешно оприходована!");
     }
+    clearDraftFromStorage();
     cancelEdit();
     loadData();
   } catch (error) {
@@ -383,7 +428,10 @@ const filteredProducts = computed(() => {
     .slice(0, 10);
 });
 
-onMounted(loadData);
+onMounted(async () => {
+  await loadData();
+  restoreDraftFromStorage();
+});
 </script>
 
 <template>
@@ -1285,23 +1333,40 @@ onMounted(loadData);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.h-view-content {
-  height: calc(100vh - 180px);
-  min-height: 500px;
-  overflow: hidden;
+/* Двухколоночная раскладка с фиксированной высотой и внутренним скроллом
+   работает только там, где колонки стоят бок о бок (xl+). На меньших
+   экранах колонки складываются в столбик, и фиксированная высота с
+   overflow:hidden обрезала бы "Формирование приёма" (и кнопку сохранения)
+   ниже первого экрана — поэтому там раскладка обычная, без обрезки. */
+@media (min-width: 1200px) {
+  .h-view-content {
+    height: calc(100vh - 180px);
+    min-height: 500px;
+    overflow: hidden;
+  }
+
+  .h-view-content > div {
+    height: 100%;
+    display: flex !important;
+    flex-direction: column;
+  }
+
+  .h-view-content .card {
+    display: flex !important;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
 }
 
-.h-view-content > div {
-  height: 100%;
-  display: flex !important;
-  flex-direction: column;
-}
+@media (max-width: 1199.98px) {
+  .h-view-content .col-xl-5 {
+    margin-bottom: 1.5rem;
+  }
 
-.h-view-content .card {
-  display: flex !important;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
+  .h-view-content .product-selection-list {
+    max-height: 400px;
+  }
 }
 
 .product-selection-list,

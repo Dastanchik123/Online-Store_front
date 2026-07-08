@@ -7,7 +7,10 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     public: {
-      apiBase: "https://online-store-back.fly.dev/api" //192.168.2.176:8000/api",
+      apiBase: "http://192.168.2.176:8000/api", //"https://online-store-back.fly.dev/api",
+      wsHost: "192.168.2.176",
+      wsPort: 6001,
+      wsKey: "local-app-key",
     },
   },
 

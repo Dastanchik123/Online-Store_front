@@ -6,8 +6,12 @@ definePageMeta({
 
 const authStore = useAuthStore();
 const ui = useUiStore();
-const { printReceipt, initPrinter } = usePrinter();
+const { printReceipt, initPrinter, isConnected } = usePrinter();
 const { settings, fetchPublicSettings } = useSettings();
+const { deviceType, setDeviceType } = useDeviceMode();
+
+const vkbdActive = ref(null);
+const showDeviceModal = ref(false);
 
 const cart = ref([]);
 const searchQuery = ref("");
@@ -23,6 +27,8 @@ const hotProducts = ref([]);
 const activeGroup = ref(null);
 const hotProductIndex = ref(-1);
 const hotGroupIndex = ref(-1);
+const searchResultsEl = ref(null);
+const hotPanelEl = ref(null);
 
 const barcodeBuffer = ref("");
 const lastKeyTime = ref(0);
@@ -73,6 +79,22 @@ const couponCode = ref("");
 const couponDiscount = ref(0);
 const isCouponValidating = ref(false);
 const appliedCoupon = ref(null);
+
+const scrollActiveIntoView = async (containerRef, selector, index) => {
+  if (index < 0) return;
+  await nextTick();
+  const container = containerRef.value;
+  const el = container?.querySelectorAll(selector)?.[index];
+  el?.scrollIntoView({ block: "nearest" });
+};
+
+watch(searchResultIndex, (idx) => {
+  scrollActiveIntoView(searchResultsEl, ":scope > div", idx);
+});
+
+watch(hotProductIndex, (idx) => {
+  scrollActiveIntoView(hotPanelEl, ".hot-item-row", idx);
+});
 
 const handleGlobalKeyDown = async (e) => {
   const key = e.key;
@@ -458,12 +480,44 @@ const searchUsers = async () => {
   }
 };
 
-const addToCart = (product) => {
-  if (product.stock_quantity <= 0) {
-    ui.addToast(`Товар "${product.name}" закончился на складе`, "error");
-    return;
-  }
+const vkbdFieldMap = computed(() => ({
+  search: searchQuery,
+  customer: userSearchQuery,
+  coupon: couponCode,
+}));
 
+const vkbdInputHandlers = {
+  search: () => searchProducts(),
+  customer: () => searchUsers(),
+  coupon: () => {},
+};
+
+const showKeyboard = computed(
+  () => deviceType.value === "monoblock" && vkbdActive.value !== null,
+);
+
+const handleVkbdChar = (ch) => {
+  const field = vkbdFieldMap.value[vkbdActive.value];
+  if (!field) return;
+  field.value = (field.value || "") + ch;
+  vkbdInputHandlers[vkbdActive.value]?.();
+};
+
+const handleVkbdBackspace = () => {
+  const field = vkbdFieldMap.value[vkbdActive.value];
+  if (!field) return;
+  field.value = (field.value || "").slice(0, -1);
+  vkbdInputHandlers[vkbdActive.value]?.();
+};
+
+const handleVkbdSpace = () => handleVkbdChar(" ");
+
+const handleVkbdEnter = () => {
+  vkbdActive.value = null;
+  if (typeof document !== "undefined") document.activeElement?.blur();
+};
+
+const addToCart = (product) => {
   const existing = cart.value.find((item) => item.product_id === product.id);
   if (existing) {
     existing.quantity++;
@@ -490,7 +544,7 @@ const removeFromCart = (index) => {
 
 const updateQuantity = (item, delta) => {
   const newQty = item.quantity + delta;
-  if (newQty > 0 && newQty <= item.stock) {
+  if (newQty > 0) {
     item.quantity = newQty;
   }
 };
@@ -839,6 +893,7 @@ watch(couponDiscount, (newDiscount) => {
             </button>
           </div>
           <div
+            ref="hotPanelEl"
             class="p-2 flex-grow-1 overflow-auto bg-white custom-scrollbar-gray"
           >
             <div class="d-flex flex-column gap-2">
@@ -949,6 +1004,20 @@ watch(couponDiscount, (newDiscount) => {
                 <span class="small fw-bold">{{ isConnected ? 'Electron' : 'Browser' }}</span>
               </div>
               <button
+                @click="showDeviceModal = true"
+                class="badge px-3 py-2 border rounded-pill d-flex align-items-center gap-2 shadow-sm bg-light text-dark"
+                style="cursor: pointer"
+                title="Тип устройства (для экранной клавиатуры)"
+              >
+                <i
+                  class="bi fs-6"
+                  :class="deviceType === 'monoblock' ? 'bi-tablet' : 'bi-pc-display'"
+                ></i>
+                <span class="small fw-bold">{{
+                  deviceType === "monoblock" ? "Моноблок" : "ПК"
+                }}</span>
+              </button>
+              <button
                 @click="loadAllProducts"
                 class="btn btn-light rounded-circle shadow-sm border"
                 style="width: 40px; height: 40px"
@@ -1012,11 +1081,13 @@ watch(couponDiscount, (newDiscount) => {
                       @input="searchProducts"
                       @focus="
                         isSearchFocused = true;
+                        vkbdActive = 'search';
                         searchProducts();
                       "
                       @blur="
                         setTimeout(() => {
                           isSearchFocused = false;
+                          if (vkbdActive === 'search') vkbdActive = null;
                         }, 200)
                       "
                       type="text"
@@ -1027,6 +1098,7 @@ watch(couponDiscount, (newDiscount) => {
 
                   <div
                     v-if="isSearchFocused && searchResults.length > 0"
+                    ref="searchResultsEl"
                     class="search-results shadow-lg rounded-4 mt-1 bg-white position-absolute w-100 border animate-fade-in custom-scrollbar-gray"
                     style="z-index: 1070"
                   >
@@ -1040,7 +1112,7 @@ watch(couponDiscount, (newDiscount) => {
                         searchResultIndex = -1;
                         isSearchFocused = false;
                       "
-                      class="p-3 border-bottom d-flex justify-content-between align-items-center cursor-pointer transition-all"
+                      class="py-2 px-3 border-bottom d-flex justify-content-between align-items-center cursor-pointer transition-all"
                       :class="
                         searchResultIndex === sIdx
                           ? 'bg-primary text-white'
@@ -1054,16 +1126,6 @@ watch(couponDiscount, (newDiscount) => {
                         >
                           {{ p.name }}
                         </div>
-                        <small
-                          :class="
-                            searchResultIndex === sIdx
-                              ? 'text-white opacity-75'
-                              : 'text-muted'
-                          "
-                          style="font-size: 10px"
-                        >
-                          SKU: {{ p.sku }} | Остаток: {{ p.stock_quantity }}
-                        </small>
                       </div>
                       <div
                         class="fw-bold"
@@ -1218,7 +1280,7 @@ watch(couponDiscount, (newDiscount) => {
                       </tr>
                       <tr v-if="cart.length === 0">
                         <td
-                          colspan="4"
+                          colspan="6"
                           class="text-center py-5 text-muted opacity-50"
                         >
                           <i class="bi bi-cart-dash fs-1 d-block mb-3"></i>
@@ -1299,6 +1361,12 @@ watch(couponDiscount, (newDiscount) => {
                         <input
                           v-model="userSearchQuery"
                           @input="searchUsers"
+                          @focus="vkbdActive = 'customer'"
+                          @blur="
+                            setTimeout(() => {
+                              if (vkbdActive === 'customer') vkbdActive = null;
+                            }, 200)
+                          "
                           type="text"
                           class="form-control customer-search-input border-0 py-3 shadow-none bg-transparent"
                           placeholder="Поиск клиента (F2)..."
@@ -1375,6 +1443,12 @@ watch(couponDiscount, (newDiscount) => {
                       class="form-control border-0 py-2 px-3 shadow-none bg-transparent small fw-bold"
                       placeholder="Введите код купона (F4)..."
                       @keyup.enter="applyCoupon"
+                      @focus="vkbdActive = 'coupon'"
+                      @blur="
+                        setTimeout(() => {
+                          if (vkbdActive === 'coupon') vkbdActive = null;
+                        }, 200)
+                      "
                     />
                     <button
                       @click="applyCoupon"
@@ -1704,6 +1778,87 @@ watch(couponDiscount, (newDiscount) => {
       </div>
     </div>
     <UiToastContainer />
+
+    <Transition name="pop">
+      <PosOnScreenKeyboard
+        v-if="showKeyboard"
+        @char="handleVkbdChar"
+        @backspace="handleVkbdBackspace"
+        @space="handleVkbdSpace"
+        @enter="handleVkbdEnter"
+        @close="vkbdActive = null"
+      />
+    </Transition>
+
+    <div v-if="showDeviceModal" class="modal-backdrop fade show"></div>
+    <div
+      v-if="showDeviceModal"
+      class="modal fade show d-block"
+      tabindex="-1"
+      @click.self="showDeviceModal = false"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 rounded-4 shadow-lg">
+          <div class="modal-header border-0 p-4">
+            <h5 class="modal-title fw-bold">Тип устройства кассы</h5>
+            <button
+              type="button"
+              class="btn-close"
+              @click="showDeviceModal = false"
+            ></button>
+          </div>
+          <div class="modal-body p-4 pt-0">
+            <p class="text-muted small mb-3">
+              Настройка сохраняется только на этом устройстве. На моноблоке
+              (сенсорный экран без клавиатуры) будет появляться экранная
+              клавиатура при вводе текста.
+            </p>
+            <div class="d-flex flex-column gap-2">
+              <button
+                class="btn text-start rounded-4 border p-3 d-flex align-items-center gap-3"
+                :class="
+                  deviceType === 'monoblock'
+                    ? 'btn-primary text-white'
+                    : 'btn-light'
+                "
+                @click="setDeviceType('monoblock')"
+              >
+                <i class="bi bi-tablet fs-4"></i>
+                <div>
+                  <div class="fw-bold">Моноблок (сенсорный экран)</div>
+                  <div class="x-small opacity-75">
+                    Показывать экранную клавиатуру
+                  </div>
+                </div>
+              </button>
+              <button
+                class="btn text-start rounded-4 border p-3 d-flex align-items-center gap-3"
+                :class="
+                  deviceType === 'desktop' ? 'btn-primary text-white' : 'btn-light'
+                "
+                @click="setDeviceType('desktop')"
+              >
+                <i class="bi bi-pc-display fs-4"></i>
+                <div>
+                  <div class="fw-bold">Обычный компьютер</div>
+                  <div class="x-small opacity-75">
+                    Есть физическая клавиатура, экранная не нужна
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div class="modal-footer border-0 p-4 pt-0">
+            <button
+              class="btn btn-light rounded-pill px-4 w-100"
+              @click="showDeviceModal = false"
+            >
+              Готово
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 

@@ -1,4 +1,16 @@
 
+/* Bootstrap only ships d-{bp}-table/-row/-cell, not -header-group, so this
+   utility is defined manually for tables that hide their <thead> on mobile
+   via .table-responsive-cards and restore it as a real table header on lg+. */
+.d-lg-table-header-group {
+  display: none;
+}
+
+@media (min-width: 992px) {
+  .d-lg-table-header-group {
+    display: table-header-group !important;
+  }
+}
 
 @media (max-width: 991.98px) {
   .p-4 {

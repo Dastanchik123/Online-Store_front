@@ -297,7 +297,7 @@ const whatsappLink = computed(() => {
                <div :class="['stock-indicator d-flex align-items-center gap-2', product.in_stock ? 'text-success' : 'text-danger']">
                  <span class="pulse-dot" v-if="product.in_stock"></span>
                  <span class="fw-bold">
-                   {{ product.in_stock ? `В наличии (${product.stock_quantity || product.quantity} шт.)` : 'Нет в наличии' }}
+                   {{ product.in_stock ? 'В наличии' : 'Нет в наличии' }}
                  </span>
                </div>
             </div>
@@ -312,7 +312,7 @@ const whatsappLink = computed(() => {
                 <div class="qty-control d-flex align-items-center rounded-pill border bg-light" style="padding: 2px;">
                   <button class="btn btn-qty rounded-circle" @click="quantity > 1 ? quantity-- : null" :disabled="quantity <= 1">−</button>
                   <input type="number" v-model.number="quantity" class="qty-input" readonly />
-                  <button class="btn btn-qty rounded-circle" @click="quantity < (product.stock_quantity || product.quantity) ? quantity++ : null" :disabled="quantity >= (product.stock_quantity || product.quantity)">+</button>
+                  <button class="btn btn-qty rounded-circle" @click="quantity < 99 ? quantity++ : null" :disabled="quantity >= 99">+</button>
                 </div>
               </div>
 

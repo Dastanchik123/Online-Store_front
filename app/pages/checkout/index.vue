@@ -1,8 +1,7 @@
 <script setup>
 const { getCart } = useCart();
 const { createOrder } = useOrders();
-const { getAddresses, createAddress } = useAddresses();
-const { settings, fetchPublicSettings } = useSettings(); 
+const { settings, fetchPublicSettings } = useSettings();
 const cartStore = useCartStore();
 
 definePageMeta({
@@ -76,6 +75,18 @@ const saveCustomerInfoToStorage = () => {
   );
 };
 
+// Сохраняем контактные данные в localStorage по мере ввода (с debounce),
+// чтобы они не терялись, даже если пользователь не дошёл до оформления заказа
+let customerInfoSaveTimer = null;
+watch(
+  () => ({ ...shippingAddress.value }),
+  () => {
+    clearTimeout(customerInfoSaveTimer);
+    customerInfoSaveTimer = setTimeout(saveCustomerInfoToStorage, 500);
+  },
+  { deep: true },
+);
+
 const loadData = async () => {
   loading.value = true;
   error.value = null;
@@ -88,18 +99,6 @@ const loadData = async () => {
     }
 
     loadCustomerInfoFromStorage();
-
-
-    try {
-      const addresses = await getAddresses({ type: "shipping" });
-      if (addresses.length > 0) {
-        const defaultAddress =
-          addresses.find((a) => a.is_default) || addresses[0];
-        Object.assign(shippingAddress.value, defaultAddress);
-      }
-    } catch (err) {
-
-    }
   } catch (err) {
     error.value = err.data?.message || "Ошибка загрузки данных";
   } finally {

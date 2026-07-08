@@ -232,9 +232,9 @@ onMounted(loadSuppliers);
 
     
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
-      <div class="table-responsive" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
+      <div class="table-responsive-cards" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
         <table class="table table-hover align-middle mb-0">
-          <thead>
+          <thead class="d-none d-lg-table-header-group">
             <tr>
               <th class="ps-4">Наименование</th>
               <th>Контакты</th>
@@ -276,7 +276,7 @@ onMounted(loadSuppliers);
                   </div>
                 </div>
               </td>
-              <td>
+              <td data-label="Контакты">
                 <div class="d-flex flex-column gap-1">
                   <span class="small d-flex align-items-center"
                     ><i class="bi bi-telephone text-primary me-2"></i
@@ -288,13 +288,13 @@ onMounted(loadSuppliers);
                   >
                 </div>
               </td>
-              <td class="text-muted small">
+              <td class="text-muted small" data-label="Адрес">
                 <div class="text-truncate" style="max-width: 250px">
                   <i class="bi bi-geo-alt me-1"></i
                   >{{ supplier.address || "—" }}
                 </div>
               </td>
-              <td>
+              <td data-label="Наш долг">
                 <div
                   class="fw-bold"
                   :class="
@@ -306,7 +306,7 @@ onMounted(loadSuppliers);
                   {{ formatPrice(supplier.debt_to_supplier) }}
                 </div>
               </td>
-              <td class="text-end pe-4">
+              <td class="text-end pe-4 mobile-actions" data-label="Действия">
                 <div class="d-flex justify-content-end gap-2">
                   <button
                     v-if="parseFloat(supplier.debt_to_supplier || 0) > 0"

@@ -24,7 +24,7 @@ function createWindow() {
     },
   });
 
-  win.loadURL('http://localhost:3000');
+  win.loadURL('https://online-store-hyu-ta.fly.dev');
   // win.webContents.openDevTools();
 }
 

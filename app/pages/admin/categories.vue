@@ -164,16 +164,16 @@ onMounted(() => {
         Нет категорий
       </div>
 
-      <div v-else class="table-responsive" style="max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
-        <table class="table table-hover align-middle mb-0">
+      <div v-else class="table-responsive categories-table-wrap" style="max-height: calc(100vh - 320px); overflow-y: auto; background: #f8fafc;">
+        <table class="table table-hover align-middle mb-0 categories-table">
           <thead class="table-light">
             <tr>
               <th scope="col" class="ps-4" style="width: 60px">ID</th>
-              <th scope="col" style="width: 70px">Фото</th>
-              <th scope="col">Название</th>
-              <th scope="col" style="width: 220px">Slug</th>
-              <th scope="col" style="width: 130px">Активность</th>
-              <th scope="col" class="text-end pe-4" style="width: 110px">
+              <th scope="col" style="width: 90px">Фото</th>
+              <th scope="col" style="min-width: 200px">Название</th>
+              <th scope="col" style="min-width: 180px">Slug</th>
+              <th scope="col" style="min-width: 140px">Активность</th>
+              <th scope="col" class="text-end pe-4" style="min-width: 130px">
                 Действия
               </th>
             </tr>
@@ -185,16 +185,14 @@ onMounted(() => {
                 <img
                   v-if="cat.image"
                   :src="getImageUrl(cat.image)"
-                  class="rounded bg-light"
-                  style="width: 40px; height: 40px; object-fit: cover"
+                  class="rounded bg-light category-thumb"
                   alt=""
                 />
                 <div
                   v-else
-                  class="rounded bg-light d-flex align-items-center justify-content-center text-muted"
-                  style="width: 40px; height: 40px"
+                  class="rounded bg-light d-flex align-items-center justify-content-center text-muted category-thumb"
                 >
-                  <i class="bi bi-image small"></i>
+                  <i class="bi bi-image"></i>
                 </div>
               </td>
               <td class="fw-medium">
@@ -346,3 +344,35 @@ onMounted(() => {
     </UiBaseModal>
   </div>
 </template>
+
+<style scoped>
+/* Увеличенная высота строк */
+.categories-table thead th {
+  padding: 14px 12px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #64748b;
+}
+
+.categories-table tbody td {
+  padding: 18px 12px;
+  vertical-align: middle;
+  font-size: 0.95rem;
+}
+
+.category-thumb {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+}
+
+/* На узких экранах таблица остаётся таблицей и скроллится по горизонтали
+   (см. класс table-responsive), а не превращается в карточки. */
+@media (max-width: 767.98px) {
+  .categories-table-wrap {
+    max-height: none !important;
+    background: transparent !important;
+  }
+}
+</style>

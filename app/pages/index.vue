@@ -177,8 +177,35 @@ useHead({
     <Transition name="app-loader-fade">
       <div v-if="initialLoading" class="app-loader-overlay">
         <div class="app-loader-content">
-          <span class="app-loader-logo-text">KurulushStore</span>
-          <div class="app-loader-spinner"></div>
+          <svg class="crane-loader" viewBox="0 0 150 110" xmlns="http://www.w3.org/2000/svg">
+            <!-- Кирпичи на земле -->
+            <rect class="crane-brick" x="16" y="94" width="14" height="10" rx="1" />
+            <rect class="crane-brick" x="30" y="94" width="14" height="10" rx="1" />
+            <rect class="crane-brick" x="23" y="84" width="14" height="10" rx="1" />
+
+            <!-- Основание и мачта крана -->
+            <line class="crane-part-dark" x1="58" y1="100" x2="92" y2="100" stroke-width="6" stroke-linecap="round" />
+            <line class="crane-part" x1="75" y1="100" x2="75" y2="18" stroke-width="5" stroke-linecap="round" />
+            <!-- Вершина мачты -->
+            <line class="crane-part" x1="75" y1="18" x2="75" y2="9" stroke-width="3" stroke-linecap="round" />
+
+            <!-- Стрела и контр-стрела -->
+            <line class="crane-part" x1="75" y1="18" x2="140" y2="18" stroke-width="5" stroke-linecap="round" />
+            <line class="crane-part" x1="75" y1="18" x2="46" y2="20" stroke-width="4" stroke-linecap="round" />
+            <!-- Противовес -->
+            <rect class="crane-part-dark" x="34" y="15" width="16" height="11" rx="1" />
+
+            <!-- Растяжки от вершины мачты -->
+            <line class="crane-wire" x1="75" y1="9" x2="112" y2="18" stroke-width="1.5" />
+            <line class="crane-wire" x1="75" y1="9" x2="50" y2="20" stroke-width="1.5" />
+
+            <!-- Тележка на стреле -->
+            <rect class="crane-part-dark" x="108" y="15" width="9" height="6" rx="1" />
+
+            <!-- Трос и крюк с грузом (анимируются) -->
+            <line class="crane-cable" x1="112.5" y1="21" x2="112.5" y2="48" stroke-width="2" />
+            <rect class="crane-hook" x="104.5" y="48" width="16" height="14" rx="2" />
+          </svg>
         </div>
       </div>
     </Transition>
@@ -864,32 +891,75 @@ useHead({
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 18px;
 }
 
-.app-loader-logo-text {
-  font-size: 2rem;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  color: #fff;
-  background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+.crane-loader {
+  width: 170px;
+  height: 124px;
 }
 
-.app-loader-spinner {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 4px solid rgba(56, 189, 248, 0.2);
-  border-top-color: #38bdf8;
-  animation: app-loader-spin 0.8s linear infinite;
+.crane-part {
+  stroke: #94a3b8;
+  fill: none;
 }
 
-@keyframes app-loader-spin {
-  to {
-    transform: rotate(360deg);
+.crane-part-dark {
+  fill: #475569;
+  stroke: #475569;
+}
+
+.crane-wire {
+  stroke: #64748b;
+  stroke-dasharray: 3 3;
+  fill: none;
+}
+
+.crane-cable {
+  stroke: #38bdf8;
+  animation: crane-cable-move 2.2s ease-in-out infinite;
+}
+
+.crane-hook {
+  fill: #fb923c;
+  animation: crane-hook-move 2.2s ease-in-out infinite;
+}
+
+.crane-brick {
+  fill: #b45309;
+  animation: crane-brick-pulse 2.2s ease-in-out infinite;
+}
+.crane-brick:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.crane-brick:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes crane-cable-move {
+  0%, 100% {
+    y2: 48;
+  }
+  50% {
+    y2: 32;
+  }
+}
+
+@keyframes crane-hook-move {
+  0%, 100% {
+    y: 48;
+  }
+  50% {
+    y: 32;
+  }
+}
+
+@keyframes crane-brick-pulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
