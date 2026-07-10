@@ -777,6 +777,7 @@ const finalizeSale = async () => {
       items: cart.value,
       user_id: selectedUser.value?.id,
       user_uuid: selectedUser.value?.uuid,
+      staff_uuid: authStore.user?.uuid,
       cash_amount: Number(cashAmount.value),
       transfer_amount: Number(transferAmount.value),
       is_debt: isDebt.value,

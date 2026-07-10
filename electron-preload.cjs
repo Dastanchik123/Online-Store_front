@@ -1,6 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Local API: apiFetch → SQLite (роутер в main-процессе)
+  localApi: (request) => ipcRenderer.invoke('local-api', request),
+
+  // Событие «данные обновились после синхронизации» — для обновления UI
+  onDataChanged: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('data-changed', listener);
+    return () => ipcRenderer.removeListener('data-changed', listener);
+  },
+
   // Printers
   getPrinters: () => ipcRenderer.invoke('get-printers'),
   printHTML: (data) => ipcRenderer.send('print-html', data),
@@ -20,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Sync
   syncNow: () => ipcRenderer.invoke('sync-now'),
   getSyncStatus: () => ipcRenderer.invoke('sync-get-status'),
+  saveWsConfig: (config) => ipcRenderer.invoke('ws-config-save', config),
 
   // Settings
   getTerminalId: () => ipcRenderer.invoke('get-terminal-id'),

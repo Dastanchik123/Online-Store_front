@@ -38,6 +38,7 @@ export const usePos = () => {
           total: i.price * i.quantity
         })),
         user_uuid: data.user_uuid || data.user_id,
+        staff_uuid: data.staff_uuid,
         total_amount: data.items.reduce((acc: number, cur: any) => acc + (cur.price * cur.quantity), 0),
         discount: data.discount || 0,
         payment_method: data.cash_amount > 0 ? (data.transfer_amount > 0 ? 'mixed' : 'cash') : 'transfer',

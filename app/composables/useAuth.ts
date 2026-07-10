@@ -44,10 +44,15 @@ export const useAuth = () => {
 
         // Save session to Electron SQLite for offline access & background sync
         if ((window as any).electronAPI?.authSaveSession) {
+          const pub = useRuntimeConfig().public;
           (window as any).electronAPI.authSaveSession({
             token: response.token,
             user: response.user,
-            apiBase: useRuntimeConfig().public.apiBase,
+            apiBase: pub.apiBase,
+            wsHost: pub.wsHost,
+            wsPort: pub.wsPort,
+            wsKey: pub.wsKey,
+            wsTLS: !!pub.wsTLS,
           }).catch(console.error);
         }
       }

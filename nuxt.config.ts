@@ -6,11 +6,19 @@ export default defineNuxtConfig({
   modules: ["@pinia/nuxt"],
 
   runtimeConfig: {
+    // Дефолты — ГЛОБАЛЬНЫЙ прод (Vercel/fly без env-переменных работают из коробки).
+    // Для локальной разработки с LAN-сервером переопределяйте через .env:
+    //   NUXT_PUBLIC_API_BASE=http://192.168.2.176:8000/api
+    //   NUXT_PUBLIC_WS_HOST=192.168.2.176
+    //   NUXT_PUBLIC_WS_PORT=6001
+    //   NUXT_PUBLIC_WS_KEY=local-app-key
+    //   NUXT_PUBLIC_WS_TLS=false
     public: {
-      apiBase: "http://192.168.2.176:8000/api", //"https://online-store-back.fly.dev/api",
-      wsHost: "192.168.2.176",
-      wsPort: 6001,
-      wsKey: "local-app-key",
+      apiBase: "https://online-store-back.fly.dev/api",
+      wsHost: "online-store-soketi.fly.dev",
+      wsPort: 443,
+      wsKey: "05ae0397a6d6ec07bcd3919d",
+      wsTLS: true,
     },
   },
 
@@ -54,7 +62,7 @@ export default defineNuxtConfig({
     preset: "vercel",
     devProxy: {
       "/api": {
-        target: "http://192.168.2.176:8000/api",
+        target: "https://online-store-back.fly.dev/api",
         changeOrigin: true,
       },
     },

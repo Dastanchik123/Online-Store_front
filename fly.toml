@@ -6,6 +6,11 @@ primary_region = "fra"
 [env]
   PORT = "3000"
   NUXT_PUBLIC_API_BASE = "https://online-store-back.fly.dev/api"
+  # Realtime (Soketi на fly): wss через 443
+  NUXT_PUBLIC_WS_HOST = "online-store-soketi.fly.dev"
+  NUXT_PUBLIC_WS_PORT = "443"
+  NUXT_PUBLIC_WS_KEY = "05ae0397a6d6ec07bcd3919d"
+  NUXT_PUBLIC_WS_TLS = "true"
 
 [http_service]
   internal_port = 3000
