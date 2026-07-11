@@ -187,10 +187,10 @@ const tableHeightStyle = computed(() =>
 const rowHeight = ref(32); // фиксируется CSS, уточняется замером
 const scrollTop = ref(0);
 const viewportHeight = ref(600);
-const VSCROLL_BUFFER = 25; // запас строк сверху и снизу за экраном
+const VSCROLL_BUFFER = 40; // запас строк сверху и снизу за экраном
 // Окно рендера сдвигается блоками по N строк: при плавном скролле Vue
 // перерисовывает таблицу в разы реже, и она не «пустеет»
-const VSCROLL_CHUNK = 10;
+const VSCROLL_CHUNK = 20;
 
 const vStart = computed(() => {
   const start = Math.max(
@@ -311,6 +311,12 @@ const applyProductsData = (data, perPage) => {
       per_page: 15,
     };
   }
+
+  // Сквозной номер приклеен к товару, а не вычисляется от позиции окна:
+  // иначе v-memo строк не работал бы (номер менялся бы при каждом сдвиге)
+  products.value.data.forEach((p, i) => {
+    p._idx = i + 1;
+  });
 };
 
 const fetchProducts = async () => {
@@ -543,15 +549,19 @@ onUnmounted(() => {
             <tr v-if="padTop > 0" aria-hidden="true">
               <td colspan="8" :style="{ height: padTop + 'px', padding: 0, border: 0, background: spacerStripes }"></td>
             </tr>
+            <!-- v-memo: строка перерисовывается только если сменился сам
+                 товар — сдвиг окна виртуального скролла не трогает уже
+                 отрисованные строки, поэтому рендер успевает за прокруткой -->
             <tr
-              v-for="(product, index) in visibleProducts"
+              v-for="product in visibleProducts"
               :key="product.id"
+              v-memo="[product]"
               class="product-row"
               style="cursor: pointer;"
               @dblclick="navigateTo(`/admin/products/update-${product.uuid || product.id}`)"
             >
               <td class="ps-2 text-muted py-1" style="font-size: 0.75rem;">
-                {{ vStart + index + 1 }}
+                {{ product._idx }}
               </td>
               <td class="py-1">
                 <div class="text-muted font-monospace fw-bold" style="font-size: 0.75rem;">
