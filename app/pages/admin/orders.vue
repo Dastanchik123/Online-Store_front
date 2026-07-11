@@ -12,6 +12,7 @@ const {
   downloadOrderThermalReceipt,
   returnOrderItems,
 } = useOrders();
+const { printReceipt, initPrinter } = usePrinter();
 
 const orders = ref({
   data: [],
@@ -340,20 +341,25 @@ const formatDate = (dateStr) => {
   });
 };
 
-// Live-обновление списка при поступлении нового заказа. Раньше список
-// грузился только при монтировании/смене фильтров — событие NewOrderPlaced
-// ловил лишь layouts/admin.vue (тост), сама таблица не обновлялась.
-// stopListening снимает ТОЛЬКО этот обработчик, не трогая канал целиком —
-// он используется и другими подписчиками (тост в layout, автопечать в кассе).
+// Live-обновление списка + автопечать чека при поступлении нового заказа.
+// Раньше список грузился только при монтировании/смене фильтров — событие
+// NewOrderPlaced ловил лишь layouts/admin.vue (тост), сама таблица не
+// обновлялась и ничего не печаталось. stopListening снимает ТОЛЬКО этот
+// обработчик, не трогая канал целиком — он используется и другими
+// подписчиками (тост в layout, своя подписка в кассе).
 const { $echo } = useNuxtApp();
-const onNewOrderPlaced = () => {
+const onNewOrderPlaced = (e) => {
   fetchOrders();
+  printReceipt(e.id, "thermal");
 };
 
 onMounted(() => {
   fetchOrders();
-  if (import.meta.client && $echo) {
-    $echo.private("admin.orders").listen(".NewOrderPlaced", onNewOrderPlaced);
+  if (import.meta.client) {
+    initPrinter();
+    if ($echo) {
+      $echo.private("admin.orders").listen(".NewOrderPlaced", onNewOrderPlaced);
+    }
   }
 });
 
