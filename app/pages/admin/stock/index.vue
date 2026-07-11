@@ -208,7 +208,11 @@ onMounted(async () => {
 
     <!-- Table: Scrollable & Denser -->
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden inventory-table-card flex-grow-1">
-      <div class="table-container table-responsive-cards custom-scrollbar" style="max-height: calc(100vh - 250px); overflow-y: auto;">
+      <div
+        class="table-container table-responsive-cards custom-scrollbar"
+        style="max-height: calc(100vh - 250px); overflow-y: auto;"
+        :class="{ 'is-refetching': isLoading && filteredProducts.length > 0 }"
+      >
         <table class="table table-hover align-middle mb-0" style="table-layout: fixed;">
           <thead class="sticky-top bg-white z-2 shadow-sm d-none d-lg-table-header-group">
             <tr>
@@ -232,7 +236,11 @@ onMounted(async () => {
             </tr>
           </thead>
           <tbody>
-            <tr v-if="isLoading">
+            <!-- Пока грузится следующая страница/фильтр, старые строки
+                 остаются на месте: если убрать их сразу, таблица схлопывается
+                 до одной строки со спиннером, страница укорачивается и
+                 браузер сбрасывает скролл наверх -->
+            <tr v-if="isLoading && filteredProducts.length === 0">
               <td colspan="3" class="text-center p-4">
                 <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
               </td>
@@ -270,14 +278,17 @@ onMounted(async () => {
       <div v-if="products.last_page > 1" class="card-footer bg-white border-0 p-2 d-flex justify-content-center border-top">
         <nav>
           <ul class="pagination pagination-xs mb-0">
-            <li class="page-item" :class="{ disabled: filters.page === 1 }">
-              <button class="page-link" @click="changePage(filters.page - 1)" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">Назад</button>
+            <li class="page-item" :class="{ disabled: filters.page === 1 || isLoading }">
+              <button class="page-link" :disabled="isLoading" @click="changePage(filters.page - 1)" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">Назад</button>
             </li>
             <li class="page-item active">
-              <span class="page-link" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">{{ filters.page }} из {{ products.last_page }}</span>
+              <span class="page-link" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">
+                {{ filters.page }} из {{ products.last_page }}
+                <span v-if="isLoading" class="spinner-border spinner-border-sm ms-1" style="width: 0.7rem; height: 0.7rem;" role="status"></span>
+              </span>
             </li>
-            <li class="page-item" :class="{ disabled: filters.page === products.last_page }">
-              <button class="page-link" @click="changePage(filters.page + 1)" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">Вперед</button>
+            <li class="page-item" :class="{ disabled: filters.page === products.last_page || isLoading }">
+              <button class="page-link" :disabled="isLoading" @click="changePage(filters.page + 1)" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">Вперед</button>
             </li>
           </ul>
         </nav>
@@ -287,6 +298,14 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* Дозагрузка страницы/фильтра: старые строки остаются, но приглушены —
+   без схлопывания таблицы и без сброса скролла страницы */
+.table-container.is-refetching tbody {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
 .luxury-header {
   background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
   position: relative;
