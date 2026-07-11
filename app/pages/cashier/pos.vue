@@ -359,17 +359,9 @@ const handleGlobalKeyDown = async (e) => {
   }
 };
 
-// Автопечать чека при новом заказе с сайта: страница кассы работает
-// без layout (layout: false), поэтому общая подписка в layouts/admin.vue
-// сюда не доходит — подписываемся на канал сами.
-const { $echo } = useNuxtApp();
-let posOrdersSubscribed = false;
-
-const onNewOrderPlaced = (e) => {
-  ui.addToast(`Новый заказ #${e.order_number} — печатаю чек`, "info");
-  printReceipt(e.id, "thermal");
-};
-
+// Касса печатает только чеки СВОИХ продаж (после createPosSale, см. ниже).
+// Автопечать входящих онлайн-заказов (NewOrderPlaced) — только на
+// странице /admin/orders, здесь её быть не должно.
 onMounted(async () => {
   window.addEventListener("keydown", handleGlobalKeyDown);
   loadAllProducts();
@@ -382,20 +374,11 @@ onMounted(async () => {
       cart.value = JSON.parse(savedCart);
     }
       await initPrinter();
-
-    if ($echo) {
-      $echo.private("admin.orders").listen(".NewOrderPlaced", onNewOrderPlaced);
-      posOrdersSubscribed = true;
-    }
   }
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleGlobalKeyDown);
-  if (import.meta.client && $echo && posOrdersSubscribed) {
-    $echo.leave("admin.orders");
-    posOrdersSubscribed = false;
-  }
 });
 
 watch(
