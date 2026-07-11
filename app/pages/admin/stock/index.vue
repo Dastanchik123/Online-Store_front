@@ -88,8 +88,14 @@ const fetchProducts = async () => {
   }
 };
 
+const tableContainer = ref(null);
+
 const changePage = (page) => {
   filters.value.page = page;
+  // Новая страница показывается с первой строки: скроллим саму таблицу
+  // наверх сразу при пендинге (не дожидаясь ответа сервера). Это скролл
+  // только внутреннего контейнера — скролл всей страницы админки не трогаем.
+  tableContainer.value?.scrollTo({ top: 0, behavior: "auto" });
   fetchProducts();
 };
 
@@ -209,6 +215,7 @@ onMounted(async () => {
     <!-- Table: Scrollable & Denser -->
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden inventory-table-card flex-grow-1">
       <div
+        ref="tableContainer"
         class="table-container table-responsive-cards custom-scrollbar"
         style="max-height: calc(100vh - 250px); overflow-y: auto;"
         :class="{ 'is-refetching': isLoading && filteredProducts.length > 0 }"
