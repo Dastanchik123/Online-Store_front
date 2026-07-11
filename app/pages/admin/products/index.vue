@@ -32,6 +32,9 @@ const filters = ref({
   is_active: "",
   page: 1,
   per_page: -1,
+  // облегчённый ответ: только колонки таблицы, без description/attributes —
+  // ответ уменьшается с мегабайт до десятков килобайт
+  fields: "list",
 });
 
 const formatPrice = (price) => {
@@ -129,8 +132,8 @@ const stockClass = (product) => {
 };
 
 onMounted(async () => {
-  await fetchCategories();
-  await fetchProducts();
+  // категории и товары не зависят друг от друга — грузим параллельно
+  await Promise.all([fetchCategories(), fetchProducts()]);
 });
 </script>
 

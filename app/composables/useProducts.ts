@@ -13,6 +13,8 @@ export const useProducts = () => {
       max_price?: number;
       per_page?: number;
       page?: number;
+      // "list" — облегчённый ответ только с колонками для табличных списков
+      fields?: string;
     } = {}
   ) => {
     try {

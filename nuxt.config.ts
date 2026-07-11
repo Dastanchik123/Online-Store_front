@@ -1,8 +1,13 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+
+// NUXT_TARGET=laravel — SPA-сборка для раздачи прямо из public/ Laravel
+// (same-origin с API: нет CORS-preflight и лишнего домена). Запуск: npm run build:laravel
+const isLaravelTarget = process.env.NUXT_TARGET === "laravel";
+
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   devtools: { enabled: true },
-  ssr: true,
+  ssr: !isLaravelTarget,
   modules: ["@pinia/nuxt"],
 
   runtimeConfig: {
@@ -59,7 +64,7 @@ export default defineNuxtConfig({
   },
 
   nitro: {
-    preset: "vercel",
+    preset: isLaravelTarget ? "static" : "vercel",
     devProxy: {
       "/api": {
         target: "https://online-store-back.fly.dev/api",

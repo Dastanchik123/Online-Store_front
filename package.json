@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "nuxt build",
+    "build:laravel": "NUXT_TARGET=laravel NUXT_PUBLIC_API_BASE=/api nuxt generate && rm -rf ../Online-Store_back/public/_nuxt && cp -r .output/public/. ../Online-Store_back/public/",
     "dev": "nuxt dev --host",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
