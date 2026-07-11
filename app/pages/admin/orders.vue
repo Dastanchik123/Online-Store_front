@@ -353,19 +353,33 @@ const onNewOrderPlaced = (e) => {
   printReceipt(e.id, "thermal");
 };
 
+// Изменение статуса заказа / статуса оплаты / дат доставки на УЖЕ
+// существующем заказе (оплата картой, ручная смена статуса, погашение
+// долга в кассе и т.д.) — тоже событие OrderStatusUpdated, но чек тут
+// печатать не нужно, только обновить список.
+const onOrderStatusUpdated = () => {
+  fetchOrders();
+};
+
 onMounted(() => {
   fetchOrders();
   if (import.meta.client) {
     initPrinter();
     if ($echo) {
-      $echo.private("admin.orders").listen(".NewOrderPlaced", onNewOrderPlaced);
+      $echo
+        .private("admin.orders")
+        .listen(".NewOrderPlaced", onNewOrderPlaced)
+        .listen(".OrderStatusUpdated", onOrderStatusUpdated);
     }
   }
 });
 
 onUnmounted(() => {
   if (import.meta.client && $echo) {
-    $echo.private("admin.orders").stopListening(".NewOrderPlaced", onNewOrderPlaced);
+    $echo
+      .private("admin.orders")
+      .stopListening(".NewOrderPlaced", onNewOrderPlaced)
+      .stopListening(".OrderStatusUpdated", onOrderStatusUpdated);
   }
 });
 </script>
