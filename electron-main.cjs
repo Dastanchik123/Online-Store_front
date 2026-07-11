@@ -22,7 +22,7 @@ function createWindow() {
     },
   });
 
-  win.loadURL('https://online-store-hyu-ta.fly.dev');
+  win.loadURL('https://online-store-back.fly.dev');
   // win.webContents.openDevTools();
 }
 
