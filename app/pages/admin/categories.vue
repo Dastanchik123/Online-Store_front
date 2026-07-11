@@ -198,7 +198,7 @@ onUnmounted(() => {
         <table class="table table-hover align-middle mb-0 categories-table">
           <thead class="table-light">
             <tr>
-              <th scope="col" class="ps-4" style="width: 60px">ID</th>
+              <th scope="col" class="ps-4" style="width: 50px">#</th>
               <th scope="col" style="width: 90px">Фото</th>
               <th scope="col" style="min-width: 200px">Название</th>
               <th scope="col" style="min-width: 180px">Slug</th>
@@ -209,8 +209,8 @@ onUnmounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="cat in categories" :key="cat.id">
-              <td class="ps-4 text-muted">{{ cat.id }}</td>
+            <tr v-for="(cat, index) in categories" :key="cat.id">
+              <td class="ps-4 text-muted">{{ index + 1 }}</td>
               <td>
                 <img
                   v-if="cat.image"
