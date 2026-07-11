@@ -26,6 +26,85 @@ const products = ref({
 const categories = computed(() => productsStore.categories);
 const isLoading = ref(false);
 
+// ── Регулируемые колонки ───────────────────────────────────────────
+// Ширины тянутся за разделитель в шапке и сохраняются в localStorage.
+// Двойной клик по разделителю — сброс к значениям по умолчанию.
+const tableCols = [
+  { label: "#", w: 50, cls: "ps-4 py-2" },
+  { label: "Артикул", w: 120, cls: "py-2" },
+  { label: "Товар", w: 260, cls: "py-2" },
+  { label: "Категория", w: 150, cls: "py-2" },
+  { label: "Стоимость", w: 120, cls: "py-2" },
+  { label: "Остаток", w: 100, cls: "py-2" },
+  { label: "Статус", w: 100, cls: "py-2" },
+  { label: "Действия", w: 160, cls: "text-end pe-4 py-2" },
+];
+const COL_WIDTHS_KEY = "adminProducts:colWidths";
+// минимум должен быть не больше самой узкой колонки по умолчанию (# = 50),
+// иначе валидация при загрузке отбросит весь сохранённый набор ширин
+const MIN_COL_WIDTH = 40;
+
+const colWidths = ref(tableCols.map((c) => c.w));
+const tableWidth = computed(() =>
+  colWidths.value.reduce((sum, w) => sum + w, 0),
+);
+
+const loadColWidths = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY) || "null");
+    if (
+      Array.isArray(saved) &&
+      saved.length === tableCols.length &&
+      saved.every((w) => Number.isFinite(w) && w >= MIN_COL_WIDTH)
+    ) {
+      colWidths.value = saved;
+    }
+  } catch {}
+};
+
+let colResize = null;
+
+const onColResizeMove = (e) => {
+  if (!colResize) return;
+  colWidths.value[colResize.index] = Math.max(
+    MIN_COL_WIDTH,
+    Math.round(colResize.startWidth + e.clientX - colResize.startX),
+  );
+};
+
+const endColResize = () => {
+  if (!colResize) return;
+  colResize = null;
+  document.removeEventListener("pointermove", onColResizeMove);
+  document.removeEventListener("pointerup", endColResize);
+  document.body.style.cursor = "";
+  try {
+    localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths.value));
+  } catch {}
+};
+
+const startColResize = (index, e) => {
+  // Если таблица растянута до ширины контейнера, фактические ширины
+  // отличаются от заданных — фиксируем реальные, чтобы не было скачка
+  const ths = scrollContainer.value?.querySelectorAll("thead th");
+  if (ths?.length === colWidths.value.length) {
+    colWidths.value = Array.from(ths).map((th) =>
+      Math.round(th.getBoundingClientRect().width),
+    );
+  }
+  colResize = { index, startX: e.clientX, startWidth: colWidths.value[index] };
+  document.addEventListener("pointermove", onColResizeMove);
+  document.addEventListener("pointerup", endColResize);
+  document.body.style.cursor = "col-resize";
+};
+
+const resetColWidths = () => {
+  colWidths.value = tableCols.map((c) => c.w);
+  try {
+    localStorage.removeItem(COL_WIDTHS_KEY);
+  } catch {}
+};
+
 // ── Виртуальный скролл ─────────────────────────────────────────────
 // Данные грузятся все разом, но в DOM живут только видимые строки
 // (+буфер): рендер страницы не зависит от размера каталога.
@@ -196,9 +275,12 @@ const stockClass = (product) => {
 };
 
 onMounted(async () => {
+  loadColWidths();
   // категории и товары не зависят друг от друга — грузим параллельно
   await Promise.all([fetchCategories(), fetchProducts()]);
 });
+
+onUnmounted(endColResize);
 </script>
 
 <template>
@@ -314,19 +396,30 @@ onMounted(async () => {
         style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;"
         @scroll.passive="onTableScroll"
       >
-        <table class="table table-hover align-middle mb-0 custom-table">
+        <table
+          class="table table-hover align-middle mb-0 custom-table"
+          :style="{ width: tableWidth + 'px' }"
+        >
           <!-- table-layout: fixed — ширины колонок заданы жёстко и не
                пересчитываются при подмене строк виртуальным скроллом -->
           <thead class="sticky-top bg-white z-2">
             <tr>
-              <th scope="col" class="ps-4 py-2" style="width: 50px; font-size: 0.7rem;">#</th>
-              <th scope="col" class="py-2" style="width: 120px; font-size: 0.7rem;">Артикул</th>
-              <th scope="col" class="py-2" style="font-size: 0.7rem;">Товар</th>
-              <th scope="col" class="py-2" style="width: 150px; font-size: 0.7rem;">Категория</th>
-              <th scope="col" class="py-2" style="width: 120px; font-size: 0.7rem;">Стоимость</th>
-              <th scope="col" class="py-2" style="width: 100px; font-size: 0.7rem;">Остаток</th>
-              <th scope="col" class="py-2" style="width: 100px; font-size: 0.7rem;">Статус</th>
-              <th scope="col" class="text-end pe-4 py-2" style="width: 160px; font-size: 0.7rem;">Действия</th>
+              <th
+                v-for="(col, i) in tableCols"
+                :key="col.label"
+                scope="col"
+                :class="col.cls"
+                class="position-relative"
+                :style="{ width: colWidths[i] + 'px', fontSize: '0.7rem' }"
+              >
+                {{ col.label }}
+                <span
+                  class="col-resize-handle"
+                  title="Тяните, чтобы изменить ширину. Двойной клик — сброс"
+                  @pointerdown.prevent="startColResize(i, $event)"
+                  @dblclick="resetColWidths"
+                ></span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -456,11 +549,40 @@ onMounted(async () => {
 
 /* Жёсткая раскладка: ширины колонок берутся из thead и не зависят от
    содержимого строк — колонки не «дёргаются» при виртуальном скролле.
-   min-width даёт горизонтальную прокрутку на узких экранах вместо каши. */
+   Если сумма колонок меньше контейнера, таблица растягивается на 100%;
+   если больше — контейнер прокручивается горизонтально. */
 .custom-table {
   table-layout: fixed;
-  width: 100%;
-  min-width: 920px;
+  min-width: 100%;
+}
+
+/* Разделитель в шапке: тянется мышью, двойной клик — сброс ширин */
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  z-index: 3;
+}
+
+.col-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.col-resize-handle:hover::after {
+  background: #0ea5e9;
 }
 
 .custom-table td {
