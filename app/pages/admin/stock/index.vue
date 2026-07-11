@@ -20,29 +20,30 @@ const isLoading = ref(false);
 const sortField = ref('none'); // none, stock_quantity
 const sortOrder = ref('desc'); // asc, desc
 
+// Сортировка по остатку — это порядок ПО ВСЕМ товарам, не только по
+// текущей странице: раньше сортировка была локальной (JS .sort() по 100
+// строкам страницы), из-за чего при листании порядок ломался. Теперь
+// порядок задаётся на бэкенде (sort_by=stock_quantity) — при клике по
+// заголовку страница сбрасывается на 1-ю и товары перезапрашиваются.
 const toggleSort = (field) => {
   if (sortField.value === field) {
-    if (sortOrder.value === 'desc') sortOrder.value = 'asc';
-    else sortField.value = 'none';
+    if (sortOrder.value === 'desc') {
+      sortOrder.value = 'asc';
+    } else {
+      sortField.value = 'none';
+    }
   } else {
     sortField.value = field;
     sortOrder.value = 'desc';
   }
+  filters.value.page = 1;
+  tableContainer.value?.scrollTo({ top: 0, behavior: "auto" });
+  fetchProducts();
 };
 
-const filteredProducts = computed(() => {
-  let list = [...(products.value.data || [])];
-  
-  if (sortField.value === 'stock_quantity') {
-    list.sort((a, b) => {
-      const qA = parseFloat(a.stock_quantity || 0);
-      const qB = parseFloat(b.stock_quantity || 0);
-      return sortOrder.value === 'asc' ? qA - qB : qB - qA;
-    });
-  }
-  
-  return list;
-});
+// Данные уже приходят отсортированными с бэкенда — здесь только
+// фильтрация по статусу остатка (в рамках текущей страницы)
+const filteredProducts = computed(() => [...(products.value.data || [])]);
 
 const filters = ref({
   search: "",
@@ -58,6 +59,8 @@ const fetchProducts = async () => {
     const params = {
       ...filters.value,
       category_id: filters.value.category_id || undefined,
+      sort_by: sortField.value !== 'none' ? sortField.value : undefined,
+      sort_order: sortField.value !== 'none' ? sortOrder.value : undefined,
     };
 
     const data = await getProducts(params);
@@ -234,7 +237,13 @@ onMounted(async () => {
               >
                 <div class="d-flex align-items-center justify-content-center gap-1">
                   Остаток
-                  <i v-if="sortField === 'stock_quantity'" class="bi" :class="sortOrder === 'asc' ? 'bi-sort-up' : 'bi-sort-down'"></i>
+                  <span
+                    v-if="isLoading && sortField === 'stock_quantity'"
+                    class="spinner-border spinner-border-sm"
+                    style="width: 0.7rem; height: 0.7rem;"
+                    role="status"
+                  ></span>
+                  <i v-else-if="sortField === 'stock_quantity'" class="bi" :class="sortOrder === 'asc' ? 'bi-sort-up' : 'bi-sort-down'"></i>
                   <i v-else class="bi bi-hash opacity-25"></i>
                 </div>
                 <div class="resizer" @mousedown.stop="initResize($event)"></div>

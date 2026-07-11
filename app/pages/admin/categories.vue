@@ -11,7 +11,10 @@ const { getImageUrl } = useImageUrl();
 
 const { createCategory, updateCategory, deleteCategory } = useProducts();
 
-const categories = computed(() => productsStore.categories);
+// Свой список вместо общего productsStore.categories: витрина и остальная
+// админка используют порядок sort_order (ручная сортировка), а этой
+// странице бэк отдаёт алфавитный порядок отдельным запросом (order_by=name)
+const categories = ref([]);
 const isLoading = ref(false);
 const isModalOpen = ref(false);
 const isEditing = ref(false);
@@ -38,10 +41,11 @@ const handleFileChange = (event) => {
   }
 };
 
-const fetchCategories = async (force = false) => {
+const fetchCategories = async () => {
   isLoading.value = true;
   try {
-    await productsStore.fetchCategories(force);
+    const response = await api.apiFetch("/categories?order_by=name");
+    categories.value = Array.isArray(response) ? response : response?.data || [];
   } catch (error) {
     uiStore.error("Ошибка загрузки категорий");
   } finally {
@@ -103,7 +107,7 @@ const handleSubmit = async () => {
     }
     closeModal();
     productsStore.invalidateCategories();
-    await fetchCategories(true);
+    await fetchCategories();
     uiStore.success(
       `Категория успешно ${isEditing.value ? "обновлена" : "создана"}`,
     );
@@ -129,7 +133,7 @@ const handleDelete = async (id) => {
   try {
     await deleteCategory(id);
     productsStore.invalidateCategories();
-    await fetchCategories(true);
+    await fetchCategories();
     uiStore.success("Категория удалена");
   } catch (error) {
     console.error(error);
@@ -137,8 +141,29 @@ const handleDelete = async (id) => {
   }
 };
 
-onMounted(() => {
-  fetchCategories();
+// Высота таблицы — как у списка товаров: подгоняется под остаток экрана
+// от её верхней границы, а не жёстко зашитой константой
+const tableWrap = ref(null);
+const tableHeight = ref(null);
+const updateTableHeight = () => {
+  const el = tableWrap.value;
+  if (!el) return;
+  const top = el.getBoundingClientRect().top + (window.scrollY || 0);
+  tableHeight.value = Math.max(240, window.innerHeight - top - 76);
+};
+const tableHeightStyle = computed(() =>
+  tableHeight.value ? `${tableHeight.value}px` : "calc(100vh - 260px)",
+);
+
+onMounted(async () => {
+  window.addEventListener("resize", updateTableHeight);
+  await fetchCategories();
+  await nextTick();
+  updateTableHeight();
+});
+
+onUnmounted(() => {
+  window.removeEventListener("resize", updateTableHeight);
 });
 </script>
 
@@ -164,7 +189,12 @@ onMounted(() => {
         Нет категорий
       </div>
 
-      <div v-else class="table-responsive categories-table-wrap" style="max-height: calc(100vh - 320px); overflow-y: auto; background: #f8fafc;">
+      <div
+        v-else
+        ref="tableWrap"
+        class="table-responsive categories-table-wrap"
+        :style="{ maxHeight: tableHeightStyle, overflowY: 'auto', background: '#f8fafc' }"
+      >
         <table class="table table-hover align-middle mb-0 categories-table">
           <thead class="table-light">
             <tr>
@@ -346,24 +376,24 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Увеличенная высота строк */
+/* Компактные строки — больше категорий помещается на экран */
 .categories-table thead th {
-  padding: 14px 12px;
-  font-size: 0.78rem;
+  padding: 10px 12px;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: #64748b;
 }
 
 .categories-table tbody td {
-  padding: 18px 12px;
+  padding: 8px 12px;
   vertical-align: middle;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
 }
 
 .category-thumb {
-  width: 52px;
-  height: 52px;
+  width: 38px;
+  height: 38px;
   object-fit: cover;
 }
 
