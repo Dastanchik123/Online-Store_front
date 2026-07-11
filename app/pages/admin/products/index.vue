@@ -26,23 +26,23 @@ const products = ref({
 const categories = computed(() => productsStore.categories);
 const isLoading = ref(false);
 
-// ── Регулируемые колонки ───────────────────────────────────────────
-// Ширины тянутся за разделитель в шапке и сохраняются в localStorage.
-// Двойной клик по разделителю — сброс к значениям по умолчанию.
+// ── Регулируемые колонки (как в Excel) ─────────────────────────────
+// Перетаскивание границы в шапке меняет ширину колонки (с вертикальной
+// направляющей на всю таблицу), двойной клик по границе подгоняет ширину
+// под содержимое. Ширины сохраняются в localStorage.
 const tableCols = [
-  { label: "#", w: 50, cls: "ps-4 py-2" },
-  { label: "Артикул", w: 120, cls: "py-2" },
-  { label: "Товар", w: 260, cls: "py-2" },
-  { label: "Категория", w: 150, cls: "py-2" },
-  { label: "Стоимость", w: 120, cls: "py-2" },
-  { label: "Остаток", w: 100, cls: "py-2" },
-  { label: "Статус", w: 100, cls: "py-2" },
-  { label: "Действия", w: 160, cls: "text-end pe-4 py-2" },
+  { label: "#", w: 44, cls: "ps-2 py-1" },
+  { label: "Артикул", w: 105, cls: "py-1" },
+  { label: "Товар", w: 300, cls: "py-1" },
+  { label: "Категория", w: 140, cls: "py-1" },
+  { label: "Стоимость", w: 105, cls: "py-1" },
+  { label: "Остаток", w: 90, cls: "py-1" },
+  { label: "Статус", w: 90, cls: "py-1" },
+  { label: "Действия", w: 140, cls: "text-end pe-2 py-1" },
 ];
-const COL_WIDTHS_KEY = "adminProducts:colWidths";
-// минимум должен быть не больше самой узкой колонки по умолчанию (# = 50),
-// иначе валидация при загрузке отбросит весь сохранённый набор ширин
-const MIN_COL_WIDTH = 40;
+// v2: в v1 могли сохраниться ширины с суммой шире экрана
+const COL_WIDTHS_KEY = "adminProducts:colWidths:v2";
+const MIN_COL_WIDTH = 36;
 
 const colWidths = ref(tableCols.map((c) => c.w));
 const tableWidth = computed(() =>
@@ -58,61 +58,118 @@ const loadColWidths = () => {
       saved.every((w) => Number.isFinite(w) && w >= MIN_COL_WIDTH)
     ) {
       colWidths.value = saved;
+      return true;
     }
   } catch {}
+  return false;
 };
 
-let colResize = null;
-
-const onColResizeMove = (e) => {
-  if (!colResize) return;
-  colWidths.value[colResize.index] = Math.max(
-    MIN_COL_WIDTH,
-    Math.round(colResize.startWidth + e.clientX - colResize.startX),
-  );
-};
-
-const endColResize = () => {
-  if (!colResize) return;
-  colResize = null;
-  document.removeEventListener("pointermove", onColResizeMove);
-  document.removeEventListener("pointerup", endColResize);
-  document.body.style.cursor = "";
+const saveColWidths = () => {
   try {
     localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths.value));
   } catch {}
 };
 
-const startColResize = (index, e) => {
-  // Если таблица растянута до ширины контейнера, фактические ширины
-  // отличаются от заданных — фиксируем реальные, чтобы не было скачка
+// Первый визит (сохранённых ширин нет): распределяем колонки по ширине
+// контейнера пропорционально дефолтам — без горизонтальной прокрутки
+const fitColWidthsToContainer = async () => {
+  await nextTick();
+  const el = scrollContainer.value;
+  if (!el || el.clientWidth < 300) return;
+  const ratio = el.clientWidth / tableWidth.value;
+  colWidths.value = colWidths.value.map((w) =>
+    Math.max(MIN_COL_WIDTH, Math.floor(w * ratio)),
+  );
+};
+
+// Направляющая линия при перетаскивании (как в Excel)
+const resizeGuide = ref({ visible: false, x: 0, top: 0, height: 0 });
+
+let colResize = null;
+
+const onColResizeMove = (e) => {
+  if (!colResize) return;
+  const width = Math.max(
+    MIN_COL_WIDTH,
+    Math.round(colResize.startWidth + e.clientX - colResize.startX),
+  );
+  colWidths.value[colResize.index] = width;
+  resizeGuide.value.x = colResize.startLeft + width;
+};
+
+const endColResize = () => {
+  if (!colResize) return;
+  colResize = null;
+  resizeGuide.value.visible = false;
+  document.removeEventListener("pointermove", onColResizeMove);
+  document.removeEventListener("pointerup", endColResize);
+  document.body.style.cursor = "";
+  saveColWidths();
+};
+
+// Фактические ширины могут отличаться от заданных, когда таблица
+// растянута до 100% контейнера — перед изменением фиксируем реальные
+const snapshotRenderedWidths = () => {
   const ths = scrollContainer.value?.querySelectorAll("thead th");
   if (ths?.length === colWidths.value.length) {
     colWidths.value = Array.from(ths).map((th) =>
       Math.round(th.getBoundingClientRect().width),
     );
   }
-  colResize = { index, startX: e.clientX, startWidth: colWidths.value[index] };
+};
+
+const startColResize = (index, e) => {
+  snapshotRenderedWidths();
+  const container = scrollContainer.value;
+  const th = container?.querySelectorAll("thead th")[index];
+  const containerRect = container?.getBoundingClientRect();
+  colResize = {
+    index,
+    startX: e.clientX,
+    startWidth: colWidths.value[index],
+    startLeft: th ? th.getBoundingClientRect().left : e.clientX,
+  };
+  if (containerRect) {
+    resizeGuide.value = {
+      visible: true,
+      x: colResize.startLeft + colResize.startWidth,
+      top: containerRect.top,
+      height: containerRect.height,
+    };
+  }
   document.addEventListener("pointermove", onColResizeMove);
   document.addEventListener("pointerup", endColResize);
   document.body.style.cursor = "col-resize";
 };
 
-const resetColWidths = () => {
-  colWidths.value = tableCols.map((c) => c.w);
-  try {
-    localStorage.removeItem(COL_WIDTHS_KEY);
-  } catch {}
+// Двойной клик по границе — автоподбор ширины по содержимому (как в Excel)
+const autofitColumn = (index) => {
+  const el = scrollContainer.value;
+  if (!el) return;
+  snapshotRenderedWidths();
+  let max = 0;
+  el.querySelectorAll(
+    `tbody tr.product-row td:nth-child(${index + 1})`,
+  ).forEach((td) => {
+    const inner = td.firstElementChild || td;
+    max = Math.max(max, inner.scrollWidth);
+  });
+  const th = el.querySelectorAll("thead th")[index];
+  if (th?.firstChild) max = Math.max(max, Math.ceil(th.scrollWidth * 0.6));
+  if (max > 0) {
+    colWidths.value[index] = Math.min(600, Math.max(MIN_COL_WIDTH, max + 26));
+    saveColWidths();
+  }
 };
 
 // ── Виртуальный скролл ─────────────────────────────────────────────
 // Данные грузятся все разом, но в DOM живут только видимые строки
 // (+буфер): рендер страницы не зависит от размера каталога.
 const scrollContainer = ref(null);
-const rowHeight = ref(58); // фиксируется CSS, уточняется замером
+const rowHeight = ref(32); // фиксируется CSS, уточняется замером
 const scrollTop = ref(0);
 const viewportHeight = ref(600);
-const VSCROLL_BUFFER = 10; // запас строк сверху и снизу за экраном
+const VSCROLL_BUFFER = 15; // запас строк сверху и снизу за экраном
 
 const vStart = computed(() =>
   Math.max(0, Math.floor(scrollTop.value / rowHeight.value) - VSCROLL_BUFFER),
@@ -142,6 +199,10 @@ const onTableScroll = () => {
     if (!el) return;
     scrollTop.value = el.scrollTop;
     viewportHeight.value = el.clientHeight;
+    // высота строки могла измениться (смена стилей/зум) — если расчёт
+    // разойдётся с реальностью, при прокрутке появляются пустые зоны
+    const row = el.querySelector("tbody tr.product-row");
+    if (row && row.offsetHeight > 20) rowHeight.value = row.offsetHeight;
   });
 };
 
@@ -168,6 +229,9 @@ const filters = ref({
   // облегчённый ответ: только колонки таблицы, без description/attributes —
   // ответ уменьшается с мегабайт до десятков килобайт
   fields: "list",
+  // строгий поиск: подстрока в названии/артикуле без регистра,
+  // без «похожих» товаров по триграммам
+  search_strict: 1,
 });
 
 const formatPrice = (price) => {
@@ -275,9 +339,10 @@ const stockClass = (product) => {
 };
 
 onMounted(async () => {
-  loadColWidths();
+  const hasSavedWidths = loadColWidths();
   // категории и товары не зависят друг от друга — грузим параллельно
   await Promise.all([fetchCategories(), fetchProducts()]);
+  if (!hasSavedWidths) await fitColWidthsToContainer();
 });
 
 onUnmounted(endColResize);
@@ -285,6 +350,16 @@ onUnmounted(endColResize);
 
 <template>
   <div class="products-page p-4 animate-fade-in">
+    <!-- Направляющая при изменении ширины колонки (как в Excel) -->
+    <div
+      v-if="resizeGuide.visible"
+      class="col-resize-guide"
+      :style="{
+        left: resizeGuide.x + 'px',
+        top: resizeGuide.top + 'px',
+        height: resizeGuide.height + 'px',
+      }"
+    ></div>
     <div
       class="header-card mb-3 p-3 rounded-4 shadow-sm text-white glass-header"
     >
@@ -393,7 +468,7 @@ onUnmounted(endColResize);
         v-else
         ref="scrollContainer"
         class="table-responsive custom-scrollbar"
-        style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;"
+        style="min-height: calc(100vh - 260px); max-height: calc(100vh - 260px); overflow-y: auto; background: #f8fafc;"
         @scroll.passive="onTableScroll"
       >
         <table
@@ -415,9 +490,9 @@ onUnmounted(endColResize);
                 {{ col.label }}
                 <span
                   class="col-resize-handle"
-                  title="Тяните, чтобы изменить ширину. Двойной клик — сброс"
+                  title="Тяните, чтобы изменить ширину. Двойной клик — по содержимому"
                   @pointerdown.prevent="startColResize(i, $event)"
-                  @dblclick="resetColWidths"
+                  @dblclick.stop="autofitColumn(i)"
                 ></span>
               </th>
             </tr>
@@ -454,15 +529,15 @@ onUnmounted(endColResize);
                 }}</span>
               </td>
               <td class="py-1">
-                <div class="fw-bold text-dark font-monospace small">
+                <div class="fw-bold text-dark font-monospace small text-truncate">
                   {{ formatPrice(product.price) }}
-                </div>
-                <div
-                  v-if="product.sale_price"
-                  class="small text-danger fw-bold"
-                  style="font-size: 0.65rem;"
-                >
-                  % {{ formatPrice(product.sale_price) }}
+                  <span
+                    v-if="product.sale_price"
+                    class="text-danger fw-bold"
+                    style="font-size: 0.65rem;"
+                  >
+                    % {{ formatPrice(product.sale_price) }}
+                  </span>
                 </div>
               </td>
               <td class="py-1">
@@ -487,7 +562,7 @@ onUnmounted(endColResize);
                   <NuxtLink
                     :to="`/admin/products/update-${product.id}`"
                     class="btn-action edit shadow-sm"
-                    style="width: 28px; height: 28px; font-size: 0.8rem;"
+                    style="width: 22px; height: 22px; font-size: 0.7rem;"
                     title="Изменить"
                   >
                     <i class="bi bi-pencil"></i>
@@ -496,14 +571,14 @@ onUnmounted(endColResize);
                     :to="`/admin/inventory?product_id=${product.id}`"
                     class="btn-action inventory shadow-sm"
                     title="Инвентаризация"
-                    style="background: #e0f2fe; color: #0369a1; width: 28px; height: 28px; font-size: 0.8rem;"
+                    style="background: #e0f2fe; color: #0369a1; width: 22px; height: 22px; font-size: 0.7rem;"
                   >
                     <i class="bi bi-box-seam"></i>
                   </NuxtLink>
                   <button
                     @click="downloadProductBarcode(product.id)"
                     class="btn-action barcode shadow-sm"
-                    style="width: 28px; height: 28px; font-size: 0.8rem;"
+                    style="width: 22px; height: 22px; font-size: 0.7rem;"
                     title="Штрих-код"
                   >
                     <i class="bi bi-upc-scan"></i>
@@ -511,7 +586,7 @@ onUnmounted(endColResize);
                   <button
                     @click="handleDelete(product.id)"
                     class="btn-action delete shadow-sm"
-                    style="width: 28px; height: 28px; font-size: 0.8rem;"
+                    style="width: 22px; height: 22px; font-size: 0.7rem;"
                     title="Удалить"
                   >
                     <i class="bi bi-trash"></i>
@@ -541,22 +616,57 @@ onUnmounted(endColResize);
   min-height: 100vh;
 }
 
-/* Виртуальный скролл: строки должны быть одинаковой высоты,
-   иначе позиции при прокрутке «плывут» */
+/* ── Excel-режим таблицы ────────────────────────────────────────────
+   Плотные строки фиксированной высоты (32px) + сетка границ ячеек:
+   на экран помещается вдвое больше товаров. Фиксированная высота
+   обязательна для виртуального скролла. */
 .product-row {
-  height: 58px;
+  height: 32px;
 }
 
 /* Жёсткая раскладка: ширины колонок берутся из thead и не зависят от
    содержимого строк — колонки не «дёргаются» при виртуальном скролле.
-   Если сумма колонок меньше контейнера, таблица растягивается на 100%;
-   если больше — контейнер прокручивается горизонтально. */
+   border-collapse: separate — иначе границы «уезжают» со sticky-шапки */
 .custom-table {
   table-layout: fixed;
   min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
-/* Разделитель в шапке: тянется мышью, двойной клик — сброс ширин */
+.custom-table th,
+.custom-table td {
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  vertical-align: middle;
+}
+
+.custom-table thead th {
+  border-bottom: 2px solid #cbd5e1;
+  background: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Колонка с номером строки — серым фоном, как в Excel */
+.custom-table td:first-child {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+/* Вертикальная направляющая на время перетаскивания границы */
+.col-resize-guide {
+  position: fixed;
+  width: 2px;
+  background: #0ea5e9;
+  z-index: 1050;
+  pointer-events: none;
+}
+
+/* Разделитель в шапке: тянется мышью, двойной клик — автоподбор ширины */
 .col-resize-handle {
   position: absolute;
   top: 0;
@@ -585,6 +695,18 @@ onUnmounted(endColResize);
   background: #0ea5e9;
 }
 
+/* У последней колонки ручка не должна вылезать за таблицу —
+   иначе появляется паразитная горизонтальная прокрутка */
+.custom-table th:last-child .col-resize-handle {
+  right: 0;
+  width: 6px;
+}
+
+.custom-table th:last-child .col-resize-handle::after {
+  left: auto;
+  right: 0;
+}
+
 .custom-table td {
   overflow: hidden;
 }
@@ -599,14 +721,13 @@ onUnmounted(endColResize);
   vertical-align: middle;
 }
 
-/* Длинные названия ограничиваем двумя строками (полное — в title) */
+/* Название — в одну строку с многоточием (полное — в title) */
 .product-name-clamp {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
+  display: block;
+  white-space: nowrap;
   overflow: hidden;
-  line-height: 1.2;
+  text-overflow: ellipsis;
+  line-height: 1.3;
 }
 
 .glass-header {
