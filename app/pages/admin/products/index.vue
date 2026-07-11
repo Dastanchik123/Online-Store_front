@@ -31,7 +31,7 @@ const isLoading = ref(false);
 // направляющей на всю таблицу), двойной клик по границе подгоняет ширину
 // под содержимое. Ширины сохраняются в localStorage.
 const tableCols = [
-  { label: "#", w: 44, cls: "ps-2 py-1" },
+  { label: "#", w: 52, cls: "ps-2 py-1" },
   { label: "Артикул", w: 105, cls: "py-1" },
   { label: "Товар", w: 300, cls: "py-1" },
   { label: "Категория", w: 140, cls: "py-1" },
@@ -187,25 +187,43 @@ const tableHeightStyle = computed(() =>
 const rowHeight = ref(32); // фиксируется CSS, уточняется замером
 const scrollTop = ref(0);
 const viewportHeight = ref(600);
-const VSCROLL_BUFFER = 15; // запас строк сверху и снизу за экраном
+const VSCROLL_BUFFER = 25; // запас строк сверху и снизу за экраном
+// Окно рендера сдвигается блоками по N строк: при плавном скролле Vue
+// перерисовывает таблицу в разы реже, и она не «пустеет»
+const VSCROLL_CHUNK = 10;
 
-const vStart = computed(() =>
-  Math.max(0, Math.floor(scrollTop.value / rowHeight.value) - VSCROLL_BUFFER),
-);
-const vEnd = computed(() =>
-  Math.min(
+const vStart = computed(() => {
+  const start = Math.max(
+    0,
+    Math.floor(scrollTop.value / rowHeight.value) - VSCROLL_BUFFER,
+  );
+  return Math.floor(start / VSCROLL_CHUNK) * VSCROLL_CHUNK;
+});
+const vEnd = computed(() => {
+  const end =
+    Math.floor(scrollTop.value / rowHeight.value) +
+    Math.ceil(viewportHeight.value / rowHeight.value) +
+    VSCROLL_BUFFER;
+  return Math.min(
     products.value.data.length,
-    vStart.value +
-      Math.ceil(viewportHeight.value / rowHeight.value) +
-      VSCROLL_BUFFER * 2,
-  ),
-);
+    Math.ceil(end / VSCROLL_CHUNK) * VSCROLL_CHUNK,
+  );
+});
 const visibleProducts = computed(() =>
   products.value.data.slice(vStart.value, vEnd.value),
 );
 const padTop = computed(() => vStart.value * rowHeight.value);
 const padBottom = computed(() =>
   Math.max(0, (products.value.data.length - vEnd.value) * rowHeight.value),
+);
+
+// Распорки раскрашены под «пустые строки»: если при очень быстром
+// скролле рендер на миг отстанет, видна сетка, а не белая дыра
+const spacerStripes = computed(
+  () =>
+    `repeating-linear-gradient(to bottom, #ffffff 0, #ffffff ${
+      rowHeight.value - 1
+    }px, #e2e8f0 ${rowHeight.value - 1}px, #e2e8f0 ${rowHeight.value}px)`,
 );
 
 let scrollRaf = null;
@@ -523,7 +541,7 @@ onUnmounted(() => {
           </thead>
           <tbody>
             <tr v-if="padTop > 0" aria-hidden="true">
-              <td colspan="8" :style="{ height: padTop + 'px', padding: 0, border: 0 }"></td>
+              <td colspan="8" :style="{ height: padTop + 'px', padding: 0, border: 0, background: spacerStripes }"></td>
             </tr>
             <tr
               v-for="(product, index) in visibleProducts"
@@ -532,7 +550,7 @@ onUnmounted(() => {
               style="cursor: pointer;"
               @dblclick="navigateTo(`/admin/products/update-${product.uuid || product.id}`)"
             >
-              <td class="ps-4 text-muted py-1" style="font-size: 0.75rem;">
+              <td class="ps-2 text-muted py-1" style="font-size: 0.75rem;">
                 {{ vStart + index + 1 }}
               </td>
               <td class="py-1">
@@ -619,7 +637,7 @@ onUnmounted(() => {
               </td>
             </tr>
             <tr v-if="padBottom > 0" aria-hidden="true">
-              <td colspan="8" :style="{ height: padBottom + 'px', padding: 0, border: 0 }"></td>
+              <td colspan="8" :style="{ height: padBottom + 'px', padding: 0, border: 0, background: spacerStripes }"></td>
             </tr>
           </tbody>
         </table>
@@ -675,10 +693,12 @@ onUnmounted(() => {
   text-overflow: ellipsis;
 }
 
-/* Колонка с номером строки — серым фоном, как в Excel */
+/* Колонка с номером строки — серым фоном, как в Excel.
+   nowrap обязателен: перенос цифр по вертикали ломает высоту строк */
 .custom-table td:first-child {
   background: #f8fafc;
   color: #94a3b8;
+  white-space: nowrap;
 }
 
 /* Вертикальная направляющая на время перетаскивания границы */
