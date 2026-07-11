@@ -26,6 +26,60 @@ const products = ref({
 const categories = computed(() => productsStore.categories);
 const isLoading = ref(false);
 
+// ── Виртуальный скролл ─────────────────────────────────────────────
+// Данные грузятся все разом, но в DOM живут только видимые строки
+// (+буфер): рендер страницы не зависит от размера каталога.
+const scrollContainer = ref(null);
+const rowHeight = ref(58); // фиксируется CSS, уточняется замером
+const scrollTop = ref(0);
+const viewportHeight = ref(600);
+const VSCROLL_BUFFER = 10; // запас строк сверху и снизу за экраном
+
+const vStart = computed(() =>
+  Math.max(0, Math.floor(scrollTop.value / rowHeight.value) - VSCROLL_BUFFER),
+);
+const vEnd = computed(() =>
+  Math.min(
+    products.value.data.length,
+    vStart.value +
+      Math.ceil(viewportHeight.value / rowHeight.value) +
+      VSCROLL_BUFFER * 2,
+  ),
+);
+const visibleProducts = computed(() =>
+  products.value.data.slice(vStart.value, vEnd.value),
+);
+const padTop = computed(() => vStart.value * rowHeight.value);
+const padBottom = computed(() =>
+  Math.max(0, (products.value.data.length - vEnd.value) * rowHeight.value),
+);
+
+let scrollRaf = null;
+const onTableScroll = () => {
+  if (scrollRaf) return;
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = null;
+    const el = scrollContainer.value;
+    if (!el) return;
+    scrollTop.value = el.scrollTop;
+    viewportHeight.value = el.clientHeight;
+  });
+};
+
+// после смены данных: замерить реальную высоту строки и пересинхронизировать
+// scrollTop (браузер сам клампит его, когда список стал короче)
+const syncVirtualScroll = async () => {
+  await nextTick();
+  const el = scrollContainer.value;
+  if (!el) return;
+  const row = el.querySelector("tbody tr.product-row");
+  if (row && row.offsetHeight > 20) rowHeight.value = row.offsetHeight;
+  viewportHeight.value = el.clientHeight;
+  scrollTop.value = el.scrollTop;
+};
+
+watch(() => products.value.data, syncVirtualScroll);
+
 const filters = ref({
   search: "",
   category_id: "",
@@ -255,8 +309,10 @@ onMounted(async () => {
 
       <div
         v-else
+        ref="scrollContainer"
         class="table-responsive custom-scrollbar"
         style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;"
+        @scroll.passive="onTableScroll"
       >
         <table class="table table-hover align-middle mb-0 custom-table">
           <thead class="sticky-top bg-white z-2">
@@ -272,15 +328,18 @@ onMounted(async () => {
             </tr>
           </thead>
           <tbody>
+            <tr v-if="padTop > 0" aria-hidden="true">
+              <td colspan="8" :style="{ height: padTop + 'px', padding: 0, border: 0 }"></td>
+            </tr>
             <tr
-              v-for="(product, index) in products.data"
+              v-for="(product, index) in visibleProducts"
               :key="product.id"
               class="product-row"
               style="cursor: pointer;"
               @dblclick="navigateTo(`/admin/products/update-${product.uuid || product.id}`)"
             >
               <td class="ps-4 text-muted py-1" style="font-size: 0.75rem;">
-                {{ index + 1 }}
+                {{ vStart + index + 1 }}
               </td>
               <td class="py-1">
                 <div class="text-muted font-monospace fw-bold" style="font-size: 0.75rem;">
@@ -290,7 +349,7 @@ onMounted(async () => {
               <td class="py-1">
                 <div class="d-flex align-items-center">
                   <div class="lh-1">
-                    <div class="fw-bold text-dark small">{{ product.name }}</div>
+                    <div class="fw-bold text-dark small product-name-clamp" :title="product.name">{{ product.name }}</div>
                   </div>
                 </div>
               </td>
@@ -365,6 +424,9 @@ onMounted(async () => {
                 </div>
               </td>
             </tr>
+            <tr v-if="padBottom > 0" aria-hidden="true">
+              <td colspan="8" :style="{ height: padBottom + 'px', padding: 0, border: 0 }"></td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -382,6 +444,22 @@ onMounted(async () => {
 .products-page {
   background-color: #f8fafc;
   min-height: 100vh;
+}
+
+/* Виртуальный скролл: строки должны быть одинаковой высоты,
+   иначе позиции при прокрутке «плывут» */
+.product-row {
+  height: 58px;
+}
+
+/* Длинные названия ограничиваем двумя строками (полное — в title) */
+.product-name-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.2;
 }
 
 .glass-header {
