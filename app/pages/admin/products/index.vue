@@ -315,16 +315,18 @@ onMounted(async () => {
         @scroll.passive="onTableScroll"
       >
         <table class="table table-hover align-middle mb-0 custom-table">
+          <!-- table-layout: fixed — ширины колонок заданы жёстко и не
+               пересчитываются при подмене строк виртуальным скроллом -->
           <thead class="sticky-top bg-white z-2">
             <tr>
               <th scope="col" class="ps-4 py-2" style="width: 50px; font-size: 0.7rem;">#</th>
-              <th scope="col" class="py-2" style="width: 140px; font-size: 0.7rem;">Артикул</th>
-              <th scope="col" class="py-2" style="min-width: 180px; font-size: 0.7rem;">Товар</th>
-              <th scope="col" class="py-2" style="min-width: 140px; font-size: 0.7rem;">Категория</th>
-              <th scope="col" class="py-2" style="min-width: 110px; font-size: 0.7rem;">Стоимость</th>
-              <th scope="col" class="py-2" style="min-width: 100px; font-size: 0.7rem;">Остаток</th>
-              <th scope="col" class="py-2" style="min-width: 100px; font-size: 0.7rem;">Статус</th>
-              <th scope="col" class="text-end pe-4 py-2" style="min-width: 150px; font-size: 0.7rem;">Действия</th>
+              <th scope="col" class="py-2" style="width: 120px; font-size: 0.7rem;">Артикул</th>
+              <th scope="col" class="py-2" style="font-size: 0.7rem;">Товар</th>
+              <th scope="col" class="py-2" style="width: 150px; font-size: 0.7rem;">Категория</th>
+              <th scope="col" class="py-2" style="width: 120px; font-size: 0.7rem;">Стоимость</th>
+              <th scope="col" class="py-2" style="width: 100px; font-size: 0.7rem;">Остаток</th>
+              <th scope="col" class="py-2" style="width: 100px; font-size: 0.7rem;">Статус</th>
+              <th scope="col" class="text-end pe-4 py-2" style="width: 160px; font-size: 0.7rem;">Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -450,6 +452,29 @@ onMounted(async () => {
    иначе позиции при прокрутке «плывут» */
 .product-row {
   height: 58px;
+}
+
+/* Жёсткая раскладка: ширины колонок берутся из thead и не зависят от
+   содержимого строк — колонки не «дёргаются» при виртуальном скролле.
+   min-width даёт горизонтальную прокрутку на узких экранах вместо каши. */
+.custom-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 920px;
+}
+
+.custom-table td {
+  overflow: hidden;
+}
+
+/* Пилюля категории не должна распирать свою колонку */
+.custom-table .category-pill {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 /* Длинные названия ограничиваем двумя строками (полное — в title) */
