@@ -41,7 +41,9 @@ const loadReports = async () => {
   try {
     const [reportData, productsData]: [any, any] = await Promise.all([
       getAccountingReports(filters.value),
-      getProducts({ per_page: 1000 }),
+      // fields=list: для оценки склада нужны только цена и остаток;
+      // per_page=-1 — весь каталог (при 1000 терялись товары сверх лимита)
+      getProducts({ per_page: -1, fields: "list" }),
     ]);
 
     const data = reportData?.data || reportData;

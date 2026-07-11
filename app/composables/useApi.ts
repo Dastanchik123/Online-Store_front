@@ -42,19 +42,30 @@ const writeApiCache = (endpoint: string, data: any) => {
   }
 };
 
-// POST /products → сбросить '/products*'; '/banners-admin' и '/blog-admin'
-// сбрасывают публичные '/banners*' и '/blog*'
-const invalidateApiCache = (mutatedEndpoint: string) => {
+// POST /products → пометить '/products*' устаревшими; '/banners-admin' и
+// '/blog-admin' метят публичные '/banners*' и '/blog*'.
+// Не удаляем записи, а «состариваем»: страница по-прежнему рисуется мгновенно
+// из кеша, но следующий GET обязательно уйдёт в сеть и подтянет свежее фоном.
+const markApiCacheStale = (mutatedEndpoint: string) => {
   const seg = (mutatedEndpoint.split("?")[0].split("/")[1] || "").replace(/-admin$/, "");
   if (!seg) return;
   const prefix = "/" + seg;
+  const staleT = Date.now() - API_CACHE_FRESH_MS;
   for (const key of [...memApiCache.keys()]) {
-    if (key.startsWith(prefix)) memApiCache.delete(key);
+    if (key.startsWith(prefix)) {
+      const hit = memApiCache.get(key);
+      if (hit) memApiCache.set(key, { ...hit, t: staleT });
+    }
   }
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(API_CACHE_PREFIX + prefix)) localStorage.removeItem(k);
+      if (k && k.startsWith(API_CACHE_PREFIX + prefix)) {
+        const raw = localStorage.getItem(k);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        localStorage.setItem(k, JSON.stringify({ ...parsed, t: staleT }));
+      }
     }
   } catch {}
 };
@@ -110,6 +121,11 @@ export const useApi = () => {
   };
 
   const apiFetch = async (endpoint: string, options: any = {}) => {
+    // onRefresh — колбек страницы: вызывается со свежими данными, когда
+    // фоновое SWR-обновление завершилось (в $fetch не передаётся)
+    const { onRefresh, ...fetchOptions } = options;
+    options = fetchOptions;
+
     // 1) POS-критичные маршруты обслуживаются локально (работают без сети)
     const localPre = await tryLocalApi(endpoint, options, "pre");
     if (localPre) return localPre.data;
@@ -154,8 +170,12 @@ export const useApi = () => {
       if (cached) {
         if (Date.now() - cached.t >= API_CACHE_FRESH_MS) {
           // устарел — отдаём кэш сразу, свежее подтянем в фоне
+          // и отдадим странице через onRefresh, чтобы она перерисовалась
           networkFetch()
-            .then((data) => writeApiCache(endpoint, data))
+            .then((data) => {
+              writeApiCache(endpoint, data);
+              if (typeof onRefresh === "function") onRefresh(data);
+            })
             .catch(() => {});
         }
         return cached.data;
@@ -166,8 +186,9 @@ export const useApi = () => {
       const response = await networkFetch();
 
       if (swrEligible) writeApiCache(endpoint, response);
-      // мутация → сбросить кэш ресурса, чтобы следующий GET был свежим
-      if (import.meta.client && method !== "GET") invalidateApiCache(endpoint);
+      // мутация → пометить кэш ресурса устаревшим: список отрисуется
+      // мгновенно из кеша, а свежие данные подтянутся фоном
+      if (import.meta.client && method !== "GET") markApiCacheStale(endpoint);
 
       return response;
     } catch (error: any) {

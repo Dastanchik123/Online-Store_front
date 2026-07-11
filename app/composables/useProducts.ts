@@ -15,7 +15,9 @@ export const useProducts = () => {
       page?: number;
       // "list" — облегчённый ответ только с колонками для табличных списков
       fields?: string;
-    } = {}
+    } = {},
+    // onRefresh — вызывается со свежими данными после фонового SWR-обновления
+    options: { onRefresh?: (data: any) => void } = {}
   ) => {
     try {
       const queryParams = new URLSearchParams();
@@ -28,7 +30,7 @@ export const useProducts = () => {
       const queryString = queryParams.toString();
       const endpoint = `/products${queryString ? `?${queryString}` : ""}`;
 
-      return await api.apiFetch(endpoint);
+      return await api.apiFetch(endpoint, options);
     } catch (error) {
       throw error;
     }

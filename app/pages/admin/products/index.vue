@@ -56,35 +56,45 @@ const handleSearchInput = () => {
   }, 500);
 };
 
+const applyProductsData = (data, perPage) => {
+  if (data && data.data && Array.isArray(data.data)) {
+    products.value = data;
+  } else if (Array.isArray(data)) {
+    products.value = {
+      data: data,
+      current_page: 1,
+      last_page: 1,
+      total: data.length,
+      per_page: perPage || 15,
+    };
+  } else {
+    products.value = {
+      data: [],
+      current_page: 1,
+      last_page: 1,
+      total: 0,
+      per_page: 15,
+    };
+  }
+};
+
 const fetchProducts = async () => {
-  isLoading.value = true;
   const params = { ...filters.value };
 
   if (params.is_active === "") delete params.is_active;
   if (params.category_id === "") delete params.category_id;
   if (!params.search) delete params.search;
 
+  // Лоадер — только если показать пока нечего. Если в localStorage есть
+  // кеш, таблица рисуется из него мгновенно, а свежие данные приходят
+  // фоном через onRefresh и тихо подменяют список.
+  isLoading.value = products.value.data.length === 0;
+
   try {
-    const data = await getProducts(params);
-    if (data && data.data && Array.isArray(data.data)) {
-      products.value = data;
-    } else if (Array.isArray(data)) {
-      products.value = {
-        data: data,
-        current_page: 1,
-        last_page: 1,
-        total: data.length,
-        per_page: params.per_page || 15,
-      };
-    } else {
-      products.value = {
-        data: [],
-        current_page: 1,
-        last_page: 1,
-        total: 0,
-        per_page: 15,
-      };
-    }
+    const data = await getProducts(params, {
+      onRefresh: (fresh) => applyProductsData(fresh, params.per_page),
+    });
+    applyProductsData(data, params.per_page);
   } catch (error) {
     console.error("Error fetching products:", error);
   } finally {
