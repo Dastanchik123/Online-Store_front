@@ -340,8 +340,27 @@ const formatDate = (dateStr) => {
   });
 };
 
+// Live-обновление списка при поступлении нового заказа. Раньше список
+// грузился только при монтировании/смене фильтров — событие NewOrderPlaced
+// ловил лишь layouts/admin.vue (тост), сама таблица не обновлялась.
+// stopListening снимает ТОЛЬКО этот обработчик, не трогая канал целиком —
+// он используется и другими подписчиками (тост в layout, автопечать в кассе).
+const { $echo } = useNuxtApp();
+const onNewOrderPlaced = () => {
+  fetchOrders();
+};
+
 onMounted(() => {
   fetchOrders();
+  if (import.meta.client && $echo) {
+    $echo.private("admin.orders").listen(".NewOrderPlaced", onNewOrderPlaced);
+  }
+});
+
+onUnmounted(() => {
+  if (import.meta.client && $echo) {
+    $echo.private("admin.orders").stopListening(".NewOrderPlaced", onNewOrderPlaced);
+  }
 });
 </script>
 
@@ -536,7 +555,7 @@ onMounted(() => {
     <div
       class="card border-0 shadow-sm rounded-4 luxury-table-card overflow-hidden"
     >
-      <div v-if="isLoading" class="p-5 text-center">
+      <div v-if="isLoading && orders.data.length === 0" class="p-5 text-center">
         <div class="spinner-border text-primary" role="status">
           <span class="visually-hidden">Загрузка...</span>
         </div>
@@ -551,7 +570,15 @@ onMounted(() => {
         <span>Заказов не найдено. Попробуйте изменить фильтр.</span>
       </div>
 
-      <div v-else class="table-responsive-cards" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
+      <!-- Фоновая подгрузка (напр. по приходу нового заказа через WS)
+           не сносит строки — иначе таблица схлопывается и сбрасывает
+           скролл; старые строки остаются, только приглушаются -->
+      <div
+        v-else
+        class="table-responsive-cards"
+        :class="{ 'is-refetching': isLoading }"
+        style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;"
+      >
         <table class="table table-hover align-middle mb-0 custom-table">
           <thead class="d-none d-lg-table-header-group">
             <tr>
@@ -1116,6 +1143,13 @@ onMounted(() => {
 .orders-page {
   background-color: #f8fafc;
   min-height: 100vh;
+}
+
+/* Фоновая подгрузка (новый заказ по WS): строки остаются, но приглушены */
+.table-responsive-cards.is-refetching tbody {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.15s;
 }
 
 .glass-header {
