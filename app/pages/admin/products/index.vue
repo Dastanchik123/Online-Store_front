@@ -166,6 +166,24 @@ const autofitColumn = (index) => {
 // Данные грузятся все разом, но в DOM живут только видимые строки
 // (+буфер): рендер страницы не зависит от размера каталога.
 const scrollContainer = ref(null);
+
+// Высота таблицы подгоняется под остаток экрана от её верхней границы,
+// чтобы сама страница не скроллилась (внизу остаётся строка «Всего
+// товаров» + отступ страницы ≈ 76px)
+const tableHeight = ref(null);
+const updateTableHeight = () => {
+  const el = scrollContainer.value;
+  if (!el) return;
+  const top = el.getBoundingClientRect().top + (window.scrollY || 0);
+  tableHeight.value = Math.max(240, window.innerHeight - top - 76);
+};
+
+const tableHeightStyle = computed(() =>
+  tableHeight.value
+    ? `${tableHeight.value}px`
+    : "calc(100vh - 260px)", // до первого замера
+);
+
 const rowHeight = ref(32); // фиксируется CSS, уточняется замером
 const scrollTop = ref(0);
 const viewportHeight = ref(600);
@@ -212,6 +230,8 @@ const syncVirtualScroll = async () => {
   await nextTick();
   const el = scrollContainer.value;
   if (!el) return;
+  updateTableHeight();
+  await nextTick(); // высота контейнера применяется в следующем тике
   const row = el.querySelector("tbody tr.product-row");
   if (row && row.offsetHeight > 20) rowHeight.value = row.offsetHeight;
   viewportHeight.value = el.clientHeight;
@@ -340,12 +360,16 @@ const stockClass = (product) => {
 
 onMounted(async () => {
   const hasSavedWidths = loadColWidths();
+  window.addEventListener("resize", updateTableHeight);
   // категории и товары не зависят друг от друга — грузим параллельно
   await Promise.all([fetchCategories(), fetchProducts()]);
   if (!hasSavedWidths) await fitColWidthsToContainer();
 });
 
-onUnmounted(endColResize);
+onUnmounted(() => {
+  window.removeEventListener("resize", updateTableHeight);
+  endColResize();
+});
 </script>
 
 <template>
@@ -468,7 +492,7 @@ onUnmounted(endColResize);
         v-else
         ref="scrollContainer"
         class="table-responsive custom-scrollbar"
-        style="min-height: calc(100vh - 260px); max-height: calc(100vh - 260px); overflow-y: auto; background: #f8fafc;"
+        :style="{ minHeight: tableHeightStyle, maxHeight: tableHeightStyle, overflowY: 'auto', background: '#f8fafc' }"
         @scroll.passive="onTableScroll"
       >
         <table
