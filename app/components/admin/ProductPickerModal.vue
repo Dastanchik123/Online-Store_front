@@ -138,7 +138,8 @@ const pickProduct = (product) => {
             <table class="table table-hover align-middle mb-0 picker-table">
               <thead class="bg-light sticky-top">
                 <tr>
-                  <th class="ps-3">Артикул</th>
+                  <th class="ps-3" width="48">№</th>
+                  <th>Артикул</th>
                   <th>Товар</th>
                   <th class="text-end">Цена зак.</th>
                   <th class="text-end">Цена продажи</th>
@@ -148,12 +149,13 @@ const pickProduct = (product) => {
               </thead>
               <tbody>
                 <tr
-                  v-for="p in products"
+                  v-for="(p, index) in products"
                   :key="p.id"
                   class="picker-row"
                   @click="pickProduct(p)"
                 >
-                  <td class="ps-3 text-muted font-monospace small">{{ p.sku || "—" }}</td>
+                  <td class="ps-3 text-muted small">{{ index + 1 }}</td>
+                  <td class="text-muted font-monospace small">{{ p.sku || "—" }}</td>
                   <td>
                     <div class="fw-bold text-dark small">{{ p.name }}</div>
                   </td>
@@ -178,7 +180,7 @@ const pickProduct = (product) => {
                   </td>
                 </tr>
                 <tr v-if="!products.length">
-                  <td colspan="6" class="text-center py-5 text-muted small">
+                  <td colspan="7" class="text-center py-5 text-muted small">
                     Товары не найдены
                   </td>
                 </tr>
