@@ -41,8 +41,8 @@ const fetchProducts = async (reset = true) => {
         category_id: selectedCategoryId.value || undefined,
         per_page: 100,
         page: page.value,
-        sort_by: "created_at",
-        sort_order: "desc",
+        sort_by: "name",
+        sort_order: "asc",
       },
       { noCache: true },
     );
