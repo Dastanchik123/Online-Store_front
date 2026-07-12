@@ -13,7 +13,18 @@ const isLoading = ref(false);
 const searchQuery = ref("");
 const searchResults = ref([]);
 const isSearching = ref(false);
-const selectedGroup = ref("Общее");
+const activeFilterGroup = ref(null);
+const selectedToAdd = ref([]);
+
+const NEW_GROUP_OPTION = "__new__";
+const groupSelectValue = ref(NEW_GROUP_OPTION);
+const newGroupName = ref("Общее");
+
+const selectedGroup = computed(() =>
+  groupSelectValue.value === NEW_GROUP_OPTION
+    ? newGroupName.value.trim()
+    : groupSelectValue.value,
+);
 
 const renameModal = ref({
   show: false,
@@ -59,25 +70,44 @@ const searchForHot = async () => {
   }
 };
 
-const addToHot = async (product) => {
+const isSelectedToAdd = (product) =>
+  selectedToAdd.value.some((p) => p.id === product.id);
+
+const toggleSelectToAdd = (product) => {
+  if (isSelectedToAdd(product)) {
+    selectedToAdd.value = selectedToAdd.value.filter(
+      (p) => p.id !== product.id,
+    );
+  } else {
+    selectedToAdd.value.push(product);
+  }
+};
+
+const addSelectedToHot = async () => {
+  if (selectedToAdd.value.length === 0) return;
   try {
-    const newOrder =
+    let nextOrder =
       hotProducts.value.length > 0
         ? Math.max(...hotProducts.value.map((p) => p.hot_order || 0)) + 1
         : 1;
 
-    const formData = new FormData();
-    formData.append("is_hot", "1");
-    formData.append("hot_order", newOrder.toString());
-    formData.append("hot_group", selectedGroup.value);
+    await Promise.all(
+      selectedToAdd.value.map((product) => {
+        const formData = new FormData();
+        formData.append("is_hot", "1");
+        formData.append("hot_order", (nextOrder++).toString());
+        formData.append("hot_group", selectedGroup.value);
+        return updateProduct(product.id, formData);
+      }),
+    );
 
-    await updateProduct(product.id, formData);
-    ui.success(`${product.name} добавлен в горячие`);
+    ui.success(`Добавлено товаров: ${selectedToAdd.value.length}`);
+    selectedToAdd.value = [];
     searchQuery.value = "";
     searchResults.value = [];
     await fetchHotProducts();
   } catch (e) {
-    ui.error("Не удалось добавить товар");
+    ui.error("Не удалось добавить товары");
   }
 };
 
@@ -109,12 +139,12 @@ const removeFromHot = async (product) => {
   }
 };
 
-const moveItem = async (index, direction) => {
+const moveItem = async (list, index, direction) => {
   const newIndex = index + direction;
-  if (newIndex < 0 || newIndex >= hotProducts.value.length) return;
+  if (newIndex < 0 || newIndex >= list.length) return;
 
-  const itemA = hotProducts.value[index];
-  const itemB = hotProducts.value[newIndex];
+  const itemA = list[index];
+  const itemB = list[newIndex];
 
   const tempOrder = itemA.hot_order;
 
@@ -139,6 +169,45 @@ const moveItem = async (index, direction) => {
 const groups = computed(() => {
   const allGroups = hotProducts.value.map((p) => p.hot_group || "Общее");
   return [...new Set(allGroups)].filter((g) => g !== "");
+});
+
+const filteredHotProducts = computed(() => {
+  if (!activeFilterGroup.value) return hotProducts.value;
+  return hotProducts.value.filter(
+    (p) => (p.hot_group || "Общее") === activeFilterGroup.value,
+  );
+});
+
+const toggleFilterGroup = (g) => {
+  activeFilterGroup.value = activeFilterGroup.value === g ? null : g;
+};
+
+const groupInitialized = ref(false);
+
+watch(
+  groups,
+  (list) => {
+    if (list.length === 0) {
+      if (!groupInitialized.value) groupSelectValue.value = NEW_GROUP_OPTION;
+      return;
+    }
+    if (!groupInitialized.value) {
+      groupSelectValue.value = list[0];
+      groupInitialized.value = true;
+      return;
+    }
+    if (
+      groupSelectValue.value !== NEW_GROUP_OPTION &&
+      !list.includes(groupSelectValue.value)
+    ) {
+      groupSelectValue.value = list[0];
+    }
+  },
+  { immediate: true },
+);
+
+watch(activeFilterGroup, (g) => {
+  if (g) groupSelectValue.value = g;
 });
 
 const renameGroup = async (oldName, newName) => {
@@ -222,18 +291,20 @@ onMounted(() => {
 
             <div class="mb-3">
               <label class="form-label small text-muted fw-bold">ГРУППА</label>
-              <div class="input-group">
-                <input
-                  v-model="selectedGroup"
-                  type="text"
-                  class="form-control border-0 bg-light"
-                  list="groupSuggestions"
-                  placeholder="Напр: Напитки"
-                />
-                <datalist id="groupSuggestions">
-                  <option v-for="g in groups" :key="g" :value="g"></option>
-                </datalist>
-              </div>
+              <select
+                v-model="groupSelectValue"
+                class="form-select border-0 bg-light"
+              >
+                <option v-for="g in groups" :key="g" :value="g">{{ g }}</option>
+                <option :value="NEW_GROUP_OPTION">+ Новая группа...</option>
+              </select>
+              <input
+                v-if="groupSelectValue === NEW_GROUP_OPTION"
+                v-model="newGroupName"
+                type="text"
+                class="form-control border-0 bg-light mt-2"
+                placeholder="Название новой группы"
+              />
             </div>
 
             <div class="search-box position-relative mb-4">
@@ -254,16 +325,40 @@ onMounted(() => {
               </div>
 
               <div
+                v-if="selectedToAdd.length > 0"
+                class="d-flex align-items-center justify-content-between bg-light rounded-4 p-3 mt-2"
+              >
+                <span class="small fw-bold"
+                  >Выбрано: {{ selectedToAdd.length }}</span
+                >
+                <button
+                  @click="addSelectedToHot"
+                  class="btn btn-primary btn-sm rounded-pill px-3"
+                >
+                  <i class="bi bi-plus-lg me-1"></i>Добавить в «{{
+                    selectedGroup
+                  }}»
+                </button>
+              </div>
+
+              <div
                 v-if="searchResults.length > 0"
                 class="search-results-dropdown shadow-lg rounded-4 mt-2 bg-white position-absolute w-100 z-3 border"
               >
                 <div
                   v-for="p in searchResults"
                   :key="p.id"
-                  @click="addToHot(p)"
+                  @click="toggleSelectToAdd(p)"
                   class="p-3 border-bottom d-flex justify-content-between align-items-center cursor-pointer hover-bg"
+                  :class="{ 'bg-primary-subtle': isSelectedToAdd(p) }"
                 >
                   <div class="d-flex align-items-center">
+                    <input
+                      type="checkbox"
+                      class="form-check-input me-3"
+                      :checked="isSelectedToAdd(p)"
+                      @click.stop="toggleSelectToAdd(p)"
+                    />
                     <img
                       v-if="p.image_url"
                       :src="p.image_url"
@@ -275,15 +370,22 @@ onMounted(() => {
                       <small class="text-muted">SKU: {{ p.sku }}</small>
                     </div>
                   </div>
-                  <i class="bi bi-plus-circle text-primary fs-5"></i>
+                  <i
+                    class="bi fs-5"
+                    :class="
+                      isSelectedToAdd(p)
+                        ? 'bi-check-circle-fill text-success'
+                        : 'bi-plus-circle text-primary'
+                    "
+                  ></i>
                 </div>
               </div>
             </div>
 
             <div class="alert alert-info border-0 rounded-4 small mb-0">
               <i class="bi bi-info-circle me-2"></i>
-              Используйте поиск, чтобы найти товар и добавить его в список
-              горячих для кассира.
+              Используйте поиск, чтобы найти и отметить несколько товаров —
+              они добавятся в выбранную группу за один раз.
             </div>
           </div>
         </div>
@@ -294,16 +396,26 @@ onMounted(() => {
         >
           <div class="card-body p-4">
             <h5 class="fw-bold mb-3">Управление группами</h5>
+            <p class="text-muted x-small mb-3">
+              Нажмите на группу, чтобы отфильтровать список справа
+            </p>
             <div class="d-flex flex-wrap gap-2">
               <div
                 v-for="g in groups"
                 :key="g"
-                class="group-rename-tag d-flex align-items-center bg-light rounded-pill px-3 py-2 border"
+                @click="toggleFilterGroup(g)"
+                class="group-rename-tag d-flex align-items-center rounded-pill px-3 py-2 border cursor-pointer"
+                :class="
+                  activeFilterGroup === g
+                    ? 'bg-primary text-white border-primary'
+                    : 'bg-light'
+                "
               >
                 <span class="small fw-bold me-2">{{ g }}</span>
                 <button
-                  @click="triggerRenameGroup(g)"
-                  class="btn btn-sm btn-link p-0 text-primary"
+                  @click.stop="triggerRenameGroup(g)"
+                  class="btn btn-sm btn-link p-0"
+                  :class="activeFilterGroup === g ? 'text-white' : 'text-primary'"
                   title="Переименовать группу"
                 >
                   <i class="bi bi-pencil-square"></i>
@@ -317,14 +429,30 @@ onMounted(() => {
       <div class="col-lg-8">
         <div class="card border-0 shadow-sm rounded-4 min-vh-60">
           <div class="card-body p-4">
-            <h5 class="fw-bold mb-4">Текущий список (Дашборд)</h5>
+            <div
+              class="d-flex align-items-center justify-content-between mb-4"
+            >
+              <h5 class="fw-bold mb-0">
+                Текущий список (Дашборд)
+                <span v-if="activeFilterGroup" class="text-muted fw-normal small"
+                  >— {{ activeFilterGroup }}</span
+                >
+              </h5>
+              <button
+                v-if="activeFilterGroup"
+                @click="activeFilterGroup = null"
+                class="btn btn-sm btn-light rounded-pill px-3"
+              >
+                <i class="bi bi-x-lg me-1"></i>Сбросить фильтр
+              </button>
+            </div>
 
             <div v-if="isLoading" class="text-center py-5">
               <div class="spinner-border text-primary" role="status"></div>
             </div>
 
             <div
-              v-else-if="hotProducts.length === 0"
+              v-else-if="filteredHotProducts.length === 0"
               class="text-center py-5 opacity-50"
             >
               <i class="bi bi-fire fs-1 d-block mb-3"></i>
@@ -333,7 +461,7 @@ onMounted(() => {
 
             <div v-else class="hot-list">
               <div
-                v-for="(p, index) in hotProducts"
+                v-for="(p, index) in filteredHotProducts"
                 :key="p.id"
                 class="hot-item d-flex align-items-center p-3 mb-2 rounded-4 border bg-white"
               >
@@ -409,15 +537,15 @@ onMounted(() => {
                     </div>
                   </div>
                   <button
-                    @click="moveItem(index, -1)"
+                    @click="moveItem(filteredHotProducts, index, -1)"
                     :disabled="index === 0"
                     class="btn btn-sm btn-light rounded-circle"
                   >
                     <i class="bi bi-chevron-up"></i>
                   </button>
                   <button
-                    @click="moveItem(index, 1)"
-                    :disabled="index === hotProducts.length - 1"
+                    @click="moveItem(filteredHotProducts, index, 1)"
+                    :disabled="index === filteredHotProducts.length - 1"
                     class="btn btn-sm btn-light rounded-circle"
                   >
                     <i class="bi bi-chevron-down"></i>
