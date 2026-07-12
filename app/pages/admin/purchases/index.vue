@@ -10,7 +10,6 @@ const {
   createSupplier,
 } = useAccounting();
 const {
-  getProducts,
   createProduct,
   getCategories,
   generateSku,
@@ -28,8 +27,7 @@ const activeTab = ref("list");
 const loading = ref(false);
 const purchases = ref([]);
 const suppliers = ref([]);
-const products = ref([]);
-const searchProductQuery = ref("");
+const showProductPicker = ref(false);
 
 const today = new Date().toLocaleDateString("en-CA");
 const filters = ref({
@@ -111,6 +109,60 @@ watch(
   },
   { deep: true },
 );
+
+// Защита от случайного обновления/закрытия страницы, пока приём не
+// подтверждён: браузер спросит подтверждение, а при переходе внутри
+// приложения — покажем свой диалог
+const hasUnsavedChanges = computed(
+  () =>
+    activeTab.value === "create" &&
+    (form.value.items.length > 0 || !!form.value.supplier_id),
+);
+
+const handleBeforeUnload = (e) => {
+  if (!hasUnsavedChanges.value) return;
+  e.preventDefault();
+  e.returnValue = "";
+};
+
+// Insert — быстрый вызов "Вставить товар" без мыши, как на кассе
+const handleGlobalKeydown = (e) => {
+  if (e.key !== "Insert") return;
+  if (activeTab.value !== "create" || showProductPicker.value) return;
+  e.preventDefault();
+  showProductPicker.value = true;
+};
+
+onBeforeRouteLeave(async () => {
+  if (!hasUnsavedChanges.value) return true;
+  return await uiStore.showConfirm(
+    "Покинуть страницу?",
+    "В текущем приёме есть несохранённые товары. Уйти без оприходования?",
+  );
+});
+
+const confirmDiscardDraft = async (message) => {
+  if (form.value.items.length === 0 && !form.value.supplier_id) return true;
+  return await uiStore.showConfirm("Очистить текущий приём?", message);
+};
+
+const startNewPurchase = async () => {
+  const proceed = await confirmDiscardDraft(
+    "Все добавленные товары текущего приёма будут удалены. Продолжить?",
+  );
+  if (!proceed) return;
+  editingPurchaseId.value = null;
+  form.value = { supplier_id: "", paid_amount: 0, items: [] };
+  activeTab.value = "create";
+};
+
+const clearItems = async () => {
+  if (form.value.items.length === 0) return;
+  const proceed = await confirmDiscardDraft(
+    "Все добавленные товары будут удалены из текущего приёма.",
+  );
+  if (proceed) form.value.items = [];
+};
 
 const showPaymentModal = ref(false);
 const selectedPurchaseForPayment = ref(null);
@@ -197,6 +249,7 @@ const handleQuickAddProduct = async () => {
   try {
     const res = await createProduct(newProductForm.value);
     uiStore.success("Товар успешно создан!");
+    addItem(res.data || res);
     showAddProductModal.value = false;
 
     newProductForm.value = {
@@ -208,7 +261,6 @@ const handleQuickAddProduct = async () => {
       is_active: true,
       in_stock: true,
     };
-    await loadData();
   } catch (error) {
     if (error.data?.errors) {
       productErrors.value = error.data.errors;
@@ -243,7 +295,10 @@ const handleQuickAddCategory = async () => {
   }
 };
 
+// Открывается из модалки выбора товара — закрываем её на время создания
+// нового товара, чтобы модалки не накладывались друг на друга
 const openAddProductModal = async () => {
+  showProductPicker.value = false;
   if (categories.value.length === 0) {
     const res = await getCategories();
     categories.value = Array.isArray(res) ? res : res.data || [];
@@ -280,10 +335,9 @@ const loadData = async () => {
       search: filters.value.search || undefined,
     };
 
-    const [pResponse, sResponse, prodResponse] = await Promise.allSettled([
+    const [pResponse, sResponse] = await Promise.allSettled([
       getPurchases(params),
       getSuppliers(),
-      getProducts({ per_page: 100 }),
     ]);
 
     if (pResponse.status === "fulfilled") {
@@ -306,11 +360,6 @@ const loadData = async () => {
       const data = sResponse.value;
       suppliers.value = Array.isArray(data) ? data : data?.data || [];
     }
-
-    if (prodResponse.status === "fulfilled") {
-      const data = prodResponse.value;
-      products.value = Array.isArray(data) ? data : data?.data || [];
-    }
   } catch (error) {
     console.error("Error loading data:", error);
     uiStore.error("Ошибка при загрузке данных");
@@ -326,6 +375,23 @@ const changePage = (page) => {
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
+// Ссылки на инпуты "Кол-во" по product_id — чтобы после добавления
+// товара сразу поставить туда фокус (быстро набрать количество)
+const qtyInputRefs = {};
+const setQtyInputRef = (productId, el) => {
+  if (el) qtyInputRefs[productId] = el;
+  else delete qtyInputRefs[productId];
+};
+
+const focusQuantityInput = async (productId) => {
+  await nextTick();
+  const el = qtyInputRefs[productId];
+  if (el) {
+    el.focus();
+    el.select();
+  }
+};
+
 const addItem = (product) => {
   const existing = form.value.items.find((i) => i.product_id === product.id);
   if (existing) {
@@ -336,9 +402,11 @@ const addItem = (product) => {
       name: product.name,
       quantity: 1,
       buy_price: parseFloat(product.purchase_price || product.price || 0),
+      sale_price: parseFloat(product.price || 0),
       notes: "",
     });
   }
+  focusQuantityInput(product.id);
 };
 
 const removeItem = (index) => {
@@ -386,6 +454,7 @@ const handleEdit = (purchase) => {
       name: item.product?.name || "Товар",
       quantity: item.quantity,
       buy_price: item.buy_price,
+      sale_price: parseFloat(item.product?.price || 0),
     })),
   };
   activeTab.value = "create";
@@ -417,20 +486,20 @@ const formatPrice = (price) => {
   return parseFloat(price).toLocaleString("ru-RU") + " сом";
 };
 
-const filteredProducts = computed(() => {
-  if (!searchProductQuery.value) return products.value.slice(0, 5);
-  return products.value
-    .filter(
-      (p) =>
-        p.name.toLowerCase().includes(searchProductQuery.value.toLowerCase()) ||
-        p.sku?.toLowerCase().includes(searchProductQuery.value.toLowerCase()),
-    )
-    .slice(0, 10);
-});
-
 onMounted(async () => {
   await loadData();
   restoreDraftFromStorage();
+  if (import.meta.client) {
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("keydown", handleGlobalKeydown);
+  }
+});
+
+onUnmounted(() => {
+  if (import.meta.client) {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+    window.removeEventListener("keydown", handleGlobalKeydown);
+  }
 });
 </script>
 
@@ -459,11 +528,7 @@ onMounted(async () => {
           <button
             class="btn-tab"
             :class="{ active: activeTab === 'create' }"
-            @click="
-              editingPurchaseId = null;
-              form = { supplier_id: '', paid_amount: 0, items: [] };
-              activeTab = 'create';
-            "
+            @click="startNewPurchase"
           >
             <i class="bi bi-plus-circle-fill me-2"></i
             >{{ editingPurchaseId ? "Правка приёма" : "Новый приём" }}
@@ -700,84 +765,7 @@ onMounted(async () => {
       v-if="activeTab === 'create'"
       class="row g-4 animate-slide-up h-view-content"
     >
-      <div class="col-xl-5">
-        <div
-          class="card border-0 shadow-sm rounded-4 d-flex flex-column h-100 overflow-hidden"
-        >
-          <div class="p-4 bg-light border-bottom">
-            <h5 class="fw-bold mb-3 d-flex align-items-center">
-              <i class="bi bi-search text-primary me-2"></i>Подбор товаров
-            </h5>
-            <div class="search-box">
-              <div class="input-group">
-                <input
-                  v-model="searchProductQuery"
-                  type="text"
-                  class="form-control rounded-start-pill border-0 shadow-none ps-4 py-2"
-                  placeholder="Поиск товара..."
-                />
-                <button
-                  class="btn btn-primary rounded-end-pill px-3"
-                  @click="openAddProductModal"
-                  title="Создать новый товар"
-                >
-                  <i class="bi bi-plus-lg"></i>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="product-selection-list p-3 flex-grow-1 overflow-auto">
-            <div
-              v-for="p in filteredProducts"
-              :key="p.id"
-              class="product-select-card p-3 mb-2 rounded-4"
-              @click="addItem(p)"
-            >
-              <div class="row g-0 align-items-center">
-                <div class="col-auto">
-                  <img
-                    :src="p.image_url"
-                    class="rounded-3 shadow-sm"
-                    style="width: 50px; height: 50px; object-fit: cover"
-                  />
-                </div>
-                <div class="col ps-3">
-                  <div class="fw-bold text-dark small line-clamp-1">
-                    {{ p.name }}
-                  </div>
-                  <div class="d-flex justify-content-between">
-                    <span class="text-muted" style="font-size: 0.7rem"
-                      >SKU: {{ p.sku || "N/A" }}</span
-                    >
-                    <span
-                      class="badge"
-                      :class="
-                        p.stock_quantity < 5
-                          ? 'bg-danger-subtle text-danger'
-                          : 'bg-success-subtle text-success'
-                      "
-                      style="font-size: 0.65rem"
-                      >Доступно: {{ p.stock_quantity }}</span
-                    >
-                  </div>
-                </div>
-                <div class="col-auto ps-2 text-primary">
-                  <i class="bi bi-plus-circle-fill fs-5"></i>
-                </div>
-              </div>
-            </div>
-            <div
-              v-if="products.length && !filteredProducts.length"
-              class="text-center py-5 text-muted small"
-            >
-              Товары не найдены
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="col-xl-7">
+      <div class="col-12">
         <div
           class="card border-0 shadow-sm rounded-4 overflow-hidden h-100 d-flex flex-column"
         >
@@ -793,6 +781,12 @@ onMounted(async () => {
             </h5>
             <div class="d-flex gap-2">
               <button
+                class="btn btn-sm btn-primary rounded-pill px-3"
+                @click="showProductPicker = true"
+              >
+                <i class="bi bi-plus-lg me-1"></i>Вставить товар
+              </button>
+              <button
                 v-if="editingPurchaseId"
                 class="btn btn-sm btn-outline-secondary rounded-pill"
                 @click="cancelEdit"
@@ -801,7 +795,7 @@ onMounted(async () => {
               </button>
               <button
                 class="btn btn-sm btn-outline-danger border-0 rounded-pill"
-                @click="form.items = []"
+                @click="clearItems"
               >
                 Очистить
               </button>
@@ -874,6 +868,7 @@ onMounted(async () => {
                   <th class="ps-4">Наименование</th>
                   <th width="90" class="text-center">Кол-во</th>
                   <th width="140">Цена зак.</th>
+                  <th width="140">Цена продажи</th>
                   <th width="140" class="text-end">Итого</th>
                   <th width="60"></th>
                 </tr>
@@ -889,16 +884,33 @@ onMounted(async () => {
                   </td>
                   <td>
                     <input
+                      :ref="(el) => setQtyInputRef(item.product_id, el)"
                       v-model.number="item.quantity"
                       type="number"
                       class="form-control form-control-sm border-0 bg-light rounded-pill text-center font-monospace"
                       min="1"
+                      @keyup.enter="$event.target.blur()"
                     />
                   </td>
                   <td>
                     <div class="input-group input-group-sm">
                       <input
                         v-model.number="item.buy_price"
+                        type="number"
+                        class="form-control border-0 bg-light rounded-start-pill ps-3"
+                        step="0.01"
+                      />
+                      <span
+                        class="input-group-text border-0 bg-light rounded-end-pill pe-2 text-muted"
+                        style="font-size: 0.6rem"
+                        >сом</span
+                      >
+                    </div>
+                  </td>
+                  <td>
+                    <div class="input-group input-group-sm">
+                      <input
+                        v-model.number="item.sale_price"
                         type="number"
                         class="form-control border-0 bg-light rounded-start-pill ps-3"
                         step="0.01"
@@ -929,11 +941,11 @@ onMounted(async () => {
                 </tr>
                 <tr v-if="form.items.length === 0">
                   <td
-                    colspan="5"
+                    colspan="6"
                     class="text-center py-5 text-muted small opacity-75"
                   >
                     <i class="bi bi-cart-plus d-block fs-1 mb-2"></i>
-                    Добавьте товары из левого списка
+                    Нажмите «Вставить товар», чтобы добавить позиции
                   </td>
                 </tr>
               </tbody>
@@ -1039,7 +1051,7 @@ onMounted(async () => {
     <UiBaseModal
       :show="showAddProductModal"
       title="Создание нового товара"
-      @close="showAddProductModal = false"
+      @close="showAddProductModal = false; showProductPicker = true"
       @submit="handleQuickAddProduct"
     >
       <div class="p-1">
@@ -1160,7 +1172,7 @@ onMounted(async () => {
           <button
             type="button"
             class="btn btn-light px-4 rounded-pill"
-            @click="showAddProductModal = false"
+            @click="showAddProductModal = false; showProductPicker = true"
           >
             Отмена
           </button>
@@ -1324,6 +1336,14 @@ onMounted(async () => {
         </div>
       </template>
     </UiBaseModal>
+
+    <AdminProductPickerModal
+      :show="showProductPicker"
+      :items="form.items"
+      @close="showProductPicker = false"
+      @select="addItem"
+      @create-product="openAddProductModal"
+    />
   </div>
 </template>
 
@@ -1333,11 +1353,18 @@ onMounted(async () => {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-/* Двухколоночная раскладка с фиксированной высотой и внутренним скроллом
-   работает только там, где колонки стоят бок о бок (xl+). На меньших
-   экранах колонки складываются в столбик, и фиксированная высота с
-   overflow:hidden обрезала бы "Формирование приёма" (и кнопку сохранения)
-   ниже первого экрана — поэтому там раскладка обычная, без обрезки. */
+/* Убираем стрелки увеличения/уменьшения у числовых полей */
+.purchases-page input[type="number"]::-webkit-outer-spin-button,
+.purchases-page input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.purchases-page input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Фиксированная высота карточки приёма с внутренним скроллом — только
+   на xl+. На меньших экранах раскладка обычная, без обрезки. */
 @media (min-width: 1200px) {
   .h-view-content {
     height: calc(100vh - 180px);
@@ -1359,17 +1386,6 @@ onMounted(async () => {
   }
 }
 
-@media (max-width: 1199.98px) {
-  .h-view-content .col-xl-5 {
-    margin-bottom: 1.5rem;
-  }
-
-  .h-view-content .product-selection-list {
-    max-height: 400px;
-  }
-}
-
-.product-selection-list,
 .receipt-builder {
   flex: 1;
   overflow-y: auto !important;
@@ -1377,11 +1393,9 @@ onMounted(async () => {
   scrollbar-width: thin;
 }
 
-.product-selection-list::-webkit-scrollbar,
 .receipt-builder::-webkit-scrollbar {
   width: 6px;
 }
-.product-selection-list::-webkit-scrollbar-thumb,
 .receipt-builder::-webkit-scrollbar-thumb {
   background-color: #e2e8f0;
   border-radius: 10px;
@@ -1441,28 +1455,6 @@ thead th {
   border-radius: 50px;
   font-weight: 700;
   font-size: 0.75rem;
-}
-
-.search-box .form-control {
-  background: white;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
-}
-
-.product-select-card {
-  background: white;
-  border: 1px solid #f1f5f9;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.product-select-card:hover {
-  transform: translateX(5px);
-  border-color: #38bdf8;
-  background: #f1f5f9;
-}
-
-.receipt-builder {
-  scrollbar-width: thin;
 }
 
 .pagination-premium {
@@ -1544,13 +1536,5 @@ thead th {
     transform: translateY(0);
     opacity: 1;
   }
-}
-
-.line-clamp-1 {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 </style>

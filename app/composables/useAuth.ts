@@ -1,4 +1,4 @@
-import { useApi } from "./useApi";
+import { useApi, resolveApiBase } from "./useApi";
 
 export const useAuth = () => {
   const api = useApi();
@@ -48,7 +48,7 @@ export const useAuth = () => {
           (window as any).electronAPI.authSaveSession({
             token: response.token,
             user: response.user,
-            apiBase: pub.apiBase,
+            apiBase: resolveApiBase(pub.apiBase as string),
             wsHost: pub.wsHost,
             wsPort: pub.wsPort,
             wsKey: pub.wsKey,

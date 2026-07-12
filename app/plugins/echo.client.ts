@@ -17,7 +17,7 @@ export default defineNuxtPlugin(() => {
         wsPort: config.public.wsPort,
         wsKey: config.public.wsKey,
         wsTLS: !!config.public.wsTLS,
-        apiBase: config.public.apiBase,
+        apiBase: resolveApiBase(config.public.apiBase as string),
       })
       .catch(console.error);
   }

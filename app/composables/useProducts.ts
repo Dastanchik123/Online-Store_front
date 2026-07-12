@@ -9,6 +9,9 @@ export const useProducts = () => {
       is_active?: boolean;
       in_stock?: boolean;
       search?: string;
+      search_strict?: boolean;
+      sort_by?: string;
+      sort_order?: "asc" | "desc";
       min_price?: number;
       max_price?: number;
       per_page?: number;
@@ -17,7 +20,9 @@ export const useProducts = () => {
       fields?: string;
     } = {},
     // onRefresh — вызывается со свежими данными после фонового SWR-обновления
-    options: { onRefresh?: (data: any) => void } = {}
+    // noCache — минуя SWR, всегда идти в сеть (когда результат сразу же
+    // используется дальше, устаревшие цена/остаток недопустимы)
+    options: { onRefresh?: (data: any) => void; noCache?: boolean } = {}
   ) => {
     try {
       const queryParams = new URLSearchParams();

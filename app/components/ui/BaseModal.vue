@@ -33,7 +33,7 @@
 const props = defineProps<{
   show: boolean;
   title: string;
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: "sm" | "md" | "lg" | "xl" | "xxl";
 }>();
 const emit = defineEmits(["close", "submit"]);
 
@@ -108,5 +108,8 @@ onUnmounted(() => {
 }
 .modal-xl {
   max-width: 1100px;
+}
+.modal-xxl {
+  max-width: 1400px;
 }
 </style>

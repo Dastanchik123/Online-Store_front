@@ -46,13 +46,22 @@ const writeApiCache = (endpoint: string, data: any) => {
 // '/blog-admin' метят публичные '/banners*' и '/blog*'.
 // Не удаляем записи, а «состариваем»: страница по-прежнему рисуется мгновенно
 // из кеша, но следующий GET обязательно уйдёт в сеть и подтянет свежее фоном.
+// Некоторые ресурсы меняют товары не через /products напрямую: закупка
+// обновляет остаток/цену, продажа и инвентаризация — остаток
+const CROSS_INVALIDATE: Record<string, string[]> = {
+  purchases: ["products"],
+  pos: ["products"],
+  orders: ["products"],
+  inventory: ["products"],
+};
+
 const markApiCacheStale = (mutatedEndpoint: string) => {
   const seg = (mutatedEndpoint.split("?")[0].split("/")[1] || "").replace(/-admin$/, "");
   if (!seg) return;
-  const prefix = "/" + seg;
+  const prefixes = ["/" + seg, ...(CROSS_INVALIDATE[seg] || []).map((s) => "/" + s)];
   const staleT = Date.now() - API_CACHE_FRESH_MS;
   for (const key of [...memApiCache.keys()]) {
-    if (key.startsWith(prefix)) {
+    if (prefixes.some((p) => key.startsWith(p))) {
       const hit = memApiCache.get(key);
       if (hit) memApiCache.set(key, { ...hit, t: staleT });
     }
@@ -60,7 +69,7 @@ const markApiCacheStale = (mutatedEndpoint: string) => {
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(API_CACHE_PREFIX + prefix)) {
+      if (k && prefixes.some((p) => k.startsWith(API_CACHE_PREFIX + p))) {
         const raw = localStorage.getItem(k);
         if (!raw) continue;
         const parsed = JSON.parse(raw);
@@ -68,6 +77,18 @@ const markApiCacheStale = (mutatedEndpoint: string) => {
       }
     }
   } catch {}
+};
+
+// В same-origin сборке (build:laravel) apiBase — относительный путь "/api",
+// это корректно для fetch() в браузере, но Node-процесс Electron (axios в
+// sync.cjs) не может резолвить относительный URL без известного origin
+export const resolveApiBase = (base: string): string => {
+  if (!base || typeof window === "undefined") return base;
+  try {
+    return new URL(base, window.location.origin).toString().replace(/\/$/, "");
+  } catch {
+    return base;
+  }
 };
 
 export const useApi = () => {
@@ -123,7 +144,9 @@ export const useApi = () => {
   const apiFetch = async (endpoint: string, options: any = {}) => {
     // onRefresh — колбек страницы: вызывается со свежими данными, когда
     // фоновое SWR-обновление завершилось (в $fetch не передаётся)
-    const { onRefresh, ...fetchOptions } = options;
+    // noCache — принудительно идти в сеть, минуя SWR (когда результат
+    // сразу используется для записи, устаревшие данные недопустимы)
+    const { onRefresh, noCache, ...fetchOptions } = options;
     options = fetchOptions;
 
     // 1) POS-критичные маршруты обслуживаются локально (работают без сети)
@@ -164,7 +187,10 @@ export const useApi = () => {
 
     // 2) SWR-кэш: кэшируемые GET рисуются мгновенно, обновляются фоном
     const swrEligible =
-      import.meta.client && method === "GET" && isCacheableEndpoint(endpoint);
+      import.meta.client &&
+      method === "GET" &&
+      isCacheableEndpoint(endpoint) &&
+      !noCache;
     if (swrEligible) {
       const cached = readApiCache(endpoint);
       if (cached) {
