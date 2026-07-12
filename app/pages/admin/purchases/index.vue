@@ -304,13 +304,7 @@ const openAddProductModal = async () => {
     categories.value = Array.isArray(res) ? res : res.data || [];
   }
 
-  try {
-    const res = await generateSku();
-    newProductForm.value.sku = res.sku;
-  } catch (e) {
-    console.error("Failed to generate SKU", e);
-  }
-
+  // Артикул пустой по умолчанию — обычно его сканируют штрих-кодом
   showAddProductModal.value = true;
 };
 
@@ -320,6 +314,24 @@ const handleGenerateSku = async () => {
     newProductForm.value.sku = res.sku;
   } catch (e) {
     uiStore.error("Ошибка при генерации SKU");
+  }
+};
+
+// Сканер штрих-кода в конце ввода отправляет Enter — по умолчанию это
+// сабмитило бы форму создания товара. Вместо этого просто переводим
+// фокус на следующее поле, как Tab
+const focusNextField = (e) => {
+  e.preventDefault();
+  const form = e.target.closest("form");
+  if (!form) return;
+  const focusable = Array.from(
+    form.querySelectorAll("input, select, textarea"),
+  ).filter((el) => !el.disabled && el.offsetParent !== null);
+  const idx = focusable.indexOf(e.target);
+  const next = focusable[idx + 1];
+  if (next) {
+    next.focus();
+    if (typeof next.select === "function") next.select();
   }
 };
 
@@ -1056,6 +1068,32 @@ onUnmounted(() => {
     >
       <div class="p-1">
         <div class="mb-3">
+          <label class="form-label fw-bold small">Артикул (SKU) *</label>
+          <div class="input-group">
+            <input
+              v-model="newProductForm.sku"
+              type="text"
+              class="form-control rounded-start-3"
+              :class="{ 'is-invalid': productErrors.sku }"
+              placeholder="Отсканируйте штрих-код или введите вручную"
+              required
+              @keydown.enter="focusNextField"
+            />
+            <button
+              type="button"
+              class="btn btn-outline-secondary rounded-end-3"
+              @click="handleGenerateSku"
+              title="Сгенерировать новый SKU"
+            >
+              <i class="bi bi-magic"></i>
+            </button>
+            <div v-if="productErrors.sku" class="invalid-feedback">
+              {{ productErrors.sku[0] }}
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-3">
           <label class="form-label fw-bold small">Название товара *</label>
           <input
             v-model="newProductForm.name"
@@ -1064,62 +1102,38 @@ onUnmounted(() => {
             :class="{ 'is-invalid': productErrors.name }"
             placeholder="Напр: Молоток отбойный"
             required
+            @keydown.enter="focusNextField"
           />
           <div v-if="productErrors.name" class="invalid-feedback">
             {{ productErrors.name[0] }}
           </div>
         </div>
 
-        <div class="row g-3 mb-3">
-          <div class="col-md-6">
-            <label class="form-label fw-bold small">Артикул (SKU) *</label>
-            <div class="input-group">
-              <input
-                v-model="newProductForm.sku"
-                type="text"
-                class="form-control rounded-start-3"
-                :class="{ 'is-invalid': productErrors.sku }"
-                placeholder="ART-12345"
-                required
-              />
-              <button
-                type="button"
-                class="btn btn-outline-secondary rounded-end-3"
-                @click="handleGenerateSku"
-                title="Сгенерировать новый SKU"
-              >
-                <i class="bi bi-magic"></i>
-              </button>
-              <div v-if="productErrors.sku" class="invalid-feedback">
-                {{ productErrors.sku[0] }}
-              </div>
-            </div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-bold small">Категория *</label>
-            <div class="input-group">
-              <select
-                v-model="newProductForm.category_id"
-                class="form-select rounded-start-3"
-                :class="{ 'is-invalid': productErrors.category_id }"
-                required
-              >
-                <option value="">Выберите категорию</option>
-                <option v-for="cat in categories" :key="cat.id" :value="cat.id">
-                  {{ cat.name }}
-                </option>
-              </select>
-              <button
-                type="button"
-                class="btn btn-outline-secondary rounded-end-3"
-                @click="showAddCategoryModal = true"
-                title="Добавить категорию"
-              >
-                <i class="bi bi-plus-lg"></i>
-              </button>
-              <div v-if="productErrors.category_id" class="invalid-feedback">
-                {{ productErrors.category_id[0] }}
-              </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold small">Категория *</label>
+          <div class="input-group">
+            <select
+              v-model="newProductForm.category_id"
+              class="form-select rounded-start-3"
+              :class="{ 'is-invalid': productErrors.category_id }"
+              required
+              @keydown.enter="focusNextField"
+            >
+              <option value="">Выберите категорию</option>
+              <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+                {{ cat.name }}
+              </option>
+            </select>
+            <button
+              type="button"
+              class="btn btn-outline-secondary rounded-end-3"
+              @click="showAddCategoryModal = true"
+              title="Добавить категорию"
+            >
+              <i class="bi bi-plus-lg"></i>
+            </button>
+            <div v-if="productErrors.category_id" class="invalid-feedback">
+              {{ productErrors.category_id[0] }}
             </div>
           </div>
         </div>
@@ -1133,6 +1147,7 @@ onUnmounted(() => {
                 type="number"
                 class="form-control rounded-start-3"
                 placeholder="0.00"
+                @keydown.enter="focusNextField"
               />
               <span class="input-group-text rounded-end-3 bg-light text-muted"
                 >сом</span
@@ -1155,6 +1170,7 @@ onUnmounted(() => {
                 :class="{ 'is-invalid': productErrors.price }"
                 placeholder="0.00"
                 required
+                @keydown.enter.prevent
               />
               <span class="input-group-text rounded-end-3 bg-light text-muted"
                 >сом</span
