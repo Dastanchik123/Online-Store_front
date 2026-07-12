@@ -319,6 +319,18 @@ const quickUpdateOrder = async (order, payload) => {
   }
 };
 
+// @click.stop на <td> глушит клик, чтобы строка не открывала модалку
+// заказа — но это же мешает Bootstrap услышать клик и закрыть dropdown
+// сам, поэтому закрываем его явно через его JS API
+const closeQuickDropdown = (event) => {
+  const toggle = event.currentTarget
+    .closest(".dropdown")
+    ?.querySelector('[data-bs-toggle="dropdown"]');
+  if (toggle && window.bootstrap) {
+    window.bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
+  }
+};
+
 const quickSetStatus = (order, status) => {
   if (status === order.status) return;
   quickUpdateOrder(order, { status });
@@ -679,7 +691,7 @@ onUnmounted(() => {
                         type="button"
                         class="dropdown-item d-flex align-items-center gap-2"
                         :class="{ active: order.status === opt.value }"
-                        @click="quickSetStatus(order, opt.value)"
+                        @click="quickSetStatus(order, opt.value); closeQuickDropdown($event)"
                       >
                         <span
                           class="status-dot"
@@ -726,7 +738,7 @@ onUnmounted(() => {
                         type="button"
                         class="dropdown-item d-flex align-items-center gap-2"
                         :class="{ active: order.payment_status === opt.value }"
-                        @click="quickSetPaymentStatus(order, opt.value)"
+                        @click="quickSetPaymentStatus(order, opt.value); closeQuickDropdown($event)"
                       >
                         {{ opt.label }}
                       </button>
