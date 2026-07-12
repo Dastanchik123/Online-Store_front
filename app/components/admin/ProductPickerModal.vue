@@ -13,14 +13,25 @@ const selectedCategoryId = ref("");
 const searchQuery = ref("");
 const products = ref([]);
 const isLoading = ref(false);
+const isLoadingMore = ref(false);
+const page = ref(1);
+const lastPage = ref(1);
+const total = ref(0);
 
 const quantityInCart = (productId) => {
   const item = props.items.find((i) => i.product_id === productId);
   return item ? item.quantity : 0;
 };
 
-const fetchProducts = async () => {
-  isLoading.value = true;
+// per_page=100 — каталог большой (1000+ товаров), догружаем следующие
+// страницы по скроллу (см. onProductsScroll), а не одним запросом
+const fetchProducts = async (reset = true) => {
+  if (reset) {
+    page.value = 1;
+    isLoading.value = true;
+  } else {
+    isLoadingMore.value = true;
+  }
   try {
     const query = searchQuery.value.trim();
     const res = await getProducts(
@@ -29,28 +40,46 @@ const fetchProducts = async () => {
         search_strict: query ? 1 : undefined,
         category_id: selectedCategoryId.value || undefined,
         per_page: 100,
+        page: page.value,
         sort_by: "created_at",
         sort_order: "desc",
       },
       { noCache: true },
     );
-    products.value = Array.isArray(res) ? res : res?.data || [];
+    const data = Array.isArray(res) ? res : res?.data || [];
+    lastPage.value = res?.last_page || 1;
+    total.value = res?.total ?? data.length;
+    products.value = reset ? data : [...products.value, ...data];
   } catch (e) {
     console.error("Failed to load products", e);
   } finally {
     isLoading.value = false;
+    isLoadingMore.value = false;
+  }
+};
+
+const loadMore = () => {
+  if (isLoadingMore.value || isLoading.value || page.value >= lastPage.value) return;
+  page.value++;
+  fetchProducts(false);
+};
+
+const onProductsScroll = (e) => {
+  const el = e.target;
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 150) {
+    loadMore();
   }
 };
 
 let searchTimer = null;
 watch(searchQuery, () => {
   if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(fetchProducts, 350);
+  searchTimer = setTimeout(() => fetchProducts(true), 350);
 });
 
 const selectCategory = (id) => {
   selectedCategoryId.value = id;
-  fetchProducts();
+  fetchProducts(true);
 };
 
 watch(
@@ -58,7 +87,7 @@ watch(
   async (visible) => {
     if (!visible) return;
     if (categories.value.length === 0) await productsStore.fetchCategories();
-    await fetchProducts();
+    await fetchProducts(true);
   },
 );
 
@@ -101,59 +130,71 @@ const pickProduct = (product) => {
           </button>
         </div>
 
-        <div class="picker-products">
+        <div class="picker-products" @scroll="onProductsScroll">
           <div v-if="isLoading" class="text-center py-5">
             <div class="spinner-border text-primary" role="status"></div>
           </div>
-          <table v-else class="table table-hover align-middle mb-0 picker-table">
-            <thead class="bg-light sticky-top">
-              <tr>
-                <th class="ps-3">Артикул</th>
-                <th>Товар</th>
-                <th class="text-end">Цена зак.</th>
-                <th class="text-end">Цена продажи</th>
-                <th class="text-center">Остаток</th>
-                <th class="text-center" width="90"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="p in products"
-                :key="p.id"
-                class="picker-row"
-                @click="pickProduct(p)"
-              >
-                <td class="ps-3 text-muted font-monospace small">{{ p.sku || "—" }}</td>
-                <td>
-                  <div class="fw-bold text-dark small">{{ p.name }}</div>
-                </td>
-                <td class="text-end small">{{ formatPrice(p.purchase_price) }}</td>
-                <td class="text-end small">{{ formatPrice(p.price) }}</td>
-                <td class="text-center">
-                  <span
-                    class="badge"
-                    :class="p.stock_quantity < 5 ? 'bg-danger-subtle text-danger' : 'bg-success-subtle text-success'"
-                  >
-                    {{ p.stock_quantity }}
-                  </span>
-                </td>
-                <td class="text-center">
-                  <span
-                    v-if="quantityInCart(p.id)"
-                    class="badge bg-primary-subtle text-primary"
-                    style="font-size: 0.65rem"
-                  >
-                    В приёме: {{ quantityInCart(p.id) }}
-                  </span>
-                </td>
-              </tr>
-              <tr v-if="!products.length">
-                <td colspan="6" class="text-center py-5 text-muted small">
-                  Товары не найдены
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <template v-else>
+            <table class="table table-hover align-middle mb-0 picker-table">
+              <thead class="bg-light sticky-top">
+                <tr>
+                  <th class="ps-3">Артикул</th>
+                  <th>Товар</th>
+                  <th class="text-end">Цена зак.</th>
+                  <th class="text-end">Цена продажи</th>
+                  <th class="text-center">Остаток</th>
+                  <th class="text-center" width="90"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="p in products"
+                  :key="p.id"
+                  class="picker-row"
+                  @click="pickProduct(p)"
+                >
+                  <td class="ps-3 text-muted font-monospace small">{{ p.sku || "—" }}</td>
+                  <td>
+                    <div class="fw-bold text-dark small">{{ p.name }}</div>
+                  </td>
+                  <td class="text-end small">{{ formatPrice(p.purchase_price) }}</td>
+                  <td class="text-end small">{{ formatPrice(p.price) }}</td>
+                  <td class="text-center">
+                    <span
+                      class="badge"
+                      :class="p.stock_quantity < 5 ? 'bg-danger-subtle text-danger' : 'bg-success-subtle text-success'"
+                    >
+                      {{ p.stock_quantity }}
+                    </span>
+                  </td>
+                  <td class="text-center">
+                    <span
+                      v-if="quantityInCart(p.id)"
+                      class="badge bg-primary-subtle text-primary"
+                      style="font-size: 0.65rem"
+                    >
+                      В приёме: {{ quantityInCart(p.id) }}
+                    </span>
+                  </td>
+                </tr>
+                <tr v-if="!products.length">
+                  <td colspan="6" class="text-center py-5 text-muted small">
+                    Товары не найдены
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="isLoadingMore" class="text-center py-3 text-muted small">
+              <span class="spinner-border spinner-border-sm me-2"></span>Загрузка...
+            </div>
+            <div
+              v-else-if="products.length && products.length < total"
+              class="text-center py-2 text-muted"
+              style="font-size: 0.75rem"
+            >
+              Показано {{ products.length }} из {{ total }} — прокрутите вниз для ещё
+            </div>
+          </template>
         </div>
       </div>
 
