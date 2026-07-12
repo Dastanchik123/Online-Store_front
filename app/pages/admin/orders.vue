@@ -19,7 +19,7 @@ const orders = ref({
   current_page: 1,
   last_page: 1,
   total: 0,
-  per_page: 15,
+  per_page: 30,
 });
 
 const isLoading = ref(false);
@@ -100,13 +100,21 @@ const filters = ref({
   search: "",
   date_from: today,
   date_to: today,
-  min_total: "",
-  max_total: "",
   user_id: "",
-  per_page: 15,
+  per_page: 30,
   page: 1,
   source: "online",
 });
+
+// Границы дня переводим в UTC по часовому поясу БРАУЗЕРА пользователя —
+// backend просто сравнивает метки, никаких допущений о часовом поясе
+// на сервере (иначе для пользователей в другом поясе, чем магазин,
+// фильтр отсекал бы заказы к началу/концу дня)
+const toUtcDayBoundary = (dateStr, endOfDay) => {
+  if (!dateStr) return undefined;
+  const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
+  return new Date(`${dateStr}T${time}`).toISOString();
+};
 
 let debounceTimer = null;
 watch(
@@ -186,10 +194,8 @@ const fetchOrders = async () => {
       payment_status: filters.value.payment_status || undefined,
       payment_method: filters.value.payment_method || undefined,
       search: filters.value.search || undefined,
-      date_from: filters.value.date_from || undefined,
-      date_to: filters.value.date_to || undefined,
-      min_total: filters.value.min_total || undefined,
-      max_total: filters.value.max_total || undefined,
+      date_from: toUtcDayBoundary(filters.value.date_from, false),
+      date_to: toUtcDayBoundary(filters.value.date_to, true),
       user_id: filters.value.user_id || undefined,
       per_page: filters.value.per_page || undefined,
       page: filters.value.page,
@@ -549,7 +555,7 @@ onUnmounted(() => {
       class="card border-0 shadow-sm rounded-4 mb-4 p-4 bg-white animate-fade-in"
     >
       <div class="row g-3">
-        <div class="col-md-3">
+        <div class="col-md-6">
           <label class="form-label small fw-bold text-muted">Дата с</label>
           <input
             v-model="filters.date_from"
@@ -558,32 +564,12 @@ onUnmounted(() => {
             @change="fetchOrders"
           />
         </div>
-        <div class="col-md-3">
+        <div class="col-md-6">
           <label class="form-label small fw-bold text-muted">Дата по</label>
           <input
             v-model="filters.date_to"
             type="date"
             class="form-control"
-            @change="fetchOrders"
-          />
-        </div>
-        <div class="col-md-3">
-          <label class="form-label small fw-bold text-muted">Мин. сумма</label>
-          <input
-            v-model="filters.min_total"
-            type="number"
-            class="form-control"
-            placeholder="0"
-            @change="fetchOrders"
-          />
-        </div>
-        <div class="col-md-3">
-          <label class="form-label small fw-bold text-muted">Макс. сумма</label>
-          <input
-            v-model="filters.max_total"
-            type="number"
-            class="form-control"
-            placeholder="1000000"
             @change="fetchOrders"
           />
         </div>
@@ -593,8 +579,6 @@ onUnmounted(() => {
           @click="
             filters.date_from = '';
             filters.date_to = '';
-            filters.min_total = '';
-            filters.max_total = '';
             filters.user_id = '';
             fetchOrders();
           "
