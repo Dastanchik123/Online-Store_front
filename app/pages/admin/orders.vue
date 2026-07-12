@@ -28,6 +28,21 @@ const selectedOrder = ref(null);
 const isModalOpen = ref(false);
 const showAdvancedFilters = ref(false);
 
+// Высота таблицы — как у списка товаров/категорий: подгоняется под
+// остаток экрана от её верхней границы, а не жёстко зашитой константой
+const tableWrap = ref(null);
+const tableHeight = ref(null);
+const updateTableHeight = () => {
+  const el = tableWrap.value;
+  if (!el) return;
+  const top = el.getBoundingClientRect().top + (window.scrollY || 0);
+  // 70px — запас под панель пагинации под таблицей (когда она показана)
+  tableHeight.value = Math.max(240, window.innerHeight - top - 70);
+};
+const tableHeightStyle = computed(() =>
+  tableHeight.value ? `${tableHeight.value}px` : "calc(100vh - 350px)",
+);
+
 
 const isOpenReturnModal = ref(false);
 const returnItemsSelection = ref([]);
@@ -185,6 +200,9 @@ const fetchOrders = async () => {
     console.error(error);
   } finally {
     isLoading.value = false;
+    // появление/исчезновение панели пагинации меняет доступную высоту
+    await nextTick();
+    updateTableHeight();
   }
 };
 
@@ -364,6 +382,7 @@ const onOrderStatusUpdated = () => {
 onMounted(() => {
   fetchOrders();
   if (import.meta.client) {
+    window.addEventListener("resize", updateTableHeight);
     initPrinter();
     if ($echo) {
       $echo
@@ -375,11 +394,14 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  if (import.meta.client && $echo) {
-    $echo
-      .private("admin.orders")
-      .stopListening(".NewOrderPlaced", onNewOrderPlaced)
-      .stopListening(".OrderStatusUpdated", onOrderStatusUpdated);
+  if (import.meta.client) {
+    window.removeEventListener("resize", updateTableHeight);
+    if ($echo) {
+      $echo
+        .private("admin.orders")
+        .stopListening(".NewOrderPlaced", onNewOrderPlaced)
+        .stopListening(".OrderStatusUpdated", onOrderStatusUpdated);
+    }
   }
 });
 </script>
@@ -595,9 +617,10 @@ onUnmounted(() => {
            скролл; старые строки остаются, только приглушаются -->
       <div
         v-else
+        ref="tableWrap"
         class="table-responsive-cards"
         :class="{ 'is-refetching': isLoading }"
-        style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;"
+        :style="{ minHeight: tableHeightStyle, maxHeight: tableHeightStyle, overflowY: 'auto', background: '#f8fafc' }"
       >
         <table class="table table-hover align-middle mb-0 custom-table">
           <thead class="d-none d-lg-table-header-group">
