@@ -12,6 +12,9 @@ const { deviceType, setDeviceType } = useDeviceMode();
 
 const vkbdActive = ref(null);
 const showDeviceModal = ref(false);
+const showCancelModal = ref(false);
+const cancelIdentifier = ref("");
+const cancelInputEl = ref(null);
 
 const cart = ref([]);
 const searchQuery = ref("");
@@ -34,15 +37,7 @@ const barcodeBuffer = ref("");
 const lastKeyTime = ref(0);
 
 const hotGroups = computed(() => {
-  const groups = hotProducts.value
-    .map((p) => p.hot_group)
-    .filter(
-      (g) =>
-        g &&
-        g !== "" &&
-        g.toLowerCase() !== "общее" &&
-        g.toLowerCase() !== "все",
-    );
+  const groups = hotProducts.value.map((p) => p.hot_group).filter((g) => g);
   return [...new Set(groups)];
 });
 
@@ -98,6 +93,22 @@ watch(hotProductIndex, (idx) => {
 
 const handleGlobalKeyDown = async (e) => {
   const key = e.key;
+
+  // Модалка отмены товара перехватывает клавиатуру целиком, чтобы
+  // сканер штрихкода не срабатывал как обычное добавление в чек.
+  if (showCancelModal.value) {
+    if (key === "Escape") {
+      e.preventDefault();
+      closeCancelModal();
+    }
+    return;
+  }
+
+  if (key === "-" && !["INPUT", "TEXTAREA"].includes(e.target.tagName)) {
+    e.preventDefault();
+    openCancelModal();
+    return;
+  }
 
   if (!["INPUT", "TEXTAREA"].includes(e.target.tagName)) {
     const currentTime = Date.now();
@@ -543,6 +554,54 @@ const addToCart = (product) => {
 
 const removeFromCart = (index) => {
   cart.value.splice(index, 1);
+};
+
+const openCancelModal = () => {
+  showCancelModal.value = true;
+  cancelIdentifier.value = "";
+  nextTick(() => cancelInputEl.value?.focus());
+};
+
+const closeCancelModal = () => {
+  showCancelModal.value = false;
+  cancelIdentifier.value = "";
+};
+
+const submitCancelIdentifier = () => {
+  const value = cancelIdentifier.value.trim();
+  if (!value) return;
+
+  let index = -1;
+
+  // Число в пределах длины чека — это номер строки (как в колонке "#"),
+  // а не ID товара в базе: кассир видит именно этот номер на экране.
+  if (/^\d+$/.test(value)) {
+    const lineNumber = parseInt(value, 10);
+    if (lineNumber >= 1 && lineNumber <= cart.value.length) {
+      index = lineNumber - 1;
+    }
+  }
+
+  // Не распознали как номер строки — ищем по артикулу (сканер штрихкода).
+  if (index === -1) {
+    index = cart.value.findIndex((item) => String(item.sku) === value);
+  }
+
+  if (index === -1) {
+    ui.error(`Товар «${value}» не найден в чеке`);
+    cancelIdentifier.value = "";
+    nextTick(() => cancelInputEl.value?.focus());
+    return;
+  }
+
+  const item = cart.value[index];
+  if (item.quantity > 1) {
+    item.quantity--;
+  } else {
+    cart.value.splice(index, 1);
+  }
+  ui.success(`Отменено: ${item.name}`);
+  closeCancelModal();
 };
 
 const updateQuantity = (item, delta) => {
@@ -1858,6 +1917,58 @@ watch(couponDiscount, (newDiscount) => {
               @click="showDeviceModal = false"
             >
               Готово
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showCancelModal" class="modal-backdrop fade show"></div>
+    <div
+      v-if="showCancelModal"
+      class="modal fade show d-block"
+      tabindex="-1"
+      @click.self="closeCancelModal"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 rounded-4 shadow-lg">
+          <div class="modal-header border-0 p-4">
+            <h5 class="modal-title fw-bold text-danger">
+              <i class="bi bi-x-circle me-2"></i>Отмена товара
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              @click="closeCancelModal"
+            ></button>
+          </div>
+          <div class="modal-body p-4 pt-0">
+            <p class="text-muted small mb-3">
+              Введите номер строки товара из чека (колонка «#») или
+              отсканируйте его штрихкод. Пока открыто это окно, сканер не
+              добавляет товары — только отменяет.
+            </p>
+            <input
+              ref="cancelInputEl"
+              v-model="cancelIdentifier"
+              type="text"
+              class="form-control form-control-lg rounded-4 text-center"
+              placeholder="№ строки или артикул..."
+              @keyup.enter="submitCancelIdentifier"
+            />
+          </div>
+          <div class="modal-footer border-0 p-4 pt-0">
+            <button
+              class="btn btn-light rounded-pill px-4"
+              @click="closeCancelModal"
+            >
+              Закрыть (Esc)
+            </button>
+            <button
+              class="btn btn-danger rounded-pill px-4"
+              @click="submitCancelIdentifier"
+            >
+              Отменить
             </button>
           </div>
         </div>

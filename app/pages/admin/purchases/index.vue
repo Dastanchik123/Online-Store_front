@@ -14,6 +14,7 @@ const {
   getCategories,
   generateSku,
   createCategory,
+  getProducts: getProductsForBarcode,
 } = useProducts();
 const uiStore = useUiStore();
 const productsStore = useProductsStore();
@@ -28,6 +29,9 @@ const loading = ref(false);
 const purchases = ref([]);
 const suppliers = ref([]);
 const showProductPicker = ref(false);
+const barcodeBuffer = ref("");
+const lastBarcodeKeyTime = ref(0);
+const isBarcodeLookup = ref(false);
 
 const today = new Date().toLocaleDateString("en-CA");
 const filters = ref({
@@ -125,12 +129,48 @@ const handleBeforeUnload = (e) => {
   e.returnValue = "";
 };
 
-// Insert — быстрый вызов "Вставить товар" без мыши, как на кассе
+const isPurchasesModalOpen = () =>
+  showProductPicker.value ||
+  showAddProductModal.value ||
+  showAddSupplierModal.value ||
+  showAddCategoryModal.value ||
+  showPaymentModal.value;
+
+// Insert — быстрый вызов "Вставить товар" без мыши, как на кассе.
+// Сканер штрих-кода шлёт символы очень быстро и завершает Enter — ловим
+// их, пока фокус не в поле ввода и открыта вкладка приёма, и сразу
+// добавляем товар в накладную по артикулу (SKU).
 const handleGlobalKeydown = (e) => {
-  if (e.key !== "Insert") return;
-  if (activeTab.value !== "create" || showProductPicker.value) return;
-  e.preventDefault();
-  showProductPicker.value = true;
+  if (e.key === "Insert") {
+    if (activeTab.value !== "create" || showProductPicker.value) return;
+    e.preventDefault();
+    showProductPicker.value = true;
+    return;
+  }
+
+  if (
+    activeTab.value !== "create" ||
+    isPurchasesModalOpen() ||
+    ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)
+  ) {
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastBarcodeKeyTime.value > 150) {
+    barcodeBuffer.value = "";
+  }
+  lastBarcodeKeyTime.value = now;
+
+  if (e.key === "Enter") {
+    if (barcodeBuffer.value.length > 2) {
+      e.preventDefault();
+      addItemByBarcode(barcodeBuffer.value);
+    }
+    barcodeBuffer.value = "";
+  } else if (e.key.length === 1) {
+    barcodeBuffer.value += e.key;
+  }
 };
 
 onBeforeRouteLeave(async () => {
@@ -144,16 +184,6 @@ onBeforeRouteLeave(async () => {
 const confirmDiscardDraft = async (message) => {
   if (form.value.items.length === 0 && !form.value.supplier_id) return true;
   return await uiStore.showConfirm("Очистить текущий приём?", message);
-};
-
-const startNewPurchase = async () => {
-  const proceed = await confirmDiscardDraft(
-    "Все добавленные товары текущего приёма будут удалены. Продолжить?",
-  );
-  if (!proceed) return;
-  editingPurchaseId.value = null;
-  form.value = { supplier_id: "", paid_amount: 0, items: [] };
-  activeTab.value = "create";
 };
 
 const clearItems = async () => {
@@ -425,6 +455,31 @@ const removeItem = (index) => {
   form.value.items.splice(index, 1);
 };
 
+const addItemByBarcode = async (code) => {
+  if (isBarcodeLookup.value) return;
+  isBarcodeLookup.value = true;
+  try {
+    const res = await getProductsForBarcode(
+      { search: code, search_strict: true, per_page: 5 },
+      { noCache: true },
+    );
+    const results = Array.isArray(res) ? res : res?.data || [];
+    const match =
+      results.find((p) => String(p.sku).trim() === code) ||
+      (results.length === 1 ? results[0] : null);
+
+    if (!match) {
+      uiStore.error(`Товар со штрих-кодом «${code}» не найден`);
+      return;
+    }
+    addItem(match);
+  } catch (e) {
+    uiStore.error("Не удалось найти товар по штрих-коду");
+  } finally {
+    isBarcodeLookup.value = false;
+  }
+};
+
 const totalAmount = computed(() => {
   return form.value.items.reduce(
     (sum, item) => sum + item.quantity * item.buy_price,
@@ -540,7 +595,7 @@ onUnmounted(() => {
           <button
             class="btn-tab"
             :class="{ active: activeTab === 'create' }"
-            @click="startNewPurchase"
+            @click="activeTab = 'create'"
           >
             <i class="bi bi-plus-circle-fill me-2"></i
             >{{ editingPurchaseId ? "Правка приёма" : "Новый приём" }}
