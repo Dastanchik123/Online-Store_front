@@ -405,6 +405,12 @@ const totalPrice = computed(() => {
   return cart.value.reduce((sum, item) => sum + item.price * item.quantity, 0);
 });
 
+// Сумма продажи к оплате (после скидки по купону) — перевод/карта не может
+// превышать её: в отличие от наличных, сдачу с перевода не дают.
+const payableAmount = computed(() =>
+  Math.max(totalPrice.value - couponDiscount.value, 0),
+);
+
 const paidAmount = computed(() => {
   return (
     (parseFloat(cashAmount.value) || 0) +
@@ -620,7 +626,7 @@ const selectUser = (user) => {
 const handleCashInput = () => {
   if (isDebt.value) return;
   const currentCash = parseFloat(cashAmount.value) || 0;
-  const total = totalPrice.value;
+  const total = payableAmount.value;
   if (currentCash < total) {
     transferAmount.value = parseFloat((total - currentCash).toFixed(2));
   } else {
@@ -630,8 +636,12 @@ const handleCashInput = () => {
 
 const handleTransferInput = () => {
   if (isDebt.value) return;
+  // Перевод/картой сдачу не дают — сумма не может превышать оплату
+  if (transferAmount.value > payableAmount.value) {
+    transferAmount.value = payableAmount.value;
+  }
   const currentTransfer = parseFloat(transferAmount.value) || 0;
-  const total = totalPrice.value;
+  const total = payableAmount.value;
   if (currentTransfer < total) {
     cashAmount.value = parseFloat((total - currentTransfer).toFixed(2));
   } else {
@@ -658,8 +668,14 @@ const appendNumber = (num) => {
     } else {
       const field = activeField.value === "cash" ? cashAmount : transferAmount;
       field.value = val;
-      if (activeField.value === "cash") handleCashInput();
-      else handleTransferInput();
+      if (activeField.value === "cash") {
+        handleCashInput();
+      } else {
+        handleTransferInput();
+        // handleTransferInput могла обрезать сумму до максимума — синхронизируем
+        // отображаемый буфер, иначе цифропад покажет непринятое значение
+        numpadBuffer.value = transferAmount.value.toString();
+      }
     }
   }
 };
