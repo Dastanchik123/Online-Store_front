@@ -11,9 +11,6 @@ const { getImageUrl } = useImageUrl();
 
 const { createCategory, updateCategory, deleteCategory } = useProducts();
 
-// Свой список вместо общего productsStore.categories: витрина и остальная
-// админка используют порядок sort_order (ручная сортировка), а этой
-// странице бэк отдаёт алфавитный порядок отдельным запросом (order_by=name)
 const categories = ref([]);
 const isLoading = ref(false);
 const isModalOpen = ref(false);
@@ -44,7 +41,7 @@ const handleFileChange = (event) => {
 const fetchCategories = async () => {
   isLoading.value = true;
   try {
-    const response = await api.apiFetch("/categories?order_by=name");
+    const response = await api.apiFetch("/categories");
     categories.value = Array.isArray(response) ? response : response?.data || [];
   } catch (error) {
     uiStore.error("Ошибка загрузки категорий");
