@@ -28,7 +28,8 @@ const iconFor = (type: string) => {
         role="status"
       >
         <i class="bi mini-toast-icon" :class="iconFor(toast.type)"></i>
-        <span class="mini-toast-text" v-html="toast.message"></span>
+        <span v-if="toast.html" class="mini-toast-text" v-html="toast.message"></span>
+        <span v-else class="mini-toast-text">{{ toast.message }}</span>
         <button
           type="button"
           class="mini-toast-close"

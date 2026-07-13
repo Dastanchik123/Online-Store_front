@@ -47,12 +47,24 @@ const removeFromWishlist = async (id) => {
         <div
           class="card border-0 shadow-sm rounded-4 overflow-hidden h-100 product-wish-card"
         >
-          <div class="position-relative" style="padding-top: 100%">
+          <div
+            class="position-relative bg-light"
+            style="padding-top: 100%"
+          >
             <img
+              v-if="item.product.image_url"
               :src="item.product.image_url"
-              class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover"
+              class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover img-loading"
               :alt="item.product.name"
+              @load="(e) => e.target.classList.add('is-loaded')"
+              @error="(e) => e.target.classList.add('is-loaded', 'is-broken')"
             />
+            <div
+              v-else
+              class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+            >
+              <i class="bi bi-image text-secondary opacity-50 fs-1"></i>
+            </div>
             <button
               @click="removeFromWishlist(item.product_id)"
               class="btn btn-light rounded-circle position-absolute top-0 end-0 m-3 shadow-sm border-0"

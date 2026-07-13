@@ -25,6 +25,17 @@ const products = ref({
 
 const categories = computed(() => productsStore.categories);
 const isLoading = ref(false);
+const isExportingPdf = ref(false);
+const exportPdf = async () => {
+  isExportingPdf.value = true;
+  try {
+    await downloadProductsExport(filters);
+  } catch (error) {
+    uiStore.error(error.message || "Ошибка при экспорте PDF");
+  } finally {
+    isExportingPdf.value = false;
+  }
+};
 
 // ── Регулируемые колонки (как в Excel) ─────────────────────────────
 // Перетаскивание границы в шапке меняет ширину колонки (с вертикальной
@@ -425,10 +436,13 @@ onUnmounted(() => {
             excel
           </button>
           <button
-            @click="downloadProductsExport(filters)"
+            @click="exportPdf"
+            :disabled="isExportingPdf"
             class="btn btn-light rounded-pill px-4 py-2 fw-bold shadow-sm"
           >
-            <i class="bi bi-file-earmark-pdf me-2 text-danger"></i>Отчет (PDF)
+            <span v-if="isExportingPdf" class="spinner-border spinner-border-sm me-2"></span>
+            <i v-else class="bi bi-file-earmark-pdf me-2 text-danger"></i>
+            {{ isExportingPdf ? "Формируется…" : "Отчет (PDF)" }}
           </button>
           <NuxtLink
             to="/admin/products/create"

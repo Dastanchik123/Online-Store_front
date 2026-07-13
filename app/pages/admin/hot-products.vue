@@ -362,8 +362,10 @@ onMounted(() => {
                     <img
                       v-if="p.image_url"
                       :src="p.image_url"
-                      class="rounded-circle me-3"
+                      class="rounded-circle me-3 img-loading"
                       style="width: 32px; height: 32px; object-fit: cover"
+                      @load="(e) => e.target.classList.add('is-loaded')"
+                      @error="(e) => e.target.classList.add('is-loaded', 'is-broken')"
                     />
                     <div>
                       <div class="fw-bold small">{{ p.name }}</div>
@@ -473,8 +475,10 @@ onMounted(() => {
                   <img
                     v-if="p.image_url"
                     :src="p.image_url"
-                    class="rounded-3"
+                    class="rounded-3 img-loading"
                     style="width: 48px; height: 48px; object-fit: cover"
+                    @load="(e) => e.target.classList.add('is-loaded')"
+                    @error="(e) => e.target.classList.add('is-loaded', 'is-broken')"
                   />
                   <div
                     v-else

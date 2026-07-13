@@ -30,9 +30,12 @@ const formatPrice = (price) => {
   });
 };
 
-const getProductImage = (product) => {
-  if (product.image) return getImageUrl(product.image);
-  return "https://dummyimage.com/300x300/e2e8f0/94a3b8&text=Фото";
+const getProductImage = (product) => getImageUrl(product.image);
+
+const imgFailed = ref(false);
+const onImgLoad = (e) => e.target.classList.add("is-loaded");
+const onImgError = () => {
+  imgFailed.value = true;
 };
 
 const discountPercent = computed(() => {
@@ -57,7 +60,7 @@ const handleAddToCart = async () => {
   qtyBusy.value = true;
   try {
     await addToCart(props.product.id, 1);
-    uiStore.success('Товар добавлен в корзину <a href="/cart">перейти →</a>');
+    uiStore.success('Товар добавлен в корзину <a href="/cart">перейти →</a>', { html: true });
   } catch (error) {
     uiStore.error(error.data?.message || "Ошибка добавления в корзину");
   } finally {
@@ -129,13 +132,19 @@ const handleBuyNow = async () => {
       <NuxtLink :to="`/product/${product.id}`" class="pc-img-link stretched-link">
         <div class="pc-img-wrap ratio ratio-1x1">
           <img
+            v-if="product.image && !imgFailed"
             :src="getProductImage(product)"
             :alt="product.name"
             class="pc-img img-loading"
             :loading="eager ? 'eager' : 'lazy'"
             :fetchpriority="eager ? 'high' : 'auto'"
             decoding="async"
+            @load="onImgLoad"
+            @error="onImgError"
           />
+          <div v-else class="pc-img pc-img-empty d-flex align-items-center justify-content-center">
+            <i class="bi bi-image text-secondary opacity-50 fs-1"></i>
+          </div>
 
           <!-- Бейдж скидки -->
           <div v-if="discountPercent > 0" class="pc-discount">
@@ -210,15 +219,21 @@ const handleBuyNow = async () => {
     <div v-else class="pc-list card shadow-sm border-0 overflow-hidden">
       <div class="row g-0 align-items-center">
         <div class="col-4 col-sm-3 col-md-2">
-          <div class="ratio ratio-1x1 rounded-3 overflow-hidden">
+          <div class="ratio ratio-1x1 rounded-3 overflow-hidden pc-img-wrap">
             <img
+              v-if="product.image && !imgFailed"
               :src="getProductImage(product)"
               :alt="product.name"
               class="pc-img img-loading"
               :loading="eager ? 'eager' : 'lazy'"
               :fetchpriority="eager ? 'high' : 'auto'"
               decoding="async"
+              @load="onImgLoad"
+              @error="onImgError"
             />
+            <div v-else class="pc-img pc-img-empty d-flex align-items-center justify-content-center">
+              <i class="bi bi-image text-secondary opacity-50 fs-1"></i>
+            </div>
           </div>
         </div>
         <div class="col-8 col-sm-9 col-md-10">
@@ -301,6 +316,10 @@ const handleBuyNow = async () => {
 
 .pc-grid:hover .pc-img {
   transform: scale(1.06);
+}
+
+.pc-img-empty {
+  background: #f5f5f5;
 }
 
 /* Скидка */

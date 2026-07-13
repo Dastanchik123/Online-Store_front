@@ -26,6 +26,18 @@ if (typeof window !== "undefined") {
   activePrinter.value = localStorage.getItem("selected_printer") || "";
 }
 
+// Данные заказа (название товара, имя покупателя, название магазина) приходят
+// из БД, куда их мог ввести кто угодно (создание товара, регистрация, настройки) —
+// без экранирования это XSS при печати/просмотре чека через v-html.
+const escapeHtml = (value: unknown): string =>
+  String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[c] as string);
+
 export const usePrinter = () => {
   const uiStore = useUiStore();
 
@@ -67,22 +79,22 @@ export const usePrinter = () => {
     const itemsHtml = order?.items?.map((item: any, index: number) => `
       <tr style="border-bottom: 1px solid #f1f5f9;">
         <td style="padding: 10px 8px; color: #64748b; font-size: 11px;">${index + 1}</td>
-        <td style="padding: 10px 8px; font-weight: 500; color: #1e293b; font-size: 12px;">${item.product_name || item.name}</td>
+        <td style="padding: 10px 8px; font-weight: 500; color: #1e293b; font-size: 12px;">${escapeHtml(item.product_name || item.name)}</td>
         <td style="padding: 10px 8px; text-align: center; color: #64748b; font-size: 12px;">${item.quantity} шт.</td>
         <td style="padding: 10px 8px; text-align: right; color: #64748b; font-size: 12px;">${Math.round(item.price).toLocaleString()}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: #0f172a; font-size: 12px;">${Math.round(item.price * item.quantity).toLocaleString()}</td>
       </tr>
     `).join('') || '<tr><td colspan="5" style="text-align:center; padding: 20px;">Нет данных</td></tr>';
 
-    const shopName = settings.receipt_title || settings.site_name || 'BRAND STORE';
-    const dateStr = new Date(order?.created_at || new Date()).toLocaleString('ru-RU', { 
-      day: '2-digit', 
-      month: 'long', 
+    const shopName = escapeHtml(settings.receipt_title || settings.site_name || 'BRAND STORE');
+    const dateStr = new Date(order?.created_at || new Date()).toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: 'long',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
     });
-    const orderNum = order?.order_number || order?.id || '_______';
+    const orderNum = escapeHtml(order?.order_number || order?.id || '_______');
     
     const subtotal = Number(order?.total_amount || order?.total || 0);
     const discount = Number(order?.discount || 0);
@@ -141,8 +153,8 @@ export const usePrinter = () => {
             </div>
             <div>
               <div class="info-label">Покупатель</div>
-              <div style="font-weight: 600;">${order?.user?.name || 'Розничный покупатель'}</div>
-              ${order?.user?.id && !String(order.user.id).includes('retail') ? `<div style="color: #64748b;">ID: ${order.user.id}</div>` : ''}
+              <div style="font-weight: 600;">${escapeHtml(order?.user?.name || 'Розничный покупатель')}</div>
+              ${order?.user?.id && !String(order.user.id).includes('retail') ? `<div style="color: #64748b;">ID: ${escapeHtml(order.user.id)}</div>` : ''}
             </div>
           </div>
 
@@ -184,16 +196,16 @@ export const usePrinter = () => {
   const generateReceiptHtml = (order: any, settings: any = {}) => {
     const itemsHtml = order.items.map((item: any) => `
       <tr>
-        <td style="padding: 1mm 0; font-size: 10px;">${item.product_name || item.name}</td>
+        <td style="padding: 1mm 0; font-size: 10px;">${escapeHtml(item.product_name || item.name)}</td>
         <td style="padding: 1mm 0; font-size: 10px; text-align: center;">${item.quantity}</td>
         <td style="padding: 1mm 0; font-size: 10px; text-align: right;">${Math.round(item.price)}</td>
         <td style="padding: 1mm 0; font-size: 10px; text-align: right;">${Math.round(item.price * item.quantity)}</td>
       </tr>
     `).join('');
 
-    const shopName = settings.receipt_title || settings.site_name || 'МОЙ МАГАЗИН';
+    const shopName = escapeHtml(settings.receipt_title || settings.site_name || 'МОЙ МАГАЗИН');
     const dateStr = new Date().toLocaleString('ru-RU');
-    const orderNum = order.order_number || 'OFF-LINE';
+    const orderNum = escapeHtml(order.order_number || 'OFF-LINE');
 
     return `
       <!DOCTYPE html>

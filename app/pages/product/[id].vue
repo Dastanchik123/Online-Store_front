@@ -82,15 +82,14 @@ const allImages = computed(() => {
       images.push(getImageUrl(img));
     });
   }
-  if (images.length === 0) {
-    images.push("https://via.placeholder.com/600x600/0f172a/38bdf8?text=Изображение+товара");
-  }
   return images;
 });
 
 const currentDisplayImage = computed(() => {
-  return allImages.value[activeImageIndex.value] || allImages.value[0];
+  return allImages.value[activeImageIndex.value] || allImages.value[0] || "";
 });
+
+const failedImages = reactive({});
 
 const setActiveImage = (index) => {
   activeImageIndex.value = index;
@@ -250,12 +249,23 @@ const whatsappLink = computed(() => {
                 </button>
                 
                 <img
+                  v-if="currentDisplayImage && !failedImages[currentDisplayImage]"
+                  :key="currentDisplayImage"
                   :src="currentDisplayImage"
                   :alt="product.name"
                   class="img-fluid main-img-zoom img-loading"
                   style="cursor: zoom-in;"
                   @click="openLightbox"
+                  @load="(e) => e.target.classList.add('is-loaded')"
+                  @error="failedImages[currentDisplayImage] = true"
                 />
+                <div
+                  v-else
+                  class="d-flex align-items-center justify-content-center bg-light"
+                  style="aspect-ratio: 1 / 1; width: 100%;"
+                >
+                  <i class="bi bi-image text-secondary opacity-50" style="font-size: 4rem;"></i>
+                </div>
 
                 <button 
                   v-if="allImages.length > 1" 
@@ -274,7 +284,20 @@ const whatsappLink = computed(() => {
                   :class="{ active: activeImageIndex === index }"
                   @click="setActiveImage(index)"
                 >
-                  <img :src="img" :alt="product.name" class="img-loading" />
+                  <img
+                    v-if="!failedImages[img]"
+                    :src="img"
+                    :alt="product.name"
+                    class="img-loading"
+                    @load="(e) => e.target.classList.add('is-loaded')"
+                    @error="failedImages[img] = true"
+                  />
+                  <div
+                    v-else
+                    class="d-flex align-items-center justify-content-center bg-light w-100 h-100"
+                  >
+                    <i class="bi bi-image text-secondary opacity-50"></i>
+                  </div>
                 </div>
              </div>
           </div>
@@ -449,7 +472,22 @@ const whatsappLink = computed(() => {
         </button>
 
         <div class="lightbox-img-wrap">
-          <img :src="currentDisplayImage" :alt="product?.name" class="lightbox-img" />
+          <img
+            v-if="currentDisplayImage && !failedImages[currentDisplayImage]"
+            :key="currentDisplayImage"
+            :src="currentDisplayImage"
+            :alt="product?.name"
+            class="lightbox-img img-loading"
+            @load="(e) => e.target.classList.add('is-loaded')"
+            @error="failedImages[currentDisplayImage] = true"
+          />
+          <div
+            v-else
+            class="d-flex align-items-center justify-content-center"
+            style="width: 300px; height: 300px;"
+          >
+            <i class="bi bi-image text-white opacity-50" style="font-size: 5rem;"></i>
+          </div>
         </div>
 
         <button v-if="allImages.length > 1" class="lightbox-nav lightbox-next" @click="nextImage">

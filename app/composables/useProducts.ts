@@ -1,7 +1,9 @@
 import { useApi } from "./useApi";
+import { useReportExport } from "./useReportExport";
 
 export const useProducts = () => {
   const api = useApi();
+  const { runExport } = useReportExport();
 
   const getProducts = async (
     params: {
@@ -184,16 +186,9 @@ export const useProducts = () => {
       search?: string;
     } = {}
   ) => {
-    const queryParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== "") {
-        queryParams.append(key, value.toString());
-      }
-    });
-    const queryString = queryParams.toString();
-    const endpoint = `/reports/products${queryString ? `?${queryString}` : ""}`;
-    return await api.downloadFile(
-      endpoint,
+    return await runExport(
+      "products_pdf",
+      params,
       `Products_Report_${new Date().toISOString().split("T")[0]}.pdf`
     );
   };

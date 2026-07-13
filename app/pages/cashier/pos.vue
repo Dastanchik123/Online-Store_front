@@ -740,7 +740,7 @@ const handleClear = () => {
 
 const setQuickAmount = (amount) => {
   if (amount === "full") {
-    cashAmount.value = totalPrice.value - couponDiscount.value;
+    cashAmount.value = Math.max(totalPrice.value - couponDiscount.value, 0);
     transferAmount.value = 0;
   } else {
     cashAmount.value = amount;
@@ -769,9 +769,12 @@ const applyCoupon = async () => {
     if (res.valid) {
       appliedCoupon.value = res;
       if (res.type === "fixed") {
-        couponDiscount.value = Number(res.value);
+        couponDiscount.value = Math.min(Number(res.value), totalPrice.value);
       } else {
-        couponDiscount.value = (totalPrice.value * Number(res.value)) / 100;
+        couponDiscount.value = Math.min(
+          (totalPrice.value * Number(res.value)) / 100,
+          totalPrice.value,
+        );
       }
       ui.addToast(
         `Купон "${res.code}" применен! Скидка: ${couponDiscount.value} сом`,
@@ -779,7 +782,7 @@ const applyCoupon = async () => {
       );
 
       if (cashAmount.value === totalPrice.value) {
-        cashAmount.value = totalPrice.value - couponDiscount.value;
+        cashAmount.value = Math.max(totalPrice.value - couponDiscount.value, 0);
       }
     }
   } catch (e) {
@@ -902,14 +905,15 @@ const clearCart = () => {
 
 watch(totalPrice, (newTotal) => {
   if (!isDebt.value) {
-    cashAmount.value = newTotal - couponDiscount.value;
+    couponDiscount.value = Math.min(couponDiscount.value, newTotal);
+    cashAmount.value = Math.max(newTotal - couponDiscount.value, 0);
     transferAmount.value = 0;
   }
 });
 
 watch(couponDiscount, (newDiscount) => {
   if (!isDebt.value) {
-    cashAmount.value = totalPrice.value - newDiscount;
+    cashAmount.value = Math.max(totalPrice.value - newDiscount, 0);
   }
 });
 </script>
@@ -999,7 +1003,9 @@ watch(couponDiscount, (newDiscount) => {
                   <img
                     v-if="p.image_url"
                     :src="p.image_url"
-                    class="h-100 w-100 object-fit-cover"
+                    class="h-100 w-100 object-fit-cover img-loading"
+                    @load="(e) => e.target.classList.add('is-loaded')"
+                    @error="(e) => e.target.classList.add('is-loaded', 'is-broken')"
                   />
                   <div
                     v-else

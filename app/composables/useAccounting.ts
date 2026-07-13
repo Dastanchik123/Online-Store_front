@@ -1,7 +1,9 @@
 import { useApi } from "./useApi";
+import { useReportExport } from "./useReportExport";
 
 export const useAccounting = () => {
   const api = useApi();
+  const { runExport } = useReportExport();
 
   
   const getPurchases = async (params = {}) => {
@@ -170,18 +172,9 @@ export const useAccounting = () => {
   };
 
   const downloadDebtsReport = async (params: any = {}) => {
-    const queryParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== "") {
-        if (Array.isArray(value)) {
-          value.forEach((v) => queryParams.append(`${key}[]`, v));
-        } else {
-          queryParams.append(key, value as string);
-        }
-      }
-    });
-    return await api.downloadFile(
-      `/reports/debts?${queryParams.toString()}`,
+    return await runExport(
+      "debts_pdf",
+      params,
       `Debts_Report_${new Date().toISOString().split("T")[0]}.pdf`
     );
   };

@@ -103,13 +103,6 @@ const formatPrice = (price) => {
 };
 
 
-const getProductImage = (product) => {
-  if (product && product.image) {
-    return getImageUrl(product.image);
-  }
-  return "https://dummyimage.com/300x300/0f172a/fff&text=Товар";
-};
-
 const getCategoryImage = (category) => {
   if (category && category.image) {
     return getImageUrl(category.image);

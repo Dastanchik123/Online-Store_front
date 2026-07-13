@@ -5,6 +5,9 @@ export interface Toast {
   message: string;
   type: "success" | "error" | "info" | "warning";
   duration?: number;
+  // true только для доверенных статических строк (без интерполяции
+  // пользовательских данных) — иначе message рендерится как текст, не HTML
+  html?: boolean;
 }
 
 // Сколько уведомлений можно показывать одновременно — чтобы при массовом
@@ -24,7 +27,12 @@ export const useUiStore = defineStore("ui", {
   }),
 
   actions: {
-    addToast(message: string, type: Toast["type"] = "info", duration = 2500) {
+    addToast(
+      message: string,
+      type: Toast["type"] = "info",
+      duration = 2500,
+      html = false,
+    ) {
       // Не дублируем подряд одно и то же сообщение одного типа (например,
       // если пользователь быстро тыкает "+" в нескольких карточках подряд)
       const duplicate = this.toasts.find(
@@ -35,7 +43,7 @@ export const useUiStore = defineStore("ui", {
       }
 
       const id = ++toastIdCounter;
-      this.toasts.push({ id, message, type, duration });
+      this.toasts.push({ id, message, type, duration, html });
 
       if (this.toasts.length > MAX_VISIBLE_TOASTS) {
         this.toasts.splice(0, this.toasts.length - MAX_VISIBLE_TOASTS);
@@ -71,17 +79,17 @@ export const useUiStore = defineStore("ui", {
     },
 
     
-    success(msg: string) {
-      this.addToast(msg, "success");
+    success(msg: string, opts: { html?: boolean } = {}) {
+      this.addToast(msg, "success", 2500, opts.html);
     },
-    error(msg: string) {
-      this.addToast(msg, "error", 5000);
+    error(msg: string, opts: { html?: boolean } = {}) {
+      this.addToast(msg, "error", 5000, opts.html);
     },
-    warning(msg: string) {
-      this.addToast(msg, "warning");
+    warning(msg: string, opts: { html?: boolean } = {}) {
+      this.addToast(msg, "warning", 2500, opts.html);
     },
-    info(msg: string) {
-      this.addToast(msg, "info");
+    info(msg: string, opts: { html?: boolean } = {}) {
+      this.addToast(msg, "info", 2500, opts.html);
     },
   },
 });

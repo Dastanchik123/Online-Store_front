@@ -3,10 +3,16 @@
     <div class="cart-item-body">
       <div class="item-image-wrapper">
         <img
+          v-if="getProductImage(item.product) && !imgFailed"
           :src="getProductImage(item.product)"
           :alt="item.product?.name"
           class="item-image img-loading"
+          @load="onImgLoad"
+          @error="onImgError"
         />
+        <div v-else class="item-image d-flex align-items-center justify-content-center">
+          <i class="bi bi-image text-secondary opacity-50 fs-3"></i>
+        </div>
         <div class="item-badge" v-if="item.product?.sale_price">Sale</div>
       </div>
 
@@ -103,13 +109,14 @@ const formatPrice = (price) => {
 };
 
 const getProductImage = (product) => {
-  if (product?.image) {
-    return getImageUrl(product.image);
-  }
-  return (
-    product?.image_url ||
-    `https://dummyimage.com/300x300/0f172a/fff&text=${product?.name || "Товар"}`
-  );
+  if (product?.image) return getImageUrl(product.image);
+  return product?.image_url || "";
+};
+
+const imgFailed = ref(false);
+const onImgLoad = (e) => e.target.classList.add("is-loaded");
+const onImgError = () => {
+  imgFailed.value = true;
 };
 
 const handleQuantityChange = async (newQty) => {

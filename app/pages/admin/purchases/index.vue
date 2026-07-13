@@ -469,7 +469,9 @@ const addItemByBarcode = async (code) => {
       (results.length === 1 ? results[0] : null);
 
     if (!match) {
-      uiStore.error(`Товар со штрих-кодом «${code}» не найден`);
+      uiStore.info(`Товар со штрих-кодом «${code}» не найден — создайте новый`);
+      await openAddProductModal();
+      newProductForm.value.sku = code;
       return;
     }
     addItem(match);

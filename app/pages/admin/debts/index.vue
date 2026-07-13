@@ -218,7 +218,9 @@ const translatePaymentMethod = (method) => {
   return map[method] || method;
 };
 
+const isExportingPdf = ref(false);
 const exportPdf = async () => {
+  isExportingPdf.value = true;
   try {
     await downloadDebtsReport({
       ...filters.value,
@@ -226,7 +228,9 @@ const exportPdf = async () => {
       expandedGroups: Array.from(expandedGroups.value),
     });
   } catch (error) {
-    uiStore.error("Ошибка при экспорте PDF");
+    uiStore.error(error.message || "Ошибка при экспорте PDF");
+  } finally {
+    isExportingPdf.value = false;
   }
 };
 
@@ -361,10 +365,12 @@ onMounted(() => {
         <div class="col-auto d-flex gap-2 ms-auto">
           <button
             class="btn btn-outline-danger d-flex align-items-center gap-2 rounded-3"
+            :disabled="isExportingPdf"
             @click="exportPdf"
           >
-            <i class="bi bi-file-earmark-pdf"></i>
-            <span class="d-none d-md-inline">PDF</span>
+            <span v-if="isExportingPdf" class="spinner-border spinner-border-sm"></span>
+            <i v-else class="bi bi-file-earmark-pdf"></i>
+            <span class="d-none d-md-inline">{{ isExportingPdf ? "Формируется…" : "PDF" }}</span>
           </button>
           <button
             class="btn btn-outline-success d-flex align-items-center gap-2 rounded-3"

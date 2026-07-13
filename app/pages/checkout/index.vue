@@ -38,7 +38,7 @@ const mbankUrl = computed(() => {
 
 
 const getImageUrl = (url) => {
-  if (!url) return "https://placehold.co/400x400?text=No+Image";
+  if (!url) return "";
   if (url.startsWith("http")) return url;
   const config = useRuntimeConfig();
   const baseUrl = config.public.apiBase.replace(/\/api$/, "");
@@ -51,6 +51,9 @@ const getImageUrl = (url) => {
 
   return `${baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
 };
+
+const onImgLoad = (e) => e.target.classList.add("is-loaded");
+const onImgError = (e) => e.target.classList.add("is-loaded", "is-broken");
 
 
 const CUSTOMER_STORAGE_KEY = "checkout_customer_info";
@@ -348,10 +351,20 @@ onMounted(() => {
                 >
                   <div class="position-relative flex-shrink-0">
                     <img
+                      v-if="getImageUrl(item.product.image_url)"
                       :src="getImageUrl(item.product.image_url)"
                       class="rounded-3 shadow-sm border border-light img-loading"
                       style="width: 64px; height: 64px; object-fit: cover"
+                      @load="onImgLoad"
+                      @error="onImgError"
                     />
+                    <div
+                      v-else
+                      class="rounded-3 shadow-sm border border-light bg-light d-flex align-items-center justify-content-center"
+                      style="width: 64px; height: 64px"
+                    >
+                      <i class="bi bi-image text-secondary opacity-50"></i>
+                    </div>
                     <span
                       class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-primary border-2 border-white shadow-sm"
                       style="

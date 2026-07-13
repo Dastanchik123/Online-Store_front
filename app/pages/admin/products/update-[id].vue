@@ -434,9 +434,12 @@ onMounted(async () => {
                 Предпросмотр (Текущее/Новое):
               </div>
               <img
+                :key="imagePreview"
                 :src="imagePreview"
-                class="img-thumbnail"
+                class="img-thumbnail img-loading"
                 style="max-height: 150px"
+                @load="(e) => e.target.classList.add('is-loaded')"
+                @error="(e) => e.target.classList.add('is-loaded', 'is-broken')"
               />
             </div>
           </div>
@@ -467,7 +470,14 @@ onMounted(async () => {
                 @dragend="draggedGalleryIndex = null"
                 :style="draggedGalleryIndex === index ? 'opacity: 0.5' : ''"
               >
-                <img :src="item.preview" class="rounded" style="width: 100%; height: 100px; object-fit: cover;" draggable="false" />
+                <img
+                  :src="item.preview"
+                  class="rounded img-loading"
+                  style="width: 100%; height: 100px; object-fit: cover;"
+                  draggable="false"
+                  @load="(e) => e.target.classList.add('is-loaded')"
+                  @error="(e) => e.target.classList.add('is-loaded', 'is-broken')"
+                />
                 <button 
                   @click.prevent="removeGalleryImage(index)" 
                   class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1 p-0"
