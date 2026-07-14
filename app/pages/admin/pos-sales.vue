@@ -35,11 +35,25 @@ const filters = ref({
   page: 1,
 });
 
+// Границы дня переводим в UTC по часовому поясу браузера — бэкенд
+// сравнивает created_at с этой меткой как есть (без whereDate), поэтому
+// без 23:59:59.999 на конце дня date_to отсекает почти все чеки за день
+const toUtcDayBoundary = (dateStr: string, endOfDay: boolean) => {
+  if (!dateStr) return undefined;
+  const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
+  return new Date(`${dateStr}T${time}`).toISOString();
+};
+
 const fetchPosSales = async () => {
   isLoading.value = true;
   try {
     const [ordersData, summaryData]: [any, any] = await Promise.all([
-      getOrders({ ...filters.value, with_items: 1 } as any),
+      getOrders({
+        ...filters.value,
+        date_from: toUtcDayBoundary(filters.value.date_from, false),
+        date_to: toUtcDayBoundary(filters.value.date_to, true),
+        with_items: 1,
+      } as any),
       getPosSummary(filters.value.staff_id),
     ]);
     orders.value = ordersData;

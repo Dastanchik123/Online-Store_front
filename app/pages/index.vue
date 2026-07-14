@@ -120,6 +120,9 @@ const getCategoryImage = (category) => {
   }
 };
 
+const onImgLoad = (e) => e.target.classList.add("is-loaded");
+const onImgError = (e) => e.target.classList.add("is-loaded", "is-broken");
+
 
 const handleAddToCart = async (productId) => {
   if (!authStore.isAuthenticated) {
@@ -362,6 +365,8 @@ useHead({
                   :loading="index < 4 ? 'eager' : 'lazy'"
                   :fetchpriority="index < 4 ? 'high' : 'auto'"
                   decoding="async"
+                  @load="onImgLoad"
+                  @error="onImgError"
                 />
                 <div class="category-overlay"></div>
                 <div class="category-content">
@@ -517,6 +522,8 @@ useHead({
                     class="w-100 h-100 object-fit-cover img-loading"
                     loading="lazy"
                     decoding="async"
+                    @load="onImgLoad"
+                    @error="onImgError"
                   />
                   <div
                     v-else

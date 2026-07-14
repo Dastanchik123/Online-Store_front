@@ -36,10 +36,10 @@ const summary = ref({
 
 const loadSummary = async () => {
   try {
-    const today = new Date().toLocaleDateString("en-CA");
+    const todayStr = todayDate();
     const orders = await getOrders({
-      date_from: today,
-      date_to: today,
+      date_from: toUtcDayBoundary(todayStr, false),
+      date_to: toUtcDayBoundary(todayStr, true),
       source: "pos",
     });
     summary.value.todaySales = (orders.data || []).reduce(
@@ -63,16 +63,32 @@ const showReturnModal = ref(false);
 
 const historyOrders = ref([]);
 const isHistoryLoading = ref(false);
+const todayDate = () => new Date().toLocaleDateString("en-CA");
+const historyDateFrom = ref(todayDate());
+const historyDateTo = ref(todayDate());
+const historyShowAll = ref(false);
+
+// Границы дня переводим в UTC по часовому поясу браузера — бэкенд
+// сравнивает created_at с этой меткой как есть (без whereDate), поэтому
+// без 23:59:59.999 на конце дня date_to отсекает почти все чеки за день
+const toUtcDayBoundary = (dateStr, endOfDay) => {
+  if (!dateStr) return undefined;
+  const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
+  return new Date(`${dateStr}T${time}`).toISOString();
+};
 
 const loadHistory = async () => {
   isHistoryLoading.value = true;
   showHistoryModal.value = true;
   try {
-    const today = new Date().toLocaleDateString("en-CA");
     const res = await getOrders({
-      date_from: today,
-      date_to: today,
-      per_page: 50,
+      ...(historyShowAll.value
+        ? {}
+        : {
+            date_from: toUtcDayBoundary(historyDateFrom.value, false),
+            date_to: toUtcDayBoundary(historyDateTo.value, true),
+          }),
+      per_page: historyShowAll.value ? 200 : 50,
       source: "pos",
     });
     historyOrders.value = res.data || [];
@@ -81,6 +97,18 @@ const loadHistory = async () => {
   } finally {
     isHistoryLoading.value = false;
   }
+};
+
+const showAllHistory = () => {
+  historyShowAll.value = true;
+  loadHistory();
+};
+
+const resetHistoryToToday = () => {
+  historyShowAll.value = false;
+  historyDateFrom.value = todayDate();
+  historyDateTo.value = todayDate();
+  loadHistory();
 };
 
 const reprintOrder = async (order) => {
@@ -428,13 +456,46 @@ onMounted(async () => {
     >
       <div class="modal-dialog modal-dialog-centered modal-xl">
         <div class="modal-content border-0 rounded-4 shadow-lg">
-          <div class="modal-header border-0 p-4">
-            <h5 class="modal-title fw-bold">История чеков (Сегодня)</h5>
+          <div class="modal-header border-0 p-4 flex-wrap gap-2">
+            <h5 class="modal-title fw-bold">
+              История чеков
+              {{ historyShowAll ? "(Все)" : "" }}
+            </h5>
             <button
               type="button"
               class="btn-close"
               @click="showHistoryModal = false"
             ></button>
+          </div>
+          <div class="px-4 pb-2 d-flex flex-wrap align-items-center gap-2">
+            <input
+              type="date"
+              class="form-control form-control-sm w-auto"
+              v-model="historyDateFrom"
+              :disabled="historyShowAll"
+              @change="
+                historyShowAll = false;
+                loadHistory();
+              "
+            />
+            <span class="text-muted">—</span>
+            <input
+              type="date"
+              class="form-control form-control-sm w-auto"
+              v-model="historyDateTo"
+              :disabled="historyShowAll"
+              @change="
+                historyShowAll = false;
+                loadHistory();
+              "
+            />
+            <button
+              class="btn btn-sm rounded-pill"
+              :class="historyShowAll ? 'btn-secondary' : 'btn-outline-secondary'"
+              @click="historyShowAll ? resetHistoryToToday() : showAllHistory()"
+            >
+              {{ historyShowAll ? "Сегодня" : "Показать всё" }}
+            </button>
           </div>
           <div
             class="modal-body p-4 pt-0 overflow-auto"
@@ -450,7 +511,7 @@ onMounted(async () => {
               <thead class="bg-light">
                 <tr>
                   <th class="ps-3 border-0 rounded-start">#</th>
-                  <th class="border-0">Время</th>
+                  <th class="border-0">Дата / время</th>
                   <th class="border-0">Сумма</th>
                   <th class="border-0">Оплата</th>
                   <th class="border-0 rounded-end text-end pe-3">Действия</th>
@@ -461,7 +522,9 @@ onMounted(async () => {
                   <td class="ps-3 fw-bold">#{{ order.order_number }}</td>
                   <td>
                     {{
-                      new Date(order.created_at).toLocaleTimeString([], {
+                      new Date(order.created_at).toLocaleString("ru-RU", {
+                        day: "2-digit",
+                        month: "2-digit",
                         hour: "2-digit",
                         minute: "2-digit",
                       })
@@ -490,7 +553,11 @@ onMounted(async () => {
             </table>
             <div v-else class="text-center py-5 text-muted">
               <i class="bi bi-journal-x fs-1 opacity-25 d-block mb-2"></i>
-              Транзакций сегодня еще не было
+              {{
+                historyShowAll
+                  ? "Транзакций еще не было"
+                  : "Транзакций за выбранный период не было"
+              }}
             </div>
           </div>
         </div>
