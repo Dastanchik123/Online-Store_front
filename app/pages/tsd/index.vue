@@ -1,26 +1,26 @@
 <script setup>
 definePageMeta({
   layout: false,
-  middleware: "purchaser",
+  middleware: "auth",
 });
 
 const authStore = useAuthStore();
 const uiStore = useUiStore();
 const { getProducts } = useProducts();
-const { createAdjustment } = useAccounting();
+const { addToCart, getCart } = useCart();
+const cartStore = useCartStore();
 
 const scanCode = ref("");
 const scanInputEl = ref(null);
 const loadingProduct = ref(false);
-const saving = ref(false);
+const adding = ref(false);
 const product = ref(null);
 const candidates = ref([]);
-const mode = ref("recount"); // 'recount' | 'receive'
-const qtyValue = ref(0);
+const qtyValue = ref(1);
 const sessionLog = ref([]);
 
-// Сканирование камерой устройства (ZXing) — используется, когда у ТСД нет
-// физического лазерного сканера или для проверки со смартфона.
+// Сканирование камерой устройства (ZXing) — используется, когда нет
+// физического сканера, например при заходе со смартфона.
 const showCamera = ref(false);
 const cameraError = ref("");
 const cameraVideoEl = ref(null);
@@ -73,22 +73,23 @@ const focusScan = () => {
   nextTick(() => scanInputEl.value?.focus());
 };
 
-onMounted(() => focusScan());
+onMounted(() => {
+  focusScan();
+  getCart().catch(() => {});
+});
 
 const resetProduct = () => {
   product.value = null;
   candidates.value = [];
   scanCode.value = "";
-  qtyValue.value = 0;
-  mode.value = "recount";
+  qtyValue.value = 1;
   focusScan();
 };
 
 const selectProduct = (p) => {
   product.value = p;
   candidates.value = [];
-  mode.value = "recount";
-  qtyValue.value = p.stock_quantity ?? 0;
+  qtyValue.value = 1;
   scanCode.value = "";
 };
 
@@ -128,76 +129,48 @@ const lookupProduct = async () => {
   }
 };
 
-const computedNewQuantity = computed(() => {
-  if (!product.value) return 0;
-  if (mode.value === "receive") {
-    return (product.value.stock_quantity ?? 0) + Number(qtyValue.value || 0);
-  }
-  return Number(qtyValue.value || 0);
+const isOutOfStock = computed(() => {
+  if (!product.value) return false;
+  return product.value.in_stock === false || (product.value.stock_quantity ?? 1) <= 0;
 });
 
-const diffPreview = computed(() => {
-  if (!product.value) return 0;
-  return computedNewQuantity.value - (product.value.stock_quantity ?? 0);
+const maxQty = computed(() => {
+  const stock = product.value?.stock_quantity;
+  return stock && stock > 0 ? stock : 99;
 });
 
 const adjustQty = (delta) => {
-  qtyValue.value = Math.max(0, Number(qtyValue.value || 0) + delta);
+  qtyValue.value = Math.min(
+    maxQty.value,
+    Math.max(1, Number(qtyValue.value || 0) + delta)
+  );
 };
 
-const setMode = (m) => {
-  mode.value = m;
-  qtyValue.value = m === "receive" ? 0 : product.value?.stock_quantity ?? 0;
-};
+const addProductToCart = async () => {
+  if (!product.value || adding.value || isOutOfStock.value) return;
 
-const saveAdjustment = async () => {
-  if (!product.value || saving.value) return;
-
-  const oldQty = product.value.stock_quantity ?? 0;
-  const newQty = computedNewQuantity.value;
-
-  if (newQty === oldQty) {
-    uiStore.addToast("Количество не изменилось", "info");
-    resetProduct();
-    return;
-  }
-
-  saving.value = true;
+  adding.value = true;
   try {
-    const reason =
-      mode.value === "receive"
-        ? `ТСД: приход +${Number(qtyValue.value || 0)}`
-        : "ТСД: пересчёт";
-
-    await createAdjustment({
-      product_id: product.value.id,
-      new_quantity: newQty,
-      reason,
-    });
+    await addToCart(product.value.id, qtyValue.value);
 
     sessionLog.value.unshift({
       id: Date.now(),
       sku: product.value.sku,
       name: product.value.name,
-      old: oldQty,
-      new: newQty,
-      diff: newQty - oldQty,
+      qty: qtyValue.value,
       time: new Date().toLocaleTimeString("ru-RU", {
         hour: "2-digit",
         minute: "2-digit",
       }),
     });
 
-    uiStore.addToast("Остаток обновлён", "success");
+    uiStore.success("Добавлено в корзину");
     resetProduct();
   } catch (e) {
     console.error(e);
-    uiStore.addToast(
-      e?.data?.message || "Не удалось сохранить изменение",
-      "error"
-    );
+    uiStore.error(e?.data?.message || "Не удалось добавить в корзину");
   } finally {
-    saving.value = false;
+    adding.value = false;
   }
 };
 
@@ -212,14 +185,19 @@ const handleScanKeydown = (e) => {
 <template>
   <div class="tsd-page">
     <div class="tsd-header">
-      <NuxtLink to="/purchaser" class="back-link">
+      <NuxtLink to="/" class="back-link">
         <i class="bi bi-arrow-left"></i>
       </NuxtLink>
       <div class="header-title">
-        <div class="fw-bold">ТСД</div>
+        <div class="fw-bold">Сканер товаров</div>
         <small class="opacity-75">{{ authStore.user?.name }}</small>
       </div>
-      <div style="width: 40px"></div>
+      <NuxtLink to="/cart" class="cart-link position-relative">
+        <i class="bi bi-cart"></i>
+        <span v-if="cartStore.itemsCount > 0" class="cart-badge">{{
+          cartStore.itemsCount
+        }}</span>
+      </NuxtLink>
     </div>
 
     <div class="tsd-body">
@@ -271,49 +249,43 @@ const handleScanKeydown = (e) => {
           @click="selectProduct(c)"
         >
           <div class="fw-bold">{{ c.name }}</div>
-          <small class="text-muted">SKU: {{ c.sku }} · остаток {{ c.stock_quantity }}</small>
+          <small class="text-muted">SKU: {{ c.sku }} · {{ c.sale_price || c.price }} сом</small>
         </button>
       </div>
 
       <!-- Карточка найденного товара -->
       <div v-if="product" class="product-card">
         <div class="d-flex justify-content-between align-items-start mb-2">
-          <div>
-            <div class="product-name">{{ product.name }}</div>
-            <small class="text-muted">SKU: {{ product.sku }}</small>
+          <div class="d-flex align-items-center gap-3">
+            <div class="product-thumb">
+              <img
+                v-if="product.image_url"
+                :src="product.image_url"
+                :alt="product.name"
+              />
+              <i v-else class="bi bi-image text-secondary opacity-50"></i>
+            </div>
+            <div>
+              <div class="product-name">{{ product.name }}</div>
+              <small class="text-muted">SKU: {{ product.sku }}</small>
+            </div>
           </div>
           <button class="close-btn" @click="resetProduct">
             <i class="bi bi-x-lg"></i>
           </button>
         </div>
 
-        <div class="current-stock">
-          <span class="text-muted small">Текущий остаток</span>
-          <div class="current-stock-value">{{ product.stock_quantity }}</div>
+        <div class="price-row">
+          <span class="product-price"
+            >{{ product.sale_price || product.price }} сом</span
+          >
+          <span v-if="isOutOfStock" class="badge text-bg-danger">Нет в наличии</span>
+          <span v-else class="badge text-bg-success-subtle text-success">В наличии</span>
         </div>
 
-        <div class="mode-toggle">
-          <button
-            class="mode-btn"
-            :class="{ active: mode === 'recount' }"
-            @click="setMode('recount')"
-          >
-            <i class="bi bi-arrow-repeat me-1"></i>Пересчёт
-          </button>
-          <button
-            class="mode-btn"
-            :class="{ active: mode === 'receive' }"
-            @click="setMode('receive')"
-          >
-            <i class="bi bi-box-arrow-in-down me-1"></i>Приход
-          </button>
-        </div>
-
-        <div class="qty-label">
-          {{ mode === "receive" ? "Количество к приходу" : "Фактическое количество" }}
-        </div>
+        <div class="qty-label">Количество</div>
         <div class="qty-stepper">
-          <button class="qty-btn" @click="adjustQty(-1)">
+          <button class="qty-btn" :disabled="isOutOfStock" @click="adjustQty(-1)">
             <i class="bi bi-dash-lg"></i>
           </button>
           <input
@@ -321,53 +293,41 @@ const handleScanKeydown = (e) => {
             type="number"
             inputmode="numeric"
             class="qty-input"
+            :disabled="isOutOfStock"
+            min="1"
+            :max="maxQty"
           />
-          <button class="qty-btn" @click="adjustQty(1)">
+          <button class="qty-btn" :disabled="isOutOfStock" @click="adjustQty(1)">
             <i class="bi bi-plus-lg"></i>
           </button>
         </div>
 
-        <div class="preview-row" v-if="mode === 'receive'">
-          Новый остаток: <b>{{ computedNewQuantity }}</b>
-        </div>
-        <div
-          class="preview-row"
-          v-else-if="diffPreview !== 0"
-          :class="diffPreview > 0 ? 'text-success' : 'text-danger'"
-        >
-          Разница: <b>{{ diffPreview > 0 ? "+" : "" }}{{ diffPreview }}</b>
-        </div>
-
         <button
           class="save-btn"
-          :disabled="saving"
-          @click="saveAdjustment"
+          :disabled="adding || isOutOfStock"
+          @click="addProductToCart"
         >
-          <span v-if="saving" class="spinner-border spinner-border-sm me-2"></span>
-          Сохранить
+          <span v-if="adding" class="spinner-border spinner-border-sm me-2"></span>
+          <i v-else class="bi bi-cart-plus me-2"></i>
+          {{ isOutOfStock ? "Нет в наличии" : "Добавить в корзину" }}
         </button>
       </div>
 
       <!-- Журнал сессии -->
       <div v-else class="session-log">
         <div class="session-log-title">
-          Сегодня отсканировано: {{ sessionLog.length }}
+          Отсканировано за визит: {{ sessionLog.length }}
         </div>
         <div v-if="!sessionLog.length" class="empty-hint">
           <i class="bi bi-upc-scan fs-1 opacity-25"></i>
-          <p class="mt-2 mb-0">Отсканируйте товар, чтобы начать</p>
+          <p class="mt-2 mb-0">Отсканируйте товар, чтобы добавить его в корзину</p>
         </div>
         <div v-for="item in sessionLog" :key="item.id" class="log-row">
           <div class="flex-grow-1">
             <div class="fw-bold small">{{ item.name }}</div>
             <small class="text-muted">{{ item.sku }} · {{ item.time }}</small>
           </div>
-          <div
-            class="log-diff"
-            :class="item.diff > 0 ? 'text-success' : item.diff < 0 ? 'text-danger' : 'text-muted'"
-          >
-            {{ item.old }} → {{ item.new }}
-          </div>
+          <div class="log-qty">×{{ item.qty }}</div>
         </div>
       </div>
     </div>
@@ -412,12 +372,29 @@ const handleScanKeydown = (e) => {
   z-index: 10;
 }
 
-.back-link {
+.back-link,
+.cart-link {
   color: white;
   font-size: 1.25rem;
   width: 40px;
   display: flex;
   align-items: center;
+}
+
+.cart-link {
+  justify-content: flex-end;
+}
+
+.cart-badge {
+  position: absolute;
+  top: -6px;
+  right: -2px;
+  background: #ef4444;
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.05rem 0.35rem;
 }
 
 .header-title {
@@ -604,8 +581,26 @@ const handleScanKeydown = (e) => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
+.product-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.product-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .product-name {
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 700;
 }
 
@@ -615,42 +610,23 @@ const handleScanKeydown = (e) => {
   width: 36px;
   height: 36px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 
-.current-stock {
-  text-align: center;
+.price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   background: #f8fafc;
   border-radius: 0.75rem;
-  padding: 0.75rem;
+  padding: 0.75rem 1rem;
   margin: 0.75rem 0;
 }
 
-.current-stock-value {
-  font-size: 2rem;
+.product-price {
+  font-size: 1.4rem;
   font-weight: 800;
   color: #1e293b;
-}
-
-.mode-toggle {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.mode-btn {
-  flex: 1;
-  padding: 0.65rem;
-  border-radius: 0.75rem;
-  border: 2px solid #e2e8f0;
-  background: white;
-  font-weight: 600;
-  color: #64748b;
-}
-
-.mode-btn.active {
-  border-color: #6366f1;
-  background: #eef2ff;
-  color: #4338ca;
 }
 
 .qty-label {
@@ -664,7 +640,7 @@ const handleScanKeydown = (e) => {
   display: flex;
   align-items: stretch;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .qty-btn {
@@ -675,6 +651,10 @@ const handleScanKeydown = (e) => {
   background: #eef2ff;
   color: #4338ca;
   font-size: 1.25rem;
+}
+
+.qty-btn:disabled {
+  opacity: 0.5;
 }
 
 .qty-input {
@@ -690,12 +670,6 @@ const handleScanKeydown = (e) => {
 .qty-input:focus {
   outline: none;
   border-color: #6366f1;
-}
-
-.preview-row {
-  text-align: center;
-  margin-bottom: 0.75rem;
-  font-size: 0.95rem;
 }
 
 .save-btn {
@@ -744,9 +718,10 @@ const handleScanKeydown = (e) => {
   border-bottom: none;
 }
 
-.log-diff {
+.log-qty {
   font-weight: 700;
   font-size: 0.9rem;
+  color: #4338ca;
   white-space: nowrap;
 }
 </style>

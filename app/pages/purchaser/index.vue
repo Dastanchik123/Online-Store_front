@@ -160,22 +160,6 @@ onMounted(() => {
                   </div>
                 </NuxtLink>
               </div>
-              <div
-                class="col-md-4"
-                v-if="authStore.hasPermission('inventory.manage')"
-              >
-                <NuxtLink
-                  to="/tsd"
-                  class="action-btn p-3 rounded-4 d-flex align-items-center text-decoration-none border h-100"
-                >
-                  <div class="icon-box bg-dark text-white rounded-3 me-3">
-                    <i class="bi bi-upc-scan fs-4"></i>
-                  </div>
-                  <div>
-                    <div class="fw-bold text-dark small">ТСД</div>
-                  </div>
-                </NuxtLink>
-              </div>
             </div>
           </div>
         </div>

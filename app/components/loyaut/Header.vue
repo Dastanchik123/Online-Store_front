@@ -30,6 +30,11 @@
             >Где мой заказ?</NuxtLink
           >
         </li>
+        <li v-if="authStore.isAuthenticated">
+          <NuxtLink to="/tsd" active-class="active" title="Сканировать товар">
+            <i class="bi bi-upc-scan"></i>
+          </NuxtLink>
+        </li>
         <li>
           <NuxtLink
             to="/wishlist"
@@ -93,11 +98,6 @@
                   <i class="bi bi-wallet2 me-2"></i>Рабочее место Кассира
                 </NuxtLink>
               </li>
-              <li v-if="authStore.isPurchaser || authStore.isAdmin">
-                <NuxtLink class="dropdown-item text-dark py-2" to="/tsd">
-                  <i class="bi bi-upc-scan me-2"></i>ТСД
-                </NuxtLink>
-              </li>
               <li v-if="authStore.isAdmin">
                 <NuxtLink
                   class="dropdown-item text-primary fw-bold py-2"
@@ -125,6 +125,13 @@
 
       
       <div class="d-flex align-items-center gap-2 d-lg-none">
+        <NuxtLink
+          v-if="authStore.isAuthenticated"
+          to="/tsd"
+          class="mobile-icon-btn"
+        >
+          <i class="bi bi-upc-scan fs-5"></i>
+        </NuxtLink>
         <NuxtLink to="/wishlist" class="mobile-icon-btn position-relative">
           <i class="bi bi-heart fs-5"></i>
           <span v-if="wishlist.items.value.length > 0" class="mobile-badge">{{ wishlist.items.value.length }}</span>
@@ -269,11 +276,6 @@
                   class="text-info"
                 >
                   <i class="bi bi-wallet2 me-3"></i>Рабочее место Кассира
-                </NuxtLink>
-              </li>
-              <li v-if="authStore.isPurchaser || authStore.isAdmin">
-                <NuxtLink to="/tsd" @click="isMobileMenuOpen = false">
-                  <i class="bi bi-upc-scan me-3"></i>ТСД
                 </NuxtLink>
               </li>
               <li v-if="authStore.isAdmin">
