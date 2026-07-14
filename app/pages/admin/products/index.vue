@@ -15,6 +15,21 @@ const {
   downloadProductBarcode,
 } = useProducts();
 
+const { setQueue } = usePrintQueue();
+const goToPrintLabels = (product) => {
+  setQueue([
+    {
+      id: product.id,
+      name: product.name,
+      sku: product.sku || "",
+      price: Number(product.price || 0),
+      sale_price: Number(product.sale_price || 0),
+      qty: 1,
+    },
+  ]);
+  navigateTo("/admin/print-labels");
+};
+
 const products = ref({
   data: [],
   current_page: 1,
@@ -648,6 +663,14 @@ onUnmounted(() => {
                     title="Штрих-код"
                   >
                     <i class="bi bi-upc-scan"></i>
+                  </button>
+                  <button
+                    @click="goToPrintLabels(product)"
+                    class="btn-action barcode shadow-sm"
+                    style="width: 22px; height: 22px; font-size: 0.7rem;"
+                    title="Печать этикетки"
+                  >
+                    <i class="bi bi-tag"></i>
                   </button>
                   <button
                     @click="handleDelete(product.id)"

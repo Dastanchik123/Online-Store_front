@@ -1,4 +1,5 @@
 import { useUiStore } from "~/stores/ui";
+import JsBarcode from "jsbarcode";
 
 interface ElectronPrinter {
   name: string;
@@ -13,7 +14,7 @@ declare global {
   interface Window {
     electronAPI?: {
       getPrinters: () => Promise<ElectronPrinter[]>;
-      printHTML: (data: { html: string; printerName?: string }) => void;
+      printHTML: (data: { html: string; printerName?: string; pageWidthMm?: number; pageHeightMm?: number }) => void;
     };
   }
 }
@@ -21,6 +22,30 @@ declare global {
 const isConnected = ref(false);
 const printers = ref<string[]>([]);
 const activePrinter = ref("");
+
+export const DEFAULT_PRICE_TAG_TEMPLATE = {
+  width_mm: 58,
+  height_mm: 40,
+  show_description: true,
+  show_date: true,
+  show_barcode: true,
+  show_old_price: true,
+  show_company: true,
+  mirrored: false,
+};
+export const DEFAULT_BARCODE_TEMPLATE = {
+  width_mm: 40,
+  height_mm: 30,
+};
+
+const parseTemplate = <T extends object>(json: string | undefined, fallback: T): T => {
+  if (!json) return fallback;
+  try {
+    return { ...fallback, ...JSON.parse(json) };
+  } catch (e) {
+    return fallback;
+  }
+};
 
 if (typeof window !== "undefined") {
   activePrinter.value = localStorage.getItem("selected_printer") || "";
@@ -40,6 +65,7 @@ const escapeHtml = (value: unknown): string =>
 
 export const usePrinter = () => {
   const uiStore = useUiStore();
+  const { settings } = useSettings();
 
   const initPrinter = async () => {
     if (typeof window !== "undefined" && window.electronAPI) {
@@ -251,6 +277,247 @@ export const usePrinter = () => {
     `;
   };
 
+  const makeBarcodeSvg = (sku: string, height: number) => {
+    if (!sku || typeof document === "undefined") return "";
+    try {
+      const svgEl = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      JsBarcode(svgEl, sku, {
+        format: "CODE128",
+        displayValue: false,
+        height,
+        margin: 0,
+        background: "transparent",
+      });
+      return new XMLSerializer().serializeToString(svgEl);
+    } catch (e) {
+      console.error("Barcode generation failed:", e);
+      return "";
+    }
+  };
+
+  // Один "лист" ценника (без обёртки документа) — используется и для печати
+  // одного товара N раз, и для пакетной печати вперемешку с другими товарами.
+  const generatePriceTagBody = (product: any, settings: any, tpl: typeof DEFAULT_PRICE_TAG_TEMPLATE) => {
+    const name = escapeHtml(product?.name || "Товар");
+    const sku = escapeHtml(product?.sku || "");
+    const description = tpl.show_description
+      ? escapeHtml(product?.short_description || product?.description || "")
+      : "";
+    const companyName = tpl.show_company
+      ? escapeHtml(settings?.receipt_title || settings?.site_name || "")
+      : "";
+
+    const regularPrice = Number(product?.price || 0);
+    const salePrice = Number(product?.sale_price || 0);
+    const hasSale = tpl.show_old_price && salePrice > 0 && salePrice < regularPrice;
+    const effectivePrice = hasSale ? salePrice : regularPrice;
+    const oldPrice = hasSale ? regularPrice : null;
+
+    const priceInt = Math.floor(effectivePrice);
+    const priceFrac = Math.round((effectivePrice - priceInt) * 100).toString().padStart(2, "0");
+    const dateStr = tpl.show_date ? new Date().toLocaleDateString("ru-RU") : "";
+    const barcodeSvg = tpl.show_barcode ? makeBarcodeSvg(sku, 28) : "";
+
+    const codeBlock = tpl.show_barcode
+      ? `
+        <div class="tag-code">
+          <div>Код: ${sku}</div>
+          <div class="tag-barcode">${barcodeSvg}</div>
+        </div>
+      `
+      : `<div class="tag-code"></div>`;
+
+    const priceBlock = `
+      <div class="tag-price">
+        ${oldPrice ? `<div class="old">${oldPrice.toLocaleString("ru-RU")}</div>` : ""}
+        <div class="price-row">
+          <span class="price-int">${priceInt}</span>
+          <span class="price-frac">${priceFrac}</span>
+        </div>
+        <div class="price-cur">сом</div>
+        <div class="tag-meta">Цена за: 1 шт.${companyName ? `<br>${companyName}` : ""}</div>
+      </div>
+    `;
+    const bottomBlocks = tpl.mirrored ? priceBlock + codeBlock : codeBlock + priceBlock;
+
+    return `
+      <div class="tag-page">
+        <div class="tag-header">
+          <div class="tag-name">${name}</div>
+          ${dateStr ? `<div class="tag-date">${dateStr}</div>` : ""}
+        </div>
+        ${description ? `<div class="tag-desc">${description}</div>` : ""}
+        <div class="tag-bottom">${bottomBlocks}</div>
+      </div>
+    `;
+  };
+
+  const wrapPriceTagPages = (pages: string, tpl: typeof DEFAULT_PRICE_TAG_TEMPLATE) => `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        @page { size: ${tpl.width_mm}mm ${tpl.height_mm}mm; margin: 0; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #000; }
+        .tag-page {
+          width: ${tpl.width_mm}mm; height: ${tpl.height_mm}mm;
+          padding: 2mm;
+          display: flex; flex-direction: column;
+          overflow: hidden;
+          page-break-after: always;
+          break-after: page;
+        }
+        .tag-page:last-child { page-break-after: auto; break-after: auto; }
+        .tag-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 2mm; }
+        .tag-name { font-size: 12px; font-weight: 700; line-height: 1.15; }
+        .tag-date { font-size: 8px; color: #333; white-space: nowrap; }
+        .tag-desc { font-size: 8px; color: #333; margin-top: 0.5mm; }
+        .tag-bottom { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 2mm; }
+        .tag-code { font-size: 7px; }
+        .tag-barcode svg { display: block; width: 28mm; height: 8mm; }
+        .tag-price { text-align: right; }
+        .tag-price .old { font-size: 8px; color: #555; text-decoration: line-through; }
+        .price-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 1px; }
+        .price-int { font-size: 26px; font-weight: 800; line-height: 1; }
+        .price-frac { font-size: 12px; font-weight: 700; border-top: 1px solid #000; padding-top: 1px; }
+        .price-cur { font-size: 8px; }
+        .tag-meta { font-size: 6.5px; color: #333; text-align: right; }
+      </style>
+    </head>
+    <body>${pages}</body>
+    </html>
+  `;
+
+  // Ценник для покупателя (кладётся перед товаром на полке). Шаблон (какие
+  // поля показывать, размер, расположение) берётся из настроек магазина,
+  // если не передан явно (используется для живого предпросмотра в админке).
+  const generatePriceTagHtml = (
+    product: any,
+    settings: any = {},
+    qty = 1,
+    template: typeof DEFAULT_PRICE_TAG_TEMPLATE | null = null
+  ) => {
+    const tpl = template
+      ? { ...DEFAULT_PRICE_TAG_TEMPLATE, ...template }
+      : parseTemplate(settings?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
+    const body = generatePriceTagBody(product, settings, tpl);
+    const pages = Array.from({ length: Math.max(1, qty) }, () => body).join("");
+    return wrapPriceTagPages(pages, tpl);
+  };
+
+  // Один "лист" компактной этикетки со штрихкодом (без обёртки документа).
+  const generateBarcodeLabelBody = (product: any, tpl: typeof DEFAULT_BARCODE_TEMPLATE) => {
+    const name = escapeHtml(product?.name || "Товар");
+    const sku = escapeHtml(product?.sku || "");
+
+    const regularPrice = Number(product?.price || 0);
+    const salePrice = Number(product?.sale_price || 0);
+    const price = salePrice > 0 && salePrice < regularPrice ? salePrice : regularPrice;
+    const barcodeSvg = makeBarcodeSvg(sku, 22);
+
+    return `
+      <div class="lbl-page">
+        <div class="lbl-name">${name}</div>
+        <div class="lbl-barcode">${barcodeSvg}</div>
+        <div class="lbl-bottom">
+          <span class="lbl-sku">${sku}</span>
+          <span class="lbl-price">${Math.round(price).toLocaleString("ru-RU")} сом</span>
+        </div>
+      </div>
+    `;
+  };
+
+  const wrapBarcodeLabelPages = (pages: string, tpl: typeof DEFAULT_BARCODE_TEMPLATE) => `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        @page { size: ${tpl.width_mm}mm ${tpl.height_mm}mm; margin: 0; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #000; }
+        .lbl-page {
+          width: ${tpl.width_mm}mm; height: ${tpl.height_mm}mm;
+          padding: 1.5mm;
+          display: flex; flex-direction: column; justify-content: space-between;
+          overflow: hidden;
+          page-break-after: always;
+          break-after: page;
+        }
+        .lbl-page:last-child { page-break-after: auto; break-after: auto; }
+        .lbl-name {
+          font-size: 9px; font-weight: 700; line-height: 1.1;
+          max-height: 2.2em; overflow: hidden;
+        }
+        .lbl-barcode svg { display: block; width: 100%; height: 10mm; }
+        .lbl-bottom { display: flex; justify-content: space-between; align-items: baseline; }
+        .lbl-sku { font-size: 8px; }
+        .lbl-price { font-weight: 800; font-size: 11px; }
+      </style>
+    </head>
+    <body>${pages}</body>
+    </html>
+  `;
+
+  // Компактная этикетка со штрихкодом (наклеивается на сам товар) — без даты,
+  // описания и названия магазина, только то, что нужно для сканирования на кассе.
+  const generateBarcodeLabelHtml = (
+    product: any,
+    qty = 1,
+    template: typeof DEFAULT_BARCODE_TEMPLATE | null = null
+  ) => {
+    const tpl = template ? { ...DEFAULT_BARCODE_TEMPLATE, ...template } : parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE);
+    const body = generateBarcodeLabelBody(product, tpl);
+    const pages = Array.from({ length: Math.max(1, qty) }, () => body).join("");
+    return wrapBarcodeLabelPages(pages, tpl);
+  };
+
+  // Пакетная печать разных товаров одним заданием (например, из очереди на
+  // отдельной странице печати ценников) — каждая позиция может иметь своё
+  // количество копий, шаблон и размер общие для всей партии.
+  const printLabelBatch = async (
+    items: Array<{ product: any; qty: number }>,
+    opts: { type?: "price_tag" | "barcode"; printerName?: string } = {}
+  ) => {
+    const { type = "price_tag", printerName } = opts;
+    try {
+      let htmlContent: string;
+      if (type === "barcode") {
+        const tpl = parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE);
+        const pages = items
+          .flatMap(({ product, qty }) => Array.from({ length: Math.max(1, qty) }, () => generateBarcodeLabelBody(product, tpl)))
+          .join("");
+        htmlContent = wrapBarcodeLabelPages(pages, tpl);
+      } else {
+        const tpl = parseTemplate(settings.value?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
+        const pages = items
+          .flatMap(({ product, qty }) => Array.from({ length: Math.max(1, qty) }, () => generatePriceTagBody(product, settings.value, tpl)))
+          .join("");
+        htmlContent = wrapPriceTagPages(pages, tpl);
+      }
+
+      const tplForSize = type === "barcode"
+        ? parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE)
+        : parseTemplate(settings.value?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
+
+      if (typeof window !== "undefined" && window.electronAPI) {
+        window.electronAPI.printHTML({
+          html: htmlContent,
+          printerName: printerName || activePrinter.value,
+          pageWidthMm: tplForSize.width_mm,
+          pageHeightMm: tplForSize.height_mm,
+        });
+      } else {
+        printViaBrowser(htmlContent);
+      }
+    } catch (e: any) {
+      console.error("Printing failing:", e);
+      uiStore.addToast("Ошибка печати этикеток: " + e.message, "error");
+    }
+  };
+
   const printViaBrowser = (html: string) => {
     const frame = document.createElement('iframe');
     frame.style.position = 'fixed';
@@ -338,6 +605,40 @@ export const usePrinter = () => {
     }
   };
 
+  // Единая точка печати этикетки/ценника. Количество копий имеет смысл
+  // только при печати из Electron (прямая печать без диалога) — в браузере
+  // window.print() всё равно даёт напечатать только один документ за раз.
+  const printLabel = async (
+    product: any,
+    opts: { type?: "price_tag" | "barcode"; qty?: number; printerName?: string } = {}
+  ) => {
+    const { type = "price_tag", qty = 1, printerName } = opts;
+    try {
+      const htmlContent =
+        type === "barcode"
+          ? generateBarcodeLabelHtml(product, qty)
+          : generatePriceTagHtml(product, settings.value, qty);
+
+      const tplForSize = type === "barcode"
+        ? parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE)
+        : parseTemplate(settings.value?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
+
+      if (typeof window !== "undefined" && window.electronAPI) {
+        window.electronAPI.printHTML({
+          html: htmlContent,
+          printerName: printerName || activePrinter.value,
+          pageWidthMm: tplForSize.width_mm,
+          pageHeightMm: tplForSize.height_mm,
+        });
+      } else {
+        printViaBrowser(htmlContent);
+      }
+    } catch (e: any) {
+      console.error("Printing failing:", e);
+      uiStore.addToast("Ошибка печати этикетки: " + e.message, "error");
+    }
+  };
+
   const testPrint = async () => {
     const testHtml = `
       <div style="font-family: sans-serif; padding: 20px; border: 2px solid black; text-align: center;">
@@ -369,8 +670,12 @@ export const usePrinter = () => {
     fetchPrinters,
     setPrinter,
     printReceipt,
+    printLabel,
+    printLabelBatch,
     testPrint,
     generateReceiptHtml,
     generateInvoiceHtml,
+    generatePriceTagHtml,
+    generateBarcodeLabelHtml,
   };
 };

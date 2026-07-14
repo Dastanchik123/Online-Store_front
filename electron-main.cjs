@@ -56,7 +56,7 @@ ipcMain.handle('get-printers', async () => {
   return await win.webContents.getPrintersAsync();
 });
 
-ipcMain.on('print-html', (event, { html, printerName }) => {
+ipcMain.on('print-html', (event, { html, printerName, pageWidthMm, pageHeightMm }) => {
   const printWin = new BrowserWindow({
     show: false,
     webPreferences: { nodeIntegration: false },
@@ -68,6 +68,22 @@ ipcMain.on('print-html', (event, { html, printerName }) => {
     const options = printerName
       ? { silent: true, deviceName: printerName, printBackground: true }
       : { silent: false, printBackground: true };
+
+    // Без явного pageSize принтер печатает на своей бумаге по умолчанию
+    // (A4 и т.п.), и разрыв страниц из CSS (page-break-after) не разбивает
+    // вывод на отдельные листы — несколько этикеток слипаются на одном.
+    // Задаём размер листа в микронах (1мм = 1000мкм) по размеру этикетки.
+    if (pageWidthMm && pageHeightMm) {
+      options.pageSize = {
+        width: Math.round(pageWidthMm * 1000),
+        height: Math.round(pageHeightMm * 1000),
+      };
+      // На случай, если у драйвера принтера по умолчанию включены поля
+      // страницы или "несколько страниц на лист" — это тоже может слепить
+      // этикетки в один физический лист даже при верном pageSize.
+      options.margins = { marginType: 'none' };
+      options.pagesPerSheet = 1;
+    }
 
     printWin.webContents.print(options, (success, errorType) => {
       if (!success) console.error('Print failed:', errorType);

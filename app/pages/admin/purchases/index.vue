@@ -29,6 +29,36 @@ const loading = ref(false);
 const purchases = ref([]);
 const suppliers = ref([]);
 const showProductPicker = ref(false);
+const selectedItems = reactive({});
+const selectedItemsCount = computed(
+  () => Object.values(selectedItems).filter(Boolean).length,
+);
+const toPrintItem = (item) => ({
+  id: item.product_id,
+  name: item.name,
+  sku: item.sku || "",
+  price: Number(item.sale_price || 0),
+  sale_price: 0,
+  qty: item.quantity,
+});
+
+// Печать открывается модалкой поверх текущей страницы, а не переходом —
+// приём товара ещё не сохранён, и уход со страницы сбросил бы черновик.
+const showPrintModal = ref(false);
+const printModalItems = ref([]);
+
+const openPrintModalForItem = (item) => {
+  printModalItems.value = [toPrintItem(item)];
+  showPrintModal.value = true;
+};
+
+const openPrintModalBulk = () => {
+  printModalItems.value = form.value.items
+    .filter((i, index) => selectedItems[index])
+    .map(toPrintItem);
+  showPrintModal.value = true;
+};
+
 const barcodeBuffer = ref("");
 const lastBarcodeKeyTime = ref(0);
 const isBarcodeLookup = ref(false);
@@ -134,7 +164,8 @@ const isPurchasesModalOpen = () =>
   showAddProductModal.value ||
   showAddSupplierModal.value ||
   showAddCategoryModal.value ||
-  showPaymentModal.value;
+  showPaymentModal.value ||
+  showPrintModal.value;
 
 // Insert — быстрый вызов "Вставить товар" без мыши, как на кассе.
 // Сканер штрих-кода шлёт символы очень быстро и завершает Enter — ловим
@@ -191,7 +222,10 @@ const clearItems = async () => {
   const proceed = await confirmDiscardDraft(
     "Все добавленные товары будут удалены из текущего приёма.",
   );
-  if (proceed) form.value.items = [];
+  if (proceed) {
+    form.value.items = [];
+    Object.keys(selectedItems).forEach((key) => delete selectedItems[key]);
+  }
 };
 
 const showPaymentModal = ref(false);
@@ -417,17 +451,19 @@ const changePage = (page) => {
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
-// Ссылки на инпуты "Кол-во" по product_id — чтобы после добавления
-// товара сразу поставить туда фокус (быстро набрать количество)
+// Ссылки на инпуты "Кол-во" по индексу строки — чтобы после добавления
+// товара сразу поставить туда фокус (быстро набрать количество).
+// Индекс, а не product_id: один и тот же товар может быть в приёме
+// несколькими строками (разные партии/цены), тогда product_id не уникален.
 const qtyInputRefs = {};
-const setQtyInputRef = (productId, el) => {
-  if (el) qtyInputRefs[productId] = el;
-  else delete qtyInputRefs[productId];
+const setQtyInputRef = (index, el) => {
+  if (el) qtyInputRefs[index] = el;
+  else delete qtyInputRefs[index];
 };
 
-const focusQuantityInput = async (productId) => {
+const focusQuantityInput = async (index) => {
   await nextTick();
-  const el = qtyInputRefs[productId];
+  const el = qtyInputRefs[index];
   if (el) {
     el.focus();
     el.select();
@@ -435,24 +471,32 @@ const focusQuantityInput = async (productId) => {
 };
 
 const addItem = (product) => {
-  const existing = form.value.items.find((i) => i.product_id === product.id);
-  if (existing) {
-    existing.quantity++;
+  const existingIndex = form.value.items.findIndex(
+    (i) => i.product_id === product.id,
+  );
+  if (existingIndex !== -1) {
+    form.value.items[existingIndex].quantity++;
+    focusQuantityInput(existingIndex);
   } else {
     form.value.items.push({
       product_id: product.id,
       name: product.name,
+      sku: product.sku || "",
       quantity: 1,
       buy_price: parseFloat(product.purchase_price || product.price || 0),
       sale_price: parseFloat(product.price || 0),
       notes: "",
     });
+    focusQuantityInput(form.value.items.length - 1);
   }
-  focusQuantityInput(product.id);
 };
 
 const removeItem = (index) => {
   form.value.items.splice(index, 1);
+  // selectedItems привязан по индексу строки — после удаления индексы
+  // сдвигаются, поэтому сбрасываем отметки, чтобы «выбранность» не
+  // перескочила на другой товар.
+  Object.keys(selectedItems).forEach((key) => delete selectedItems[key]);
 };
 
 const addItemByBarcode = async (code) => {
@@ -521,17 +565,20 @@ const handleEdit = (purchase) => {
     items: purchase.items.map((item) => ({
       product_id: item.product_id,
       name: item.product?.name || "Товар",
+      sku: item.product?.sku || "",
       quantity: item.quantity,
       buy_price: item.buy_price,
       sale_price: parseFloat(item.product?.price || 0),
     })),
   };
+  Object.keys(selectedItems).forEach((key) => delete selectedItems[key]);
   activeTab.value = "create";
 };
 
 const cancelEdit = () => {
   editingPurchaseId.value = null;
   form.value = { supplier_id: "", paid_amount: 0, items: [] };
+  Object.keys(selectedItems).forEach((key) => delete selectedItems[key]);
   activeTab.value = "list";
 };
 
@@ -850,6 +897,13 @@ onUnmounted(() => {
             </h5>
             <div class="d-flex gap-2">
               <button
+                v-if="selectedItemsCount > 0"
+                class="btn btn-sm btn-dark rounded-pill px-3"
+                @click="openPrintModalBulk"
+              >
+                <i class="bi bi-tags me-1"></i>Печать ценников ({{ selectedItemsCount }})
+              </button>
+              <button
                 class="btn btn-sm btn-primary rounded-pill px-3"
                 @click="showProductPicker = true"
               >
@@ -934,6 +988,7 @@ onUnmounted(() => {
                     text-transform: uppercase;
                   "
                 >
+                  <th width="36"></th>
                   <th class="ps-4">Наименование</th>
                   <th width="90" class="text-center">Кол-во</th>
                   <th width="140">Цена зак.</th>
@@ -945,15 +1000,22 @@ onUnmounted(() => {
               <tbody>
                 <tr
                   v-for="(item, index) in form.items"
-                  :key="item.product_id"
+                  :key="item.product_id + '-' + index"
                   class="receipt-item-row"
                 >
+                  <td class="text-center">
+                    <input
+                      type="checkbox"
+                      class="form-check-input"
+                      v-model="selectedItems[index]"
+                    />
+                  </td>
                   <td class="ps-4">
                     <div class="fw-bold text-dark small">{{ item.name }}</div>
                   </td>
                   <td>
                     <input
-                      :ref="(el) => setQtyInputRef(item.product_id, el)"
+                      :ref="(el) => setQtyInputRef(index, el)"
                       v-model.number="item.quantity"
                       type="number"
                       class="form-control form-control-sm border-0 bg-light rounded-pill text-center font-monospace"
@@ -1000,17 +1062,26 @@ onUnmounted(() => {
                     }}
                   </td>
                   <td class="text-center">
-                    <button
-                      class="btn btn-sm btn-link text-danger p-1"
-                      @click="removeItem(index)"
-                    >
-                      <i class="bi bi-x-circle"></i>
-                    </button>
+                    <div class="d-flex align-items-center justify-content-center gap-1">
+                      <button
+                        class="btn btn-sm btn-link text-secondary p-1 btn-print-label"
+                        title="Печать этикетки"
+                        @click="openPrintModalForItem(item)"
+                      >
+                        <i class="bi bi-tag"></i>
+                      </button>
+                      <button
+                        class="btn btn-sm btn-link text-danger p-1"
+                        @click="removeItem(index)"
+                      >
+                        <i class="bi bi-x-circle"></i>
+                      </button>
+                    </div>
                   </td>
                 </tr>
                 <tr v-if="form.items.length === 0">
                   <td
-                    colspan="6"
+                    colspan="7"
                     class="text-center py-5 text-muted small opacity-75"
                   >
                     <i class="bi bi-cart-plus d-block fs-1 mb-2"></i>
@@ -1417,6 +1488,11 @@ onUnmounted(() => {
       @select="addItem"
       @create-product="openAddProductModal"
     />
+
+    <AdminPrintLabelsModal
+      v-model:show="showPrintModal"
+      :items="printModalItems"
+    />
   </div>
 </template>
 
@@ -1562,6 +1638,13 @@ thead th {
 
 .receipt-item-row:hover {
   background-color: #f8fafc;
+}
+.btn-print-label {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.receipt-item-row:hover .btn-print-label {
+  opacity: 1;
 }
 
 .btn-receive-large {

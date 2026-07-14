@@ -139,6 +139,12 @@ onUnmounted(() => {
             @click="closeSidebar"
             ><i class="bi bi-grid me-2"></i>Категории</NuxtLink
           >
+          <NuxtLink
+            to="/admin/print-labels"
+            v-if="authStore.hasPermission('products.view')"
+            @click="closeSidebar"
+            ><i class="bi bi-tag me-2"></i>Печать ценников</NuxtLink
+          >
         </div>
 
         <div
