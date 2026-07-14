@@ -486,7 +486,7 @@ const searchProducts = async () => {
   }
 };
 
-const { searchUsers: apiSearchUsers } = usePos();
+const { searchUsers: apiSearchUsers, redeemCheckoutQr } = usePos();
 const searchUsers = async () => {
   if (userSearchQuery.value.length < 2) return;
   isUserSearching.value = true;
@@ -556,6 +556,66 @@ const addToCart = (product) => {
   }
 
   activeGroup.value = null;
+};
+
+// Сканер штрихкодов на кассе: обычный товар — короткий числовой SKU,
+// QR "Оплатить" с /tsd — длинный непрозрачный токен (см. checkoutQr на
+// бэке). По длине буфера различаем, куда вести код.
+const CHECKOUT_TOKEN_MIN_LENGTH = 40;
+
+const addScannedCheckoutItems = (items) => {
+  items.forEach((item) => {
+    const existing = cart.value.find((c) => c.product_id === item.product_id);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      cart.value.push({
+        product_id: item.product_id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        sku: item.sku,
+        image_url: item.image_url,
+        stock_quantity: item.stock_quantity,
+      });
+    }
+  });
+};
+
+const redeemCheckoutToken = async (token) => {
+  try {
+    const res = await redeemCheckoutQr(token);
+    const items = res.items || [];
+    if (!items.length) {
+      ui.addToast("В этой корзине не осталось товаров", "info");
+      return;
+    }
+    addScannedCheckoutItems(items);
+    ui.addToast(`Добавлено товаров из QR: ${items.length}`, "success");
+  } catch (e) {
+    console.error(e);
+    ui.addToast(e?.data?.message || "Не удалось прочитать QR", "error");
+  }
+};
+
+const processBarcode = async (code) => {
+  const trimmed = code.trim();
+  if (!trimmed) return;
+
+  if (trimmed.length >= CHECKOUT_TOKEN_MIN_LENGTH) {
+    await redeemCheckoutToken(trimmed);
+    return;
+  }
+
+  const found = cachedProducts.value.find(
+    (p) => String(p.sku).toLowerCase() === trimmed.toLowerCase()
+  );
+
+  if (found) {
+    addToCart(found);
+  } else {
+    ui.addToast(`Товар не найден: ${trimmed}`, "error");
+  }
 };
 
 const removeFromCart = (index) => {

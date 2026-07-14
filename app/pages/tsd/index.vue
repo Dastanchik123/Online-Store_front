@@ -7,7 +7,7 @@ definePageMeta({
 const authStore = useAuthStore();
 const uiStore = useUiStore();
 const { getProducts } = useProducts();
-const { addToCart, getCart } = useCart();
+const { addToCart, getCart, getCheckoutQr } = useCart();
 const cartStore = useCartStore();
 
 const scanCode = ref("");
@@ -19,22 +19,115 @@ const candidates = ref([]);
 const qtyValue = ref(1);
 const sessionLog = ref([]);
 
+// QR для кассы: покупатель нажимает «Оплатить», получает QR и показывает
+// его кассиру — тот сканирует и получает все отсканированные товары разом.
+const showCheckoutModal = ref(false);
+const checkoutLoading = ref(false);
+const checkoutQrDataUrl = ref("");
+const checkoutExpiresAt = ref(null);
+const checkoutSecondsLeft = ref(0);
+let checkoutTimer = null;
+
+const stopCheckoutTimer = () => {
+  if (checkoutTimer) clearInterval(checkoutTimer);
+  checkoutTimer = null;
+};
+
+const closeCheckoutModal = () => {
+  showCheckoutModal.value = false;
+  stopCheckoutTimer();
+};
+
+const openCheckout = async () => {
+  if (!cartStore.itemsCount) {
+    uiStore.error("Корзина пуста");
+    return;
+  }
+
+  checkoutLoading.value = true;
+  showCheckoutModal.value = true;
+  checkoutQrDataUrl.value = "";
+  try {
+    const res = await getCheckoutQr();
+    checkoutExpiresAt.value = new Date(res.expires_at);
+
+    const QRCode = (await import("qrcode")).default;
+    checkoutQrDataUrl.value = await QRCode.toDataURL(res.token, {
+      width: 320,
+      margin: 1,
+    });
+
+    stopCheckoutTimer();
+    const tick = () => {
+      const diff = Math.max(
+        0,
+        Math.floor((checkoutExpiresAt.value.getTime() - Date.now()) / 1000)
+      );
+      checkoutSecondsLeft.value = diff;
+      if (diff <= 0) {
+        stopCheckoutTimer();
+        uiStore.info("QR истёк, получите новый");
+      }
+    };
+    tick();
+    checkoutTimer = setInterval(tick, 1000);
+  } catch (e) {
+    console.error(e);
+    uiStore.error(e?.data?.message || "Не удалось получить QR");
+    showCheckoutModal.value = false;
+  } finally {
+    checkoutLoading.value = false;
+  }
+};
+
+const checkoutTimeLabel = computed(() => {
+  const m = Math.floor(checkoutSecondsLeft.value / 60);
+  const s = checkoutSecondsLeft.value % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+});
+
+onBeforeUnmount(() => stopCheckoutTimer());
+
 // Сканирование камерой устройства (ZXing) — используется, когда нет
 // физического сканера, например при заходе со смартфона.
 const showCamera = ref(false);
 const cameraError = ref("");
 const cameraVideoEl = ref(null);
+const torchSupported = ref(false);
+const torchOn = ref(false);
 let cameraControls = null;
+
+// Трек берём напрямую из видеопотока, а не через switchTorch() zxing —
+// это официально помечено как experimental/нестабильное в браузерах.
+const getVideoTrack = () => {
+  const stream = cameraVideoEl.value?.srcObject;
+  return stream?.getVideoTracks?.()[0] || null;
+};
 
 const stopCamera = () => {
   cameraControls?.stop();
   cameraControls = null;
+  torchSupported.value = false;
+  torchOn.value = false;
 };
 
 const closeCamera = () => {
   stopCamera();
   showCamera.value = false;
   cameraError.value = "";
+};
+
+const toggleTorch = async () => {
+  const track = getVideoTrack();
+  if (!track) return;
+
+  try {
+    await track.applyConstraints({ advanced: [{ torch: !torchOn.value }] });
+    torchOn.value = !torchOn.value;
+  } catch (e) {
+    console.error(e);
+    uiStore.error("Не удалось включить фонарик");
+  }
 };
 
 const openCamera = async () => {
@@ -58,6 +151,9 @@ const openCamera = async () => {
         }
       }
     );
+
+    const track = getVideoTrack();
+    torchSupported.value = !!track?.getCapabilities?.().torch;
   } catch (e) {
     console.error(e);
     cameraError.value =
@@ -315,6 +411,15 @@ const handleScanKeydown = (e) => {
 
       <!-- Журнал сессии -->
       <div v-else class="session-log">
+        <button
+          v-if="cartStore.itemsCount > 0"
+          class="checkout-btn"
+          @click="openCheckout"
+        >
+          <i class="bi bi-qr-code me-2"></i>Оплатить — получить QR для кассы
+          <span class="checkout-btn-count">{{ cartStore.itemsCount }}</span>
+        </button>
+
         <div class="session-log-title">
           Отсканировано за визит: {{ sessionLog.length }}
         </div>
@@ -332,6 +437,34 @@ const handleScanKeydown = (e) => {
       </div>
     </div>
 
+    <!-- QR для кассы -->
+    <div v-if="showCheckoutModal" class="checkout-overlay" @click.self="closeCheckoutModal">
+      <div class="checkout-modal">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="fw-bold">QR для кассы</div>
+          <button class="close-btn" @click="closeCheckoutModal">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+
+        <div v-if="checkoutLoading" class="text-center py-5">
+          <span class="spinner-border"></span>
+        </div>
+        <template v-else-if="checkoutQrDataUrl">
+          <img :src="checkoutQrDataUrl" alt="QR" class="checkout-qr-img" />
+          <p class="text-center text-muted small mb-1 mt-2">
+            Покажите этот QR кассиру — он отсканирует его и получит все товары из корзины
+          </p>
+          <p class="text-center fw-bold" :class="{ 'text-danger': checkoutSecondsLeft < 60 }">
+            Действителен ещё: {{ checkoutTimeLabel }}
+          </p>
+          <button class="save-btn" @click="openCheckout">
+            <i class="bi bi-arrow-repeat me-2"></i>Обновить QR
+          </button>
+        </template>
+      </div>
+    </div>
+
     <!-- Сканирование камерой -->
     <div v-if="showCamera" class="camera-overlay">
       <div class="camera-header">
@@ -343,6 +476,14 @@ const handleScanKeydown = (e) => {
       <div class="camera-viewport">
         <video ref="cameraVideoEl" class="camera-video" muted playsinline></video>
         <div class="camera-frame"></div>
+        <button
+          v-if="torchSupported"
+          class="torch-btn"
+          :class="{ active: torchOn }"
+          @click="toggleTorch"
+        >
+          <i class="bi" :class="torchOn ? 'bi-flashlight' : 'bi-flashlight-off'"></i>
+        </button>
       </div>
       <div v-if="cameraError" class="camera-error">
         <i class="bi bi-exclamation-triangle me-1"></i>{{ cameraError }}
@@ -526,6 +667,28 @@ const handleScanKeydown = (e) => {
   box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.35);
 }
 
+.torch-btn {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.torch-btn.active {
+  background: #facc15;
+  color: #1e293b;
+}
+
 .camera-error {
   position: absolute;
   bottom: 2rem;
@@ -698,6 +861,56 @@ const handleScanKeydown = (e) => {
   font-weight: 700;
   margin-bottom: 0.75rem;
   color: #1e293b;
+}
+
+.checkout-btn {
+  width: 100%;
+  min-height: 56px;
+  border: none;
+  border-radius: 0.75rem;
+  background: #16a34a;
+  color: white;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.checkout-btn-count {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.checkout-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.checkout-modal {
+  background: white;
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 360px;
+}
+
+.checkout-qr-img {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  margin: 0 auto;
+  border-radius: 0.75rem;
 }
 
 .empty-hint {

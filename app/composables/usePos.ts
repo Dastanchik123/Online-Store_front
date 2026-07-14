@@ -112,6 +112,16 @@ export const usePos = () => {
     }
   };
 
+  // Покупатель собрал корзину на /tsd и показывает QR с кассы — токен
+  // нужно проверить только в сети (это чужая онлайн-корзина, локальной
+  // копии в SQLite кассы для неё нет).
+  const redeemCheckoutQr = async (token: string) => {
+    return await apiFetch("/pos/scan-checkout", {
+      method: "POST",
+      body: { token },
+    });
+  };
+
   return {
     getStaff,
     getPosSummary,
@@ -120,5 +130,6 @@ export const usePos = () => {
     getProducts,
     getAllProducts,
     searchUsers,
+    redeemCheckoutQr,
   };
 };

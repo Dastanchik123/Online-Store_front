@@ -89,12 +89,19 @@ export const useCart = () => {
     }
   };
 
+  const getCheckoutQr = async () => {
+    return await api.apiFetch("/cart/checkout-qr", {
+      method: "POST",
+    });
+  };
+
   return {
     getCart,
     addToCart,
     updateCartItem,
     removeCartItem,
     clearCart,
+    getCheckoutQr,
   };
 };
 
