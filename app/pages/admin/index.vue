@@ -539,9 +539,15 @@ watch(filters, loadReports, { deep: true });
               </NuxtLink>
               <NuxtLink
                 to="/admin/inventory"
-                class="btn btn-outline-secondary rounded-pill w-100 py-2 fw-bold small"
+                class="btn btn-outline-secondary rounded-pill w-100 mb-2 py-2 fw-bold small"
               >
                 <i class="bi bi-clipboard-check me-1"></i> Инвентаризация
+              </NuxtLink>
+              <NuxtLink
+                to="/tsd"
+                class="btn btn-outline-dark rounded-pill w-100 py-2 fw-bold small"
+              >
+                <i class="bi bi-upc-scan me-1"></i> ТСД
               </NuxtLink>
             </div>
           </div>

@@ -93,6 +93,11 @@
                   <i class="bi bi-wallet2 me-2"></i>Рабочее место Кассира
                 </NuxtLink>
               </li>
+              <li v-if="authStore.isPurchaser || authStore.isAdmin">
+                <NuxtLink class="dropdown-item text-dark py-2" to="/tsd">
+                  <i class="bi bi-upc-scan me-2"></i>ТСД
+                </NuxtLink>
+              </li>
               <li v-if="authStore.isAdmin">
                 <NuxtLink
                   class="dropdown-item text-primary fw-bold py-2"
@@ -264,6 +269,11 @@
                   class="text-info"
                 >
                   <i class="bi bi-wallet2 me-3"></i>Рабочее место Кассира
+                </NuxtLink>
+              </li>
+              <li v-if="authStore.isPurchaser || authStore.isAdmin">
+                <NuxtLink to="/tsd" @click="isMobileMenuOpen = false">
+                  <i class="bi bi-upc-scan me-3"></i>ТСД
                 </NuxtLink>
               </li>
               <li v-if="authStore.isAdmin">
