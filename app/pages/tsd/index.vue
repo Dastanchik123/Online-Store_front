@@ -137,9 +137,23 @@ const openCamera = async () => {
 
   try {
     const { BrowserMultiFormatReader } = await import("@zxing/browser");
-    const reader = new BrowserMultiFormatReader();
+    const { DecodeHintType } = await import("@zxing/library");
+
+    // TRY_HARDER — без этого zxing на телефонах часто открывает камеру,
+    // но так и не распознаёт штрихкод (слишком быстро сдаётся на нечётком
+    // кадре); жертвуем скоростью декодирования ради точности.
+    const hints = new Map();
+    hints.set(DecodeHintType.TRY_HARDER, true);
+
+    const reader = new BrowserMultiFormatReader(hints);
     cameraControls = await reader.decodeFromConstraints(
-      { video: { facingMode: { ideal: "environment" } } },
+      {
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      },
       cameraVideoEl.value,
       (result) => {
         if (result) {
@@ -153,7 +167,18 @@ const openCamera = async () => {
     );
 
     const track = getVideoTrack();
-    torchSupported.value = !!track?.getCapabilities?.().torch;
+    const capabilities = track?.getCapabilities?.() || {};
+    torchSupported.value = !!capabilities.torch;
+
+    // Без непрерывного автофокуса телефон часто не фокусируется на
+    // близком штрихкоде — камера открыта, но кадр остаётся размытым.
+    if (capabilities.focusMode?.includes("continuous")) {
+      try {
+        await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+      } catch (e) {
+        console.warn("Автофокус не применился:", e);
+      }
+    }
   } catch (e) {
     console.error(e);
     cameraError.value =
