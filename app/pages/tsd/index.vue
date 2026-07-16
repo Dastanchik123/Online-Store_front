@@ -95,7 +95,14 @@ const cameraError = ref("");
 const cameraVideoEl = ref(null);
 const torchSupported = ref(false);
 const torchOn = ref(false);
+const zoomSupported = ref(false);
+const zoomMin = ref(1);
+const zoomMax = ref(1);
+const zoomStep = ref(0.1);
+const zoomValue = ref(1);
 let cameraControls = null;
+let cameraStream = null;
+let detectionActive = false;
 
 // Трек берём напрямую из видеопотока, а не через switchTorch() zxing —
 // это официально помечено как experimental/нестабильное в браузерах.
@@ -105,10 +112,16 @@ const getVideoTrack = () => {
 };
 
 const stopCamera = () => {
+  detectionActive = false;
   cameraControls?.stop();
   cameraControls = null;
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((t) => t.stop());
+    cameraStream = null;
+  }
   torchSupported.value = false;
   torchOn.value = false;
+  zoomSupported.value = false;
 };
 
 const closeCamera = () => {
@@ -130,54 +143,158 @@ const toggleTorch = async () => {
   }
 };
 
+const onZoomChange = async () => {
+  const track = getVideoTrack();
+  if (!track) return;
+  try {
+    await track.applyConstraints({ advanced: [{ zoom: zoomValue.value }] });
+  } catch (e) {
+    console.warn("Не удалось применить зум:", e);
+  }
+};
+
+// Настраивает автофокус/экспозицию/зум трека под чтение штрихкода.
+// На дешёвых широкоугольных камерах код на обычном расстоянии съёмки
+// занимает мало пикселей кадра — небольшой зум по умолчанию заметно
+// повышает шанс распознавания и без ручной подстройки пользователем.
+const applyCameraCapabilities = async (stream) => {
+  const track = stream.getVideoTracks()[0];
+  const capabilities = track?.getCapabilities?.() || {};
+
+  torchSupported.value = !!capabilities.torch;
+
+  const advanced = [];
+  if (capabilities.focusMode?.includes("continuous")) {
+    advanced.push({ focusMode: "continuous" });
+  }
+  if (capabilities.exposureMode?.includes("continuous")) {
+    advanced.push({ exposureMode: "continuous" });
+  }
+  if (capabilities.whiteBalanceMode?.includes("continuous")) {
+    advanced.push({ whiteBalanceMode: "continuous" });
+  }
+  if (advanced.length) {
+    try {
+      await track.applyConstraints({ advanced });
+    } catch (e) {
+      console.warn("Не удалось применить авто-режимы камеры:", e);
+    }
+  }
+
+  if (capabilities.zoom) {
+    zoomSupported.value = true;
+    zoomMin.value = capabilities.zoom.min;
+    zoomMax.value = capabilities.zoom.max;
+    zoomStep.value = capabilities.zoom.step || 0.1;
+    const defaultZoom = Math.min(
+      capabilities.zoom.max,
+      capabilities.zoom.min + (capabilities.zoom.max - capabilities.zoom.min) * 0.35
+    );
+    zoomValue.value = defaultZoom;
+    try {
+      await track.applyConstraints({ advanced: [{ zoom: defaultZoom }] });
+    } catch (e) {
+      console.warn("Не удалось применить зум:", e);
+    }
+  } else {
+    zoomSupported.value = false;
+  }
+};
+
+const BARCODE_FORMATS = [
+  "ean_13",
+  "ean_8",
+  "upc_a",
+  "upc_e",
+  "code_128",
+  "code_39",
+  "itf",
+  "codabar",
+  "qr_code",
+];
+
+// Нативный BarcodeDetector гоняет декодирование через системный движок
+// (на Android — Google Play Services ML Kit) вместо покадрового JS-разбора
+// ZXing, поэтому надёжно читает штрихкод и на слабых/бюджетных камерах,
+// где кадр из getUserMedia часто смазан или зашумлён.
+const runNativeDetectionLoop = (detector) => {
+  detectionActive = true;
+
+  const tick = async () => {
+    if (!detectionActive || !cameraVideoEl.value) return;
+
+    try {
+      const barcodes = await detector.detect(cameraVideoEl.value);
+      if (barcodes.length) {
+        const text = barcodes[0].rawValue;
+        detectionActive = false;
+        stopCamera();
+        showCamera.value = false;
+        scanCode.value = text;
+        lookupProduct();
+        return;
+      }
+    } catch (e) {
+      // Кадр ещё не готов или временная ошибка декодера — пробуем дальше.
+    }
+
+    if (detectionActive) requestAnimationFrame(tick);
+  };
+
+  requestAnimationFrame(tick);
+};
+
 const openCamera = async () => {
   showCamera.value = true;
   cameraError.value = "";
   await nextTick();
 
   try {
-    const { BrowserMultiFormatReader } = await import("@zxing/browser");
-    const { DecodeHintType } = await import("@zxing/library");
-
-    // TRY_HARDER — без этого zxing на телефонах часто открывает камеру,
-    // но так и не распознаёт штрихкод (слишком быстро сдаётся на нечётком
-    // кадре); жертвуем скоростью декодирования ради точности.
-    const hints = new Map();
-    hints.set(DecodeHintType.TRY_HARDER, true);
-
-    const reader = new BrowserMultiFormatReader(hints);
-    cameraControls = await reader.decodeFromConstraints(
-      {
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
       },
-      cameraVideoEl.value,
-      (result) => {
-        if (result) {
-          const text = result.getText();
-          stopCamera();
-          showCamera.value = false;
-          scanCode.value = text;
-          lookupProduct();
-        }
-      }
-    );
+    });
+    cameraStream = stream;
+    cameraVideoEl.value.srcObject = stream;
+    await cameraVideoEl.value.play();
 
-    const track = getVideoTrack();
-    const capabilities = track?.getCapabilities?.() || {};
-    torchSupported.value = !!capabilities.torch;
+    await applyCameraCapabilities(stream);
 
-    // Без непрерывного автофокуса телефон часто не фокусируется на
-    // близком штрихкоде — камера открыта, но кадр остаётся размытым.
-    if (capabilities.focusMode?.includes("continuous")) {
+    if ("BarcodeDetector" in window) {
+      let detector;
       try {
-        await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+        detector = new window.BarcodeDetector({ formats: BARCODE_FORMATS });
       } catch (e) {
-        console.warn("Автофокус не применился:", e);
+        detector = new window.BarcodeDetector();
       }
+      runNativeDetectionLoop(detector);
+    } else {
+      const { BrowserMultiFormatReader } = await import("@zxing/browser");
+      const { DecodeHintType } = await import("@zxing/library");
+
+      // TRY_HARDER — без этого zxing на телефонах часто открывает камеру,
+      // но так и не распознаёт штрихкод (слишком быстро сдаётся на нечётком
+      // кадре); жертвуем скоростью декодирования ради точности.
+      const hints = new Map();
+      hints.set(DecodeHintType.TRY_HARDER, true);
+
+      const reader = new BrowserMultiFormatReader(hints);
+      cameraControls = await reader.decodeFromStream(
+        stream,
+        cameraVideoEl.value,
+        (result) => {
+          if (result) {
+            const text = result.getText();
+            stopCamera();
+            showCamera.value = false;
+            scanCode.value = text;
+            lookupProduct();
+          }
+        }
+      );
     }
   } catch (e) {
     console.error(e);
@@ -499,8 +616,21 @@ const handleScanKeydown = (e) => {
         </button>
       </div>
       <div class="camera-viewport">
-        <video ref="cameraVideoEl" class="camera-video" muted playsinline></video>
-        <div class="camera-frame"></div>
+        <div class="camera-box">
+          <video ref="cameraVideoEl" class="camera-video" muted playsinline></video>
+        </div>
+        <div v-if="zoomSupported" class="zoom-control">
+          <i class="bi bi-zoom-out"></i>
+          <input
+            type="range"
+            :min="zoomMin"
+            :max="zoomMax"
+            :step="zoomStep"
+            v-model.number="zoomValue"
+            @input="onZoomChange"
+          />
+          <i class="bi bi-zoom-in"></i>
+        </div>
         <button
           v-if="torchSupported"
           class="torch-btn"
@@ -641,7 +771,7 @@ const handleScanKeydown = (e) => {
 .camera-overlay {
   position: fixed;
   inset: 0;
-  background: #000;
+  background: rgba(15, 23, 42, 0.94);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -669,8 +799,22 @@ const handleScanKeydown = (e) => {
 
 .camera-viewport {
   flex: 1;
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  padding: 1.5rem 1rem;
+}
+
+.camera-box {
+  width: min(80vw, 320px);
+  height: 200px;
+  border-radius: 1rem;
   overflow: hidden;
+  border: 3px solid #22c55e;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  background: #000;
 }
 
 .camera-video {
@@ -679,24 +823,8 @@ const handleScanKeydown = (e) => {
   object-fit: cover;
 }
 
-.camera-frame {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 80%;
-  max-width: 320px;
-  height: 120px;
-  border: 3px solid #22c55e;
-  border-radius: 0.75rem;
-  box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.35);
-}
-
 .torch-btn {
-  position: absolute;
-  bottom: 2rem;
-  left: 50%;
-  transform: translateX(-50%);
+  position: static;
   width: 56px;
   height: 56px;
   border: none;
@@ -712,6 +840,23 @@ const handleScanKeydown = (e) => {
 .torch-btn.active {
   background: #facc15;
   color: #1e293b;
+}
+
+.zoom-control {
+  position: static;
+  width: min(80vw, 260px);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  font-size: 1rem;
+}
+
+.zoom-control input[type="range"] {
+  flex: 1;
 }
 
 .camera-error {

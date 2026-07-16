@@ -33,6 +33,17 @@ const selectedItems = reactive({});
 const selectedItemsCount = computed(
   () => Object.values(selectedItems).filter(Boolean).length,
 );
+const isAllItemsSelected = computed(
+  () =>
+    form.value.items.length > 0 &&
+    form.value.items.every((_, index) => selectedItems[index]),
+);
+const toggleSelectAllItems = () => {
+  const nextValue = !isAllItemsSelected.value;
+  form.value.items.forEach((_, index) => {
+    selectedItems[index] = nextValue;
+  });
+};
 const toPrintItem = (item) => ({
   id: item.product_id,
   name: item.name,
@@ -988,7 +999,14 @@ onUnmounted(() => {
                     text-transform: uppercase;
                   "
                 >
-                  <th width="36"></th>
+                  <th width="36" class="text-center">
+                    <input
+                      type="checkbox"
+                      class="form-check-input"
+                      :checked="isAllItemsSelected"
+                      @change="toggleSelectAllItems"
+                    />
+                  </th>
                   <th class="ps-4">Наименование</th>
                   <th width="90" class="text-center">Кол-во</th>
                   <th width="140">Цена зак.</th>
