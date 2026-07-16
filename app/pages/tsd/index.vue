@@ -95,11 +95,6 @@ const cameraError = ref("");
 const cameraVideoEl = ref(null);
 const torchSupported = ref(false);
 const torchOn = ref(false);
-const zoomSupported = ref(false);
-const zoomMin = ref(1);
-const zoomMax = ref(1);
-const zoomStep = ref(0.1);
-const zoomValue = ref(1);
 let cameraControls = null;
 let cameraStream = null;
 let detectionActive = false;
@@ -121,7 +116,6 @@ const stopCamera = () => {
   }
   torchSupported.value = false;
   torchOn.value = false;
-  zoomSupported.value = false;
 };
 
 const closeCamera = () => {
@@ -143,20 +137,7 @@ const toggleTorch = async () => {
   }
 };
 
-const onZoomChange = async () => {
-  const track = getVideoTrack();
-  if (!track) return;
-  try {
-    await track.applyConstraints({ advanced: [{ zoom: zoomValue.value }] });
-  } catch (e) {
-    console.warn("Не удалось применить зум:", e);
-  }
-};
-
-// Настраивает автофокус/экспозицию/зум трека под чтение штрихкода.
-// На дешёвых широкоугольных камерах код на обычном расстоянии съёмки
-// занимает мало пикселей кадра — небольшой зум по умолчанию заметно
-// повышает шанс распознавания и без ручной подстройки пользователем.
+// Настраивает автофокус/экспозицию трека под чтение штрихкода.
 const applyCameraCapabilities = async (stream) => {
   const track = stream.getVideoTracks()[0];
   const capabilities = track?.getCapabilities?.() || {};
@@ -181,23 +162,39 @@ const applyCameraCapabilities = async (stream) => {
     }
   }
 
-  if (capabilities.zoom) {
-    zoomSupported.value = true;
-    zoomMin.value = capabilities.zoom.min;
-    zoomMax.value = capabilities.zoom.max;
-    zoomStep.value = capabilities.zoom.step || 0.1;
-    const defaultZoom = Math.min(
-      capabilities.zoom.max,
-      capabilities.zoom.min + (capabilities.zoom.max - capabilities.zoom.min) * 0.35
-    );
-    zoomValue.value = defaultZoom;
+  // Фонарик включаем сразу при открытии камеры — в большинстве случаев
+  // сканируют в кармане/на складе, где света мало; пользователь может
+  // выключить его вручную кнопкой, а при закрытии камеры он гаснет сам
+  // вместе с остановкой трека.
+  if (torchSupported.value) {
     try {
-      await track.applyConstraints({ advanced: [{ zoom: defaultZoom }] });
+      await track.applyConstraints({ advanced: [{ torch: true }] });
+      torchOn.value = true;
     } catch (e) {
-      console.warn("Не удалось применить зум:", e);
+      console.warn("Не удалось включить фонарик автоматически:", e);
     }
-  } else {
-    zoomSupported.value = false;
+  }
+};
+
+// Короткий писк при успешном скане камерой — физический сканер пищит сам,
+// а у камеры до этого не было вообще никакой обратной связи об успехе.
+const playScanBeep = () => {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.15);
+    oscillator.onended = () => ctx.close();
+  } catch (e) {
+    // Web Audio недоступен — не критично для работы сканера.
   }
 };
 
@@ -228,6 +225,7 @@ const runNativeDetectionLoop = (detector) => {
       if (barcodes.length) {
         const text = barcodes[0].rawValue;
         detectionActive = false;
+        playScanBeep();
         stopCamera();
         showCamera.value = false;
         scanCode.value = text;
@@ -288,6 +286,7 @@ const openCamera = async () => {
         (result) => {
           if (result) {
             const text = result.getText();
+            playScanBeep();
             stopCamera();
             showCamera.value = false;
             scanCode.value = text;
@@ -418,6 +417,52 @@ const handleScanKeydown = (e) => {
     lookupProduct();
   }
 };
+
+// Физический сканер (USB/Bluetooth) — это HID-клавиатура: он «печатает»
+// код и завершает Enter'ом. Пока фокус в поле сканирования, этим уже
+// занимается v-model + handleScanKeydown выше. Но если фокус случайно
+// ушёл (например, после клика по кнопке), символы сканера уходили бы в
+// никуда — этот глобальный слушатель ловит их в любом случае.
+let scannerBuffer = "";
+let scannerLastKeyAt = 0;
+
+const isEditableTarget = (el) =>
+  el instanceof HTMLElement &&
+  (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+
+const handleGlobalScannerKeydown = (e) => {
+  // В поле сканирования и так работает штатная обработка — не дублируем.
+  if (e.target === scanInputEl.value) return;
+  // В других полях ввода (например, количество) не мешаем ручному вводу.
+  if (isEditableTarget(e.target)) return;
+
+  const now = Date.now();
+  const gap = now - scannerLastKeyAt;
+  scannerLastKeyAt = now;
+
+  if (e.key === "Enter") {
+    // Сканер печатает код за десятки миллисекунд — человек с клавиатуры
+    // набирает заметно медленнее. По этому зазору отличаем реальный скан
+    // от случайного Enter где-то на странице.
+    const code = scannerBuffer;
+    scannerBuffer = "";
+    if (code.length >= 3 && gap < 200) {
+      e.preventDefault();
+      scanCode.value = code;
+      lookupProduct();
+    }
+    return;
+  }
+
+  if (e.key.length === 1) {
+    scannerBuffer = gap > 100 ? e.key : scannerBuffer + e.key;
+  }
+};
+
+onMounted(() => window.addEventListener("keydown", handleGlobalScannerKeydown));
+onBeforeUnmount(() =>
+  window.removeEventListener("keydown", handleGlobalScannerKeydown)
+);
 </script>
 
 <template>
@@ -439,6 +484,36 @@ const handleScanKeydown = (e) => {
     </div>
 
     <div class="tsd-body">
+      <!-- Сканирование камерой — компактная карточка в потоке страницы, не
+           полноэкранная модалка, чтобы не перекрывать весь экран -->
+      <div v-if="showCamera" class="camera-card">
+        <div class="camera-card-header">
+          <span class="camera-card-title">
+            <i class="bi bi-upc-scan"></i>Наведите камеру на штрихкод
+          </span>
+          <button class="close-btn" @click="closeCamera">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+
+        <div class="camera-frame-box">
+          <video ref="cameraVideoEl" class="camera-video" muted playsinline></video>
+          <button
+            v-if="torchSupported"
+            class="camera-torch-btn"
+            :class="{ active: torchOn }"
+            @click="toggleTorch"
+          >
+            <i class="bi" :class="torchOn ? 'bi-flashlight' : 'bi-flashlight-off'"></i>
+          </button>
+        </div>
+
+        <div v-if="cameraError" class="camera-error-inline">
+          <i class="bi bi-exclamation-triangle me-1"></i>{{ cameraError }}
+          <button class="camera-retry-btn" @click="openCamera">Повторить</button>
+        </div>
+      </div>
+
       <!-- Поле сканирования -->
       <div class="scan-box">
         <label class="scan-label">
@@ -607,44 +682,6 @@ const handleScanKeydown = (e) => {
       </div>
     </div>
 
-    <!-- Сканирование камерой -->
-    <div v-if="showCamera" class="camera-overlay">
-      <div class="camera-header">
-        <span>Наведите камеру на штрихкод</span>
-        <button class="camera-close-btn" @click="closeCamera">
-          <i class="bi bi-x-lg"></i>
-        </button>
-      </div>
-      <div class="camera-viewport">
-        <div class="camera-box">
-          <video ref="cameraVideoEl" class="camera-video" muted playsinline></video>
-        </div>
-        <div v-if="zoomSupported" class="zoom-control">
-          <i class="bi bi-zoom-out"></i>
-          <input
-            type="range"
-            :min="zoomMin"
-            :max="zoomMax"
-            :step="zoomStep"
-            v-model.number="zoomValue"
-            @input="onZoomChange"
-          />
-          <i class="bi bi-zoom-in"></i>
-        </div>
-        <button
-          v-if="torchSupported"
-          class="torch-btn"
-          :class="{ active: torchOn }"
-          @click="toggleTorch"
-        >
-          <i class="bi" :class="torchOn ? 'bi-flashlight' : 'bi-flashlight-off'"></i>
-        </button>
-      </div>
-      <div v-if="cameraError" class="camera-error">
-        <i class="bi bi-exclamation-triangle me-1"></i>{{ cameraError }}
-        <button class="camera-retry-btn" @click="openCamera">Повторить</button>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -657,7 +694,8 @@ const handleScanKeydown = (e) => {
 }
 
 .tsd-header {
-  background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+  background: #0f172a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   color: white;
   padding: 0.75rem 1rem;
   display: flex;
@@ -737,7 +775,7 @@ const handleScanKeydown = (e) => {
 
 .scan-input:focus {
   outline: none;
-  border-color: #6366f1;
+  border-color: #38bdf8;
 }
 
 .scan-go-btn {
@@ -745,7 +783,7 @@ const handleScanKeydown = (e) => {
   min-height: 56px;
   border: none;
   border-radius: 0.75rem;
-  background: #6366f1;
+  background: #38bdf8;
   color: white;
   font-size: 1.25rem;
 }
@@ -759,8 +797,8 @@ const handleScanKeydown = (e) => {
   min-height: 56px;
   border: none;
   border-radius: 0.75rem;
-  background: #eef2ff;
-  color: #4338ca;
+  background: #e0f2fe;
+  color: #0284c7;
   font-size: 1.25rem;
 }
 
@@ -768,53 +806,38 @@ const handleScanKeydown = (e) => {
   opacity: 0.5;
 }
 
-.camera-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.94);
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
+.camera-card {
+  background: white;
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  margin-bottom: 1rem;
 }
 
-.camera-header {
-  color: white;
-  padding: 1rem;
+.camera-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.camera-card-title {
+  font-size: 0.85rem;
+  color: #64748b;
   font-weight: 600;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 1;
-}
-
-.camera-close-btn {
-  border: none;
-  background: rgba(255, 255, 255, 0.15);
-  color: white;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-}
-
-.camera-viewport {
-  flex: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 1.25rem;
-  padding: 1.5rem 1rem;
+  gap: 0.4rem;
 }
 
-.camera-box {
-  width: min(80vw, 320px);
-  height: 200px;
-  border-radius: 1rem;
+.camera-frame-box {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 0.75rem;
   overflow: hidden;
-  border: 3px solid #22c55e;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  background: #000;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
 }
 
 .camera-video {
@@ -823,63 +846,48 @@ const handleScanKeydown = (e) => {
   object-fit: cover;
 }
 
-.torch-btn {
-  position: static;
-  width: 56px;
-  height: 56px;
+.camera-torch-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.55);
   color: white;
-  font-size: 1.4rem;
+  font-size: 1.05rem;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.torch-btn.active {
+.camera-torch-btn.active {
   background: #facc15;
-  color: #1e293b;
+  color: #7c5e00;
 }
 
-.zoom-control {
-  position: static;
-  width: min(80vw, 260px);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: rgba(255, 255, 255, 0.15);
-  color: white;
-  padding: 0.4rem 0.9rem;
-  border-radius: 999px;
-  font-size: 1rem;
-}
-
-.zoom-control input[type="range"] {
-  flex: 1;
-}
-
-.camera-error {
-  position: absolute;
-  bottom: 2rem;
-  left: 1rem;
-  right: 1rem;
-  background: rgba(220, 38, 38, 0.95);
-  color: white;
-  padding: 0.75rem 1rem;
+.camera-error-inline {
+  margin-top: 0.75rem;
+  background: #fef2f2;
+  color: #dc2626;
+  padding: 0.65rem 0.85rem;
   border-radius: 0.75rem;
   text-align: center;
+  font-size: 0.9rem;
 }
 
 .camera-retry-btn {
   display: block;
   margin: 0.5rem auto 0;
   border: none;
-  background: white;
-  color: #dc2626;
+  background: #dc2626;
+  color: white;
   font-weight: 700;
-  padding: 0.4rem 1rem;
+  padding: 0.35rem 0.9rem;
   border-radius: 0.5rem;
+  font-size: 0.85rem;
 }
 
 .candidates-box {
@@ -981,8 +989,8 @@ const handleScanKeydown = (e) => {
   min-height: 56px;
   border: none;
   border-radius: 0.75rem;
-  background: #eef2ff;
-  color: #4338ca;
+  background: #e0f2fe;
+  color: #0284c7;
   font-size: 1.25rem;
 }
 
@@ -1002,7 +1010,7 @@ const handleScanKeydown = (e) => {
 
 .qty-input:focus {
   outline: none;
-  border-color: #6366f1;
+  border-color: #38bdf8;
 }
 
 .save-btn {
@@ -1104,7 +1112,7 @@ const handleScanKeydown = (e) => {
 .log-qty {
   font-weight: 700;
   font-size: 0.9rem;
-  color: #4338ca;
+  color: #0284c7;
   white-space: nowrap;
 }
 </style>
