@@ -1048,6 +1048,7 @@ onUnmounted(() => {
                         type="number"
                         class="form-control border-0 bg-light rounded-start-pill ps-3"
                         step="0.01"
+                        @keyup.enter="$event.target.blur()"
                       />
                       <span
                         class="input-group-text border-0 bg-light rounded-end-pill pe-2 text-muted"
@@ -1063,6 +1064,7 @@ onUnmounted(() => {
                         type="number"
                         class="form-control border-0 bg-light rounded-start-pill ps-3"
                         step="0.01"
+                        @keyup.enter="$event.target.blur()"
                       />
                       <span
                         class="input-group-text border-0 bg-light rounded-end-pill pe-2 text-muted"

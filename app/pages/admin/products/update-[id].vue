@@ -233,7 +233,9 @@ onMounted(async () => {
 <template>
   <div class="container-fluid p-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1 class="h3 text-gray-800">Редактирование товара #{{ id }}</h1>
+      <h1 class="h3 text-gray-800">
+        Редактирование товара{{ form.name ? `: ${form.name}` : "" }}
+      </h1>
       <NuxtLink to="/admin/products" class="btn btn-link text-decoration-none">
         &larr; Назад к списку
       </NuxtLink>

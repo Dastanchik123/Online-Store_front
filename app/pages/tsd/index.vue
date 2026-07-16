@@ -13,11 +13,14 @@ const cartStore = useCartStore();
 const scanCode = ref("");
 const scanInputEl = ref(null);
 const loadingProduct = ref(false);
-const adding = ref(false);
-const product = ref(null);
 const candidates = ref([]);
-const qtyValue = ref(1);
 const sessionLog = ref([]);
+
+// Отсканированные, но ещё не подтверждённые товары — копятся здесь при
+// последовательном сканировании и уходят в реальную корзину только по
+// нажатию «Добавить в корзину», а не автоматически при каждом новом скане.
+const pendingItems = ref([]);
+const confirmingCart = ref(false);
 
 // QR для кассы: покупатель нажимает «Оплатить», получает QR и показывает
 // его кассиру — тот сканирует и получает все отсканированные товары разом.
@@ -210,6 +213,23 @@ const BARCODE_FORMATS = [
   "qr_code",
 ];
 
+// Камера теперь не закрывается после одного скана — можно сканировать
+// товары подряд, не открывая камеру заново каждый раз; закрывает её
+// только сам пользователь кнопкой закрытия. Кулдаун нужен, чтобы один и
+// тот же штрихкод, всё ещё попадающий в кадр, не добавлялся в список
+// по нескольку раз в секунду.
+const SCAN_COOLDOWN_MS = 1200;
+let scanCooldownUntil = 0;
+
+const handleDetectedCode = (text) => {
+  const now = performance.now();
+  if (now < scanCooldownUntil || loadingProduct.value) return;
+  scanCooldownUntil = now + SCAN_COOLDOWN_MS;
+  playScanBeep();
+  scanCode.value = text;
+  lookupProduct();
+};
+
 // Нативный BarcodeDetector гоняет декодирование через системный движок
 // (на Android — Google Play Services ML Kit) вместо покадрового JS-разбора
 // ZXing, поэтому надёжно читает штрихкод и на слабых/бюджетных камерах,
@@ -223,14 +243,7 @@ const runNativeDetectionLoop = (detector) => {
     try {
       const barcodes = await detector.detect(cameraVideoEl.value);
       if (barcodes.length) {
-        const text = barcodes[0].rawValue;
-        detectionActive = false;
-        playScanBeep();
-        stopCamera();
-        showCamera.value = false;
-        scanCode.value = text;
-        lookupProduct();
-        return;
+        handleDetectedCode(barcodes[0].rawValue);
       }
     } catch (e) {
       // Кадр ещё не готов или временная ошибка декодера — пробуем дальше.
@@ -285,12 +298,7 @@ const openCamera = async () => {
         cameraVideoEl.value,
         (result) => {
           if (result) {
-            const text = result.getText();
-            playScanBeep();
-            stopCamera();
-            showCamera.value = false;
-            scanCode.value = text;
-            lookupProduct();
+            handleDetectedCode(result.getText());
           }
         }
       );
@@ -315,20 +323,57 @@ onMounted(() => {
   getCart().catch(() => {});
 });
 
-const resetProduct = () => {
-  product.value = null;
+const isProductOutOfStock = (p) =>
+  p.in_stock === false || (p.stock_quantity ?? 1) <= 0;
+
+const pendingMaxQty = (p) => {
+  const stock = p.stock_quantity;
+  return stock && stock > 0 ? stock : 99;
+};
+
+// Добавляет отсканированный товар в локальный список ожидания. Повторный
+// скан того же товара просто увеличивает его количество в списке — ничего
+// не уходит в реальную корзину, пока не нажата «Добавить в корзину».
+const addToPendingList = (p) => {
+  if (isProductOutOfStock(p)) {
+    uiStore.error(`«${p.name}» нет в наличии`);
+    return;
+  }
+
+  const existing = pendingItems.value.find((i) => i.product.id === p.id);
+  if (existing) {
+    existing.qty = Math.min(existing.qty + 1, pendingMaxQty(p));
+  } else {
+    pendingItems.value.unshift({ id: p.id, product: p, qty: 1 });
+  }
+
   candidates.value = [];
   scanCode.value = "";
-  qtyValue.value = 1;
   focusScan();
 };
 
-const selectProduct = (p) => {
-  product.value = p;
-  candidates.value = [];
-  qtyValue.value = 1;
-  scanCode.value = "";
+// При ручном вводе с клавиатуры значение может быть пустым, нечисловым
+// или выходить за границы остатка — приводим к валидному числу по blur.
+const normalizePendingQty = (item) => {
+  const qty = Math.min(
+    pendingMaxQty(item.product),
+    Math.max(1, Math.floor(Number(item.qty) || 1))
+  );
+  item.qty = qty;
 };
+
+const removePendingItem = (item) => {
+  pendingItems.value = pendingItems.value.filter((i) => i.id !== item.id);
+};
+
+const pendingTotal = computed(() =>
+  pendingItems.value.reduce(
+    (sum, i) => sum + i.qty * Number(i.product.sale_price || i.product.price || 0),
+    0
+  )
+);
+
+const selectProduct = (p) => addToPendingList(p);
 
 const lookupProduct = async () => {
   const code = scanCode.value.trim();
@@ -348,9 +393,9 @@ const lookupProduct = async () => {
     );
 
     if (exact) {
-      selectProduct(exact);
+      addToPendingList(exact);
     } else if (items.length === 1) {
-      selectProduct(items[0]);
+      addToPendingList(items[0]);
     } else if (items.length > 1) {
       candidates.value = items;
     } else {
@@ -366,48 +411,32 @@ const lookupProduct = async () => {
   }
 };
 
-const isOutOfStock = computed(() => {
-  if (!product.value) return false;
-  return product.value.in_stock === false || (product.value.stock_quantity ?? 1) <= 0;
-});
+const confirmPendingItems = async () => {
+  if (!pendingItems.value.length || confirmingCart.value) return;
 
-const maxQty = computed(() => {
-  const stock = product.value?.stock_quantity;
-  return stock && stock > 0 ? stock : 99;
-});
-
-const adjustQty = (delta) => {
-  qtyValue.value = Math.min(
-    maxQty.value,
-    Math.max(1, Number(qtyValue.value || 0) + delta)
-  );
-};
-
-const addProductToCart = async () => {
-  if (!product.value || adding.value || isOutOfStock.value) return;
-
-  adding.value = true;
+  confirmingCart.value = true;
   try {
-    await addToCart(product.value.id, qtyValue.value);
-
-    sessionLog.value.unshift({
-      id: Date.now(),
-      sku: product.value.sku,
-      name: product.value.name,
-      qty: qtyValue.value,
-      time: new Date().toLocaleTimeString("ru-RU", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    });
-
-    uiStore.success("Добавлено в корзину");
-    resetProduct();
+    for (const item of pendingItems.value) {
+      await addToCart(item.product.id, item.qty);
+      sessionLog.value.unshift({
+        id: Date.now() + item.product.id,
+        sku: item.product.sku,
+        name: item.product.name,
+        qty: item.qty,
+        time: new Date().toLocaleTimeString("ru-RU", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      });
+    }
+    uiStore.success(`Добавлено товаров: ${pendingItems.value.length}`);
+    pendingItems.value = [];
+    focusScan();
   } catch (e) {
     console.error(e);
     uiStore.error(e?.data?.message || "Не удалось добавить в корзину");
   } finally {
-    adding.value = false;
+    confirmingCart.value = false;
   }
 };
 
@@ -484,36 +513,6 @@ onBeforeUnmount(() =>
     </div>
 
     <div class="tsd-body">
-      <!-- Сканирование камерой — компактная карточка в потоке страницы, не
-           полноэкранная модалка, чтобы не перекрывать весь экран -->
-      <div v-if="showCamera" class="camera-card">
-        <div class="camera-card-header">
-          <span class="camera-card-title">
-            <i class="bi bi-upc-scan"></i>Наведите камеру на штрихкод
-          </span>
-          <button class="close-btn" @click="closeCamera">
-            <i class="bi bi-x-lg"></i>
-          </button>
-        </div>
-
-        <div class="camera-frame-box">
-          <video ref="cameraVideoEl" class="camera-video" muted playsinline></video>
-          <button
-            v-if="torchSupported"
-            class="camera-torch-btn"
-            :class="{ active: torchOn }"
-            @click="toggleTorch"
-          >
-            <i class="bi" :class="torchOn ? 'bi-flashlight' : 'bi-flashlight-off'"></i>
-          </button>
-        </div>
-
-        <div v-if="cameraError" class="camera-error-inline">
-          <i class="bi bi-exclamation-triangle me-1"></i>{{ cameraError }}
-          <button class="camera-retry-btn" @click="openCamera">Повторить</button>
-        </div>
-      </div>
-
       <!-- Поле сканирования -->
       <div class="scan-box">
         <label class="scan-label">
@@ -552,6 +551,30 @@ onBeforeUnmount(() =>
         </div>
       </div>
 
+      <!-- Скан камерой без видеопревью — само видео скрыто (декодирование
+           идёт в фоне), пользователь видит только статус и может выключить
+           фонарик или отменить скан -->
+      <div v-if="showCamera" class="camera-status-card">
+        <span class="camera-status-dot"></span>
+        <span class="camera-status-label">Сканирование камерой…</span>
+        <button
+          v-if="torchSupported"
+          class="camera-torch-inline"
+          :class="{ active: torchOn }"
+          @click="toggleTorch"
+        >
+          <i class="bi" :class="torchOn ? 'bi-flashlight' : 'bi-flashlight-off'"></i>
+        </button>
+        <button class="close-btn" @click="closeCamera">
+          <i class="bi bi-x-lg"></i>
+        </button>
+        <video ref="cameraVideoEl" class="camera-video-hidden" muted playsinline></video>
+      </div>
+      <div v-if="cameraError" class="camera-error-inline">
+        <i class="bi bi-exclamation-triangle me-1"></i>{{ cameraError }}
+        <button class="camera-retry-btn" @click="openCamera">Повторить</button>
+      </div>
+
       <!-- Список кандидатов при неоднозначном совпадении -->
       <div v-if="candidates.length" class="candidates-box">
         <div class="candidates-title">Уточните товар:</div>
@@ -566,83 +589,74 @@ onBeforeUnmount(() =>
         </button>
       </div>
 
-      <!-- Карточка найденного товара -->
-      <div v-if="product" class="product-card">
-        <div class="d-flex justify-content-between align-items-start mb-2">
-          <div class="d-flex align-items-center gap-3">
-            <div class="product-thumb">
-              <img
-                v-if="product.image_url"
-                :src="product.image_url"
-                :alt="product.name"
-              />
-              <i v-else class="bi bi-image text-secondary opacity-50"></i>
-            </div>
-            <div>
-              <div class="product-name">{{ product.name }}</div>
-              <small class="text-muted">SKU: {{ product.sku }}</small>
-            </div>
+      <!-- Список отсканированных товаров, ожидающих подтверждения -->
+      <div v-if="pendingItems.length" class="pending-list">
+        <div class="pending-list-title">
+          К добавлению: {{ pendingItems.length }}
+          <span class="pending-list-total">{{ pendingTotal }} сом</span>
+        </div>
+
+        <div v-for="item in pendingItems" :key="item.id" class="pending-row">
+          <div class="pending-thumb">
+            <img
+              v-if="item.product.image_url"
+              :src="item.product.image_url"
+              :alt="item.product.name"
+            />
+            <i v-else class="bi bi-image text-secondary opacity-50"></i>
           </div>
-          <button class="close-btn" @click="resetProduct">
-            <i class="bi bi-x-lg"></i>
-          </button>
-        </div>
 
-        <div class="price-row">
-          <span class="product-price"
-            >{{ product.sale_price || product.price }} сом</span
-          >
-          <span v-if="isOutOfStock" class="badge text-bg-danger">Нет в наличии</span>
-          <span v-else class="badge text-bg-success-subtle text-success">В наличии</span>
-        </div>
+          <div class="flex-grow-1 min-w-0">
+            <div class="pending-name">{{ item.product.name }}</div>
+            <small class="text-muted"
+              >{{ item.product.sale_price || item.product.price }} сом</small
+            >
+          </div>
 
-        <div class="qty-label">Количество</div>
-        <div class="qty-stepper">
-          <button class="qty-btn" :disabled="isOutOfStock" @click="adjustQty(-1)">
-            <i class="bi bi-dash-lg"></i>
-          </button>
           <input
-            v-model.number="qtyValue"
+            v-model.number="item.qty"
             type="number"
             inputmode="numeric"
-            class="qty-input"
-            :disabled="isOutOfStock"
+            pattern="[0-9]*"
+            class="pending-qty-input"
             min="1"
-            :max="maxQty"
+            :max="pendingMaxQty(item.product)"
+            @blur="normalizePendingQty(item)"
+            @keyup.enter="$event.target.blur()"
           />
-          <button class="qty-btn" :disabled="isOutOfStock" @click="adjustQty(1)">
-            <i class="bi bi-plus-lg"></i>
+
+          <button class="pending-remove-btn" @click="removePendingItem(item)">
+            <i class="bi bi-x-lg"></i>
           </button>
         </div>
 
         <button
           class="save-btn"
-          :disabled="adding || isOutOfStock"
-          @click="addProductToCart"
+          :disabled="confirmingCart"
+          @click="confirmPendingItems"
         >
-          <span v-if="adding" class="spinner-border spinner-border-sm me-2"></span>
+          <span
+            v-if="confirmingCart"
+            class="spinner-border spinner-border-sm me-2"
+          ></span>
           <i v-else class="bi bi-cart-plus me-2"></i>
-          {{ isOutOfStock ? "Нет в наличии" : "Добавить в корзину" }}
+          Добавить в корзину ({{ pendingItems.length }})
         </button>
       </div>
 
-      <!-- Журнал сессии -->
-      <div v-else class="session-log">
-        <button
-          v-if="cartStore.itemsCount > 0"
-          class="checkout-btn"
-          @click="openCheckout"
-        >
-          <i class="bi bi-qr-code me-2"></i>Оплатить — получить QR для кассы
-          <span class="checkout-btn-count">{{ cartStore.itemsCount }}</span>
-        </button>
+      <button
+        v-if="cartStore.itemsCount > 0"
+        class="checkout-btn"
+        @click="openCheckout"
+      >
+        <i class="bi bi-qr-code me-2"></i>Оплатить — получить QR для кассы
+        <span class="checkout-btn-count">{{ cartStore.itemsCount }}</span>
+      </button>
 
+      <!-- Журнал сессии — показываем, только если уже что-то отсканировано -->
+      <div v-if="sessionLog.length" class="session-log">
         <div class="session-log-title">
           Отсканировано за визит: {{ sessionLog.length }}
-        </div>
-        <div v-if="!sessionLog.length" class="empty-hint">
-          <i class="bi bi-upc-scan fs-1 opacity-25"></i>
-          <p class="mt-2 mb-0">Отсканируйте товар, чтобы добавить его в корзину</p>
         </div>
         <div v-for="item in sessionLog" :key="item.id" class="log-row">
           <div class="flex-grow-1">
@@ -697,7 +711,7 @@ onBeforeUnmount(() =>
   background: #0f172a;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   color: white;
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 1rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -709,8 +723,8 @@ onBeforeUnmount(() =>
 .back-link,
 .cart-link {
   color: white;
-  font-size: 1.25rem;
-  width: 40px;
+  font-size: 1.1rem;
+  width: 32px;
   display: flex;
   align-items: center;
 }
@@ -733,22 +747,27 @@ onBeforeUnmount(() =>
 
 .header-title {
   text-align: center;
+  font-size: 0.9rem;
+}
+
+.header-title small {
+  font-size: 0.7rem;
 }
 
 .tsd-body {
   flex: 1;
-  padding: 1rem;
-  max-width: 480px;
+  padding: 0.75rem;
+  max-width: 420px;
   width: 100%;
   margin: 0 auto;
 }
 
 .scan-box {
   background: white;
-  border-radius: 1rem;
-  padding: 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  margin-bottom: 1rem;
+  border-radius: 0.85rem;
+  padding: 0.85rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  margin-bottom: 0.75rem;
 }
 
 .scan-label {
@@ -761,16 +780,17 @@ onBeforeUnmount(() =>
 
 .scan-input-wrap {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .scan-input {
   flex: 1;
+  min-width: 0;
   border: 2px solid #e2e8f0;
-  border-radius: 0.75rem;
-  padding: 0.9rem 1rem;
-  font-size: 1.1rem;
-  min-height: 56px;
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.65rem;
+  font-size: 0.95rem;
+  min-height: 42px;
 }
 
 .scan-input:focus {
@@ -779,13 +799,15 @@ onBeforeUnmount(() =>
 }
 
 .scan-go-btn {
-  width: 56px;
-  min-height: 56px;
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
   border: none;
-  border-radius: 0.75rem;
+  border-radius: 0.6rem;
   background: #38bdf8;
   color: white;
-  font-size: 1.25rem;
+  font-size: 1.05rem;
+  flex-shrink: 0;
 }
 
 .scan-go-btn:disabled {
@@ -793,79 +815,82 @@ onBeforeUnmount(() =>
 }
 
 .scan-camera-btn {
-  width: 56px;
-  min-height: 56px;
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
   border: none;
-  border-radius: 0.75rem;
+  border-radius: 0.6rem;
   background: #e0f2fe;
   color: #0284c7;
-  font-size: 1.25rem;
+  flex-shrink: 0;
+  font-size: 1.1rem;
 }
 
 .scan-camera-btn:disabled {
   opacity: 0.5;
 }
 
-.camera-card {
-  background: white;
-  border-radius: 1rem;
-  padding: 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  margin-bottom: 1rem;
-}
-
-.camera-card-header {
+.camera-status-card {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.6rem;
+  background: white;
+  border-radius: 0.85rem;
+  padding: 0.7rem 0.85rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   margin-bottom: 0.75rem;
 }
 
-.camera-card-title {
-  font-size: 0.85rem;
-  color: #64748b;
+.camera-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #38bdf8;
+  flex-shrink: 0;
+  animation: camera-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes camera-status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+.camera-status-label {
+  flex: 1;
+  font-size: 0.9rem;
+  color: #334155;
   font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
 }
 
-.camera-frame-box {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  border-radius: 0.75rem;
-  overflow: hidden;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-}
-
-.camera-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.camera-torch-btn {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  width: 40px;
-  height: 40px;
+.camera-torch-inline {
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.55);
-  color: white;
-  font-size: 1.05rem;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 1rem;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.camera-torch-btn.active {
+.camera-torch-inline.active {
   background: #facc15;
   color: #7c5e00;
+}
+
+/* Видео не должно быть видно ("проекция" на весь блок не нужна), но
+   должно оставаться в DOM с ненулевым размером — иначе часть браузеров
+   (особенно мобильных) приостанавливает декодирование скрытых кадров. */
+.camera-video-hidden {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  opacity: 0.01;
+  pointer-events: none;
 }
 
 .camera-error-inline {
@@ -892,17 +917,17 @@ onBeforeUnmount(() =>
 
 .candidates-box {
   background: white;
-  border-radius: 1rem;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border-radius: 0.85rem;
+  padding: 0.85rem;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .candidates-title {
   font-weight: 600;
   margin-bottom: 0.5rem;
   color: #64748b;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .candidate-row {
@@ -910,22 +935,50 @@ onBeforeUnmount(() =>
   text-align: left;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
-  border-radius: 0.75rem;
-  padding: 0.75rem;
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  margin-bottom: 0.4rem;
+}
+
+.pending-list {
+  background: white;
+  border-radius: 0.85rem;
+  padding: 0.85rem;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.pending-list-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 0.9rem;
   margin-bottom: 0.5rem;
 }
 
-.product-card {
-  background: white;
-  border-radius: 1rem;
-  padding: 1.25rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+.pending-list-total {
+  color: #0284c7;
+  font-weight: 800;
 }
 
-.product-thumb {
-  width: 56px;
-  height: 56px;
-  border-radius: 0.75rem;
+.pending-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.pending-row:last-of-type {
+  border-bottom: none;
+}
+
+.pending-thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 0.5rem;
   background: #f8fafc;
   display: flex;
   align-items: center;
@@ -934,94 +987,78 @@ onBeforeUnmount(() =>
   flex-shrink: 0;
 }
 
-.product-thumb img {
+.pending-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.product-name {
-  font-size: 1.05rem;
+.pending-name {
+  font-size: 0.85rem;
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.min-w-0 {
+  min-width: 0;
+}
+
+.pending-qty-input {
+  width: 34px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.4rem;
+  padding: 0.15rem 0;
+  -moz-appearance: textfield;
+}
+
+.pending-qty-input:focus {
+  outline: none;
+  border-color: #38bdf8;
+}
+
+.pending-qty-input::-webkit-outer-spin-button,
+.pending-qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.pending-remove-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .close-btn {
   border: none;
   background: #f1f5f9;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.price-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #f8fafc;
-  border-radius: 0.75rem;
-  padding: 0.75rem 1rem;
-  margin: 0.75rem 0;
-}
-
-.product-price {
-  font-size: 1.4rem;
-  font-weight: 800;
-  color: #1e293b;
-}
-
-.qty-label {
-  font-size: 0.85rem;
-  color: #64748b;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-}
-
-.qty-stepper {
-  display: flex;
-  align-items: stretch;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.qty-btn {
-  width: 56px;
-  min-height: 56px;
-  border: none;
-  border-radius: 0.75rem;
-  background: #e0f2fe;
-  color: #0284c7;
-  font-size: 1.25rem;
-}
-
-.qty-btn:disabled {
-  opacity: 0.5;
-}
-
-.qty-input {
-  flex: 1;
-  text-align: center;
-  font-size: 1.5rem;
-  font-weight: 700;
-  border: 2px solid #e2e8f0;
-  border-radius: 0.75rem;
-  min-height: 56px;
-}
-
-.qty-input:focus {
-  outline: none;
-  border-color: #38bdf8;
-}
-
 .save-btn {
   width: 100%;
-  min-height: 56px;
+  min-height: 48px;
   border: none;
-  border-radius: 0.75rem;
+  border-radius: 0.6rem;
   background: #16a34a;
   color: white;
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 
 .save-btn:disabled {
@@ -1030,27 +1067,28 @@ onBeforeUnmount(() =>
 
 .session-log {
   background: white;
-  border-radius: 1rem;
-  padding: 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border-radius: 0.85rem;
+  padding: 0.85rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .session-log-title {
   font-weight: 700;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.65rem;
   color: #1e293b;
+  font-size: 0.95rem;
 }
 
 .checkout-btn {
   width: 100%;
-  min-height: 56px;
+  min-height: 48px;
   border: none;
-  border-radius: 0.75rem;
+  border-radius: 0.6rem;
   background: #16a34a;
   color: white;
   font-weight: 700;
-  font-size: 1rem;
-  margin-bottom: 1rem;
+  font-size: 0.95rem;
+  margin-bottom: 0.85rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1089,12 +1127,6 @@ onBeforeUnmount(() =>
   max-width: 280px;
   margin: 0 auto;
   border-radius: 0.75rem;
-}
-
-.empty-hint {
-  text-align: center;
-  color: #94a3b8;
-  padding: 2rem 0;
 }
 
 .log-row {
