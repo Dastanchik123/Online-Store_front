@@ -31,6 +31,38 @@ const form = ref({
 
 const selectedFile = ref(null);
 
+// slugTouched=false — slug ещё не редактировали руками, поэтому при смене
+// названия (в режиме редактирования) он пересчитывается транслитерацией,
+// повторяющей Str::slug() на бэкенде. Ручная правка slug отключает автосинхрон.
+const slugTouched = ref(false);
+
+const CYRILLIC_TO_LATIN = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "z", з: "z",
+  и: "i", й: "i", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r",
+  с: "s", т: "t", у: "u", ф: "f", х: "x", ц: "c", ч: "c", ш: "s", щ: "shh",
+  ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+};
+
+const slugify = (value) => {
+  return (value || "")
+    .toLowerCase()
+    .split("")
+    .map((ch) => (ch in CYRILLIC_TO_LATIN ? CYRILLIC_TO_LATIN[ch] : ch))
+    .join("")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+};
+
+const onNameInput = () => {
+  if (isEditing.value && !slugTouched.value) {
+    form.value.slug = slugify(form.value.name);
+  }
+};
+
+const onSlugInput = () => {
+  slugTouched.value = true;
+};
+
 const handleFileChange = (event) => {
   const file = event.target.files[0];
   if (file) {
@@ -38,11 +70,17 @@ const handleFileChange = (event) => {
   }
 };
 
+const applyCategoriesData = (response) => {
+  categories.value = Array.isArray(response) ? response : response?.data || [];
+};
+
 const fetchCategories = async () => {
   isLoading.value = true;
   try {
-    const response = await api.apiFetch("/categories");
-    categories.value = Array.isArray(response) ? response : response?.data || [];
+    const response = await api.apiFetch("/categories", {
+      onRefresh: applyCategoriesData,
+    });
+    applyCategoriesData(response);
   } catch (error) {
     uiStore.error("Ошибка загрузки категорий");
   } finally {
@@ -64,6 +102,7 @@ const openCreateModal = () => {
   };
   selectedFile.value = null;
   errors.value = {};
+  slugTouched.value = false;
   isModalOpen.value = true;
 };
 
@@ -72,6 +111,7 @@ const openEditModal = (category) => {
   form.value = { ...category, parent_id: category.parent_id || "" };
   selectedFile.value = null;
   errors.value = {};
+  slugTouched.value = false;
   isModalOpen.value = true;
 };
 
@@ -278,6 +318,7 @@ onUnmounted(() => {
             :class="{ 'is-invalid': errors.name }"
             placeholder="Напр. Электроника"
             required
+            @input="onNameInput"
           />
           <div v-if="errors.name" class="invalid-feedback">
             {{ errors.name[0] }}
@@ -314,6 +355,7 @@ onUnmounted(() => {
             type="text"
             class="form-control"
             placeholder="Автоматически если пусто"
+            @input="onSlugInput"
           />
           <div v-if="errors.slug" class="invalid-feedback d-block">
             {{ errors.slug[0] }}

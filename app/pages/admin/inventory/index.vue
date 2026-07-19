@@ -135,6 +135,50 @@ const selectProduct = (p) => {
   isSearching.value = false;
 };
 
+const isBarcodeLookup = ref(false);
+
+// Сканер штрихкода эмулирует клавиатуру: печатает код в фокусированное поле
+// и шлёт Enter — по нему ищем точное совпадение SKU/штрихкода
+const handleSearchEnter = async () => {
+  const query = searchProductQuery.value.trim();
+  if (!query) return;
+
+  const exactLocal = products.value.find(
+    (p) => String(p.sku || "").toLowerCase() === query.toLowerCase()
+  );
+  if (exactLocal) {
+    selectProduct(exactLocal);
+    return;
+  }
+
+  isBarcodeLookup.value = true;
+  try {
+    const res = await getProducts({
+      search: query,
+      search_strict: true,
+      per_page: 10,
+    });
+    const items = res.data || res;
+    const exact = items.find(
+      (p) => String(p.sku || "").toLowerCase() === query.toLowerCase()
+    );
+    const match = exact || (items.length === 1 ? items[0] : null);
+
+    if (match) {
+      selectProduct(match);
+    } else if (items.length > 1) {
+      isSearching.value = true;
+    } else {
+      uiStore.error("Товар с таким штрихкодом/SKU не найден");
+    }
+  } catch (e) {
+    console.error("Barcode search error:", e);
+    uiStore.error("Ошибка поиска товара");
+  } finally {
+    isBarcodeLookup.value = false;
+  }
+};
+
 
 const closeSearch = () => {
   setTimeout(() => {
@@ -288,15 +332,20 @@ onMounted(async () => {
               >
               <div class="input-group search-pill overflow-hidden">
                 <span class="input-group-text border-0 ps-3"
-                  ><i class="bi bi-search"></i
+                  ><span
+                    v-if="isBarcodeLookup"
+                    class="spinner-border spinner-border-sm text-secondary"
+                  ></span
+                  ><i v-else class="bi bi-upc-scan"></i
                 ></span>
                 <input
                   v-model="searchProductQuery"
                   type="text"
                   class="form-control border-0"
-                  placeholder="Название или SKU..."
+                  placeholder="Название, SKU или скан штрихкода..."
                   @focus="isSearching = true"
                   @blur="closeSearch"
+                  @keydown.enter.prevent="handleSearchEnter"
                 />
               </div>
               <div

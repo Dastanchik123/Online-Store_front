@@ -6,14 +6,29 @@ const props = defineProps({
 const emit = defineEmits(["update:show"]);
 
 const { printers, activePrinter, fetchPrinters, printLabelBatch } = usePrinter();
+const { settings, fetchPublicSettings } = useSettings();
 const uiStore = useUiStore();
 
 const isElectron = computed(
   () => typeof window !== "undefined" && !!window.electronAPI,
 );
 
+const availableTemplates = computed(() => {
+  try {
+    const parsed = JSON.parse(settings.value?.label_templates_all || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+});
+const roleLabel = (role) =>
+  role === "price_tag" ? "Ценник" : role === "barcode" ? "Штрихкод-этикетка" : "без роли";
+const selectedTemplateId = ref("");
+const selectedTemplate = computed(
+  () => availableTemplates.value.find((t) => t.id === selectedTemplateId.value) || null,
+);
+
 const localItems = ref([]);
-const templateType = ref("price_tag");
 const selectedPrinter = ref("");
 const isPrinting = ref(false);
 
@@ -33,9 +48,12 @@ watch(
   async (val) => {
     if (!val) return;
     localItems.value = props.items.map((i) => ({ ...i }));
-    templateType.value = "price_tag";
     selectedPrinter.value = activePrinter.value;
     if (isElectron.value) await fetchPrinters();
+    if (!Object.keys(settings.value || {}).length) await fetchPublicSettings();
+    if (availableTemplates.value.length && !selectedTemplateId.value) {
+      selectedTemplateId.value = availableTemplates.value[0].id;
+    }
   },
 );
 
@@ -43,6 +61,10 @@ const close = () => emit("update:show", false);
 
 const print = async () => {
   if (localItems.value.length === 0) return;
+  if (!selectedTemplate.value) {
+    uiStore.addToast("Выберите шаблон этикетки — создайте его в редакторе этикеток", "warning");
+    return;
+  }
   isPrinting.value = true;
   try {
     await printLabelBatch(
@@ -56,7 +78,7 @@ const print = async () => {
         qty: Math.max(1, Number(item.qty) || 1),
       })),
       {
-        type: templateType.value,
+        template: selectedTemplate.value,
         printerName: selectedPrinter.value,
       },
     );
@@ -128,9 +150,17 @@ const print = async () => {
       <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label small fw-bold">Шаблон</label>
-          <select v-model="templateType" class="form-select rounded-3">
-            <option value="price_tag">Ценник</option>
-            <option value="barcode">Этикетка со штрихкодом</option>
+          <select
+            v-model="selectedTemplateId"
+            class="form-select rounded-3"
+            :disabled="availableTemplates.length === 0"
+          >
+            <option v-if="availableTemplates.length === 0" value="">
+              Нет шаблонов — создайте в редакторе этикеток
+            </option>
+            <option v-for="t in availableTemplates" :key="t.id" :value="t.id">
+              {{ t.name }} · {{ roleLabel(t.role) }} · {{ t.width }}×{{ t.height }} мм
+            </option>
           </select>
         </div>
 

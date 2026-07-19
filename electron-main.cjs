@@ -1,3 +1,12 @@
+// Труба stdout/stderr может закрыться раньше процесса (запуск из терминала с | и т.п.) —
+// без этого console.log на закрытую трубу валит весь main process необработанным EPIPE.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (err) => {
+    if (err.code === 'EPIPE') return;
+    throw err;
+  });
+}
+
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 

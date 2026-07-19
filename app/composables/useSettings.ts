@@ -65,8 +65,13 @@ export const useSettings = () => {
       method: "POST",
       body: { settings: newSettings },
     });
-    // Настройки изменили из админки — сбрасываем кеш, чтобы везде подхватилось свежее
-    writeSettingsCache({ ...settings.value, ...newSettings });
+    // Настройки изменили из админки — обновляем живое состояние сразу же
+    // (иначе уже открытые страницы, например печать этикеток, увидят
+    // новые значения только после полной перезагрузки), плюс сбрасываем
+    // кеш, чтобы везде подхватилось свежее.
+    const merged = { ...settings.value, ...newSettings };
+    settings.value = merged;
+    writeSettingsCache(merged);
     return result;
   };
 

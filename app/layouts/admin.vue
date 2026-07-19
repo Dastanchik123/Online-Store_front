@@ -315,10 +315,10 @@ onUnmounted(() => {
 }
 
 .sidebar {
-  width: 280px;
+  width: 232px;
   height: 100%;
   color: #fff;
-  padding: 40px 0 40px 24px;
+  padding: 24px 0 24px 18px;
   background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
   box-shadow: 10px 0 30px rgba(0, 0, 0, 0.05);
   flex-shrink: 0;
@@ -354,39 +354,40 @@ onUnmounted(() => {
 }
 
 .sidebar-header {
-  padding-right: 24px;
-  margin-bottom: 3rem !important;
+  padding-right: 18px;
+  margin-bottom: 2rem !important;
 }
 
 .sidebar-header h3 {
   letter-spacing: -0.5px;
+  font-size: 1.4rem;
 }
 
 .section-title {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   font-weight: 800;
   color: rgba(255, 255, 255, 0.25);
   letter-spacing: 1.5px;
-  padding: 0 1.2rem;
-  margin-bottom: 0.8rem;
-  margin-top: 1.5rem;
+  padding: 0 1rem;
+  margin-bottom: 0.6rem;
+  margin-top: 1.1rem;
 }
 
 .sidebar a {
   display: flex;
   align-items: center;
-  margin: 6px 0;
+  margin: 3px 0;
   color: rgba(255, 255, 255, 0.5);
   text-decoration: none;
-  border-radius: 16px 0 0 16px;
-  padding: 0.85rem 1.4rem;
-  font-size: 0.92rem;
+  border-radius: 14px 0 0 14px;
+  padding: 0.6rem 1.1rem;
+  font-size:0.92rem;
   font-weight: 500;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar a i {
-  font-size: 1.1rem;
+  font-size: 1rem;
   opacity: 0.7;
   transition: transform 0.3s;
 }

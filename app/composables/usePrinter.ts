@@ -1,4 +1,5 @@
 import { useUiStore } from "~/stores/ui";
+import { useSettings } from "./useSettings";
 import JsBarcode from "jsbarcode";
 
 interface ElectronPrinter {
@@ -45,6 +46,314 @@ const parseTemplate = <T extends object>(json: string | undefined, fallback: T):
   } catch (e) {
     return fallback;
   }
+};
+
+// ===== "Богатый" шаблон из редактора этикеток (public/label-editor.html) =====
+// Формат отличается от DEFAULT_PRICE_TAG_TEMPLATE/DEFAULT_BARCODE_TEMPLATE:
+// это свободные элементы (x/y/w/h/type/props в мм), а не набор чекбоксов.
+// Если для типа печати назначен активный "богатый" шаблон (settings.label_active_template_*),
+// он используется вместо старой генерации ниже.
+interface RichLabelElement {
+  type: string;
+  x: number; y: number; w: number; h: number; rot?: number;
+  fontSize: number; bold?: boolean; align?: string; color?: string;
+  props: Record<string, any>;
+}
+interface RichLabelTemplate {
+  id?: string;
+  name?: string;
+  role?: string; // "price_tag" | "barcode" | "none" — определяет раскладку при печати
+  width: number;
+  height: number;
+  elements: RichLabelElement[];
+}
+
+const parseRichTemplate = (json: string | undefined | null): RichLabelTemplate | null => {
+  if (!json) return null;
+  try {
+    const tpl = JSON.parse(json);
+    if (tpl && Array.isArray(tpl.elements) && Number(tpl.width) > 0 && Number(tpl.height) > 0) {
+      return tpl as RichLabelTemplate;
+    }
+  } catch (e) {
+    /* некорректный JSON — просто игнорируем, сработает старый шаблон */
+  }
+  return null;
+};
+
+// Реальные товары не имеют полей oldPrice/barcode/article/unit/country из
+// редактора — приводим к его формату (sku служит и артикулом, и штрихкодом).
+const adaptProductForRichLabel = (product: any) => {
+  const regularPrice = Number(product?.price || 0);
+  const salePrice = Number(product?.sale_price || 0);
+  const hasSale = salePrice > 0 && salePrice < regularPrice;
+  return {
+    name: product?.name || "",
+    price: hasSale ? salePrice : regularPrice,
+    oldPrice: hasSale ? regularPrice : 0,
+    barcode: product?.sku || "",
+    article: product?.sku || "",
+    unit: "",
+    unitPrice: 0,
+    country: "",
+  };
+};
+
+const formatRichNumber = (n: number): string => {
+  n = Number(n) || 0;
+  return n.toLocaleString("ru-RU", { minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2 });
+};
+
+const computeRichDiscount = (product: any): number | null => {
+  const p = Number(product.price) || 0;
+  const op = Number(product.oldPrice) || 0;
+  if (!op || op <= p) return null;
+  return Math.round((1 - p / op) * 100);
+};
+
+const buildRichElementContentHTML = (el: RichLabelElement, product: any, settings: any): string => {
+  const defaultCurrency = settings?.currency_symbol || "сом";
+  switch (el.type) {
+    case "product_name":
+      return escapeHtml(product.name || "");
+    case "price": {
+      const val = Number(product.price) || 0;
+      const c = el.props?.currency || defaultCurrency;
+      if (el.props?.showKopecks) {
+        const whole = Math.floor(val);
+        const kop = Math.round((val - whole) * 100);
+        return `${whole}<span style="font-size:0.5em;vertical-align:top;">.${String(kop).padStart(2, "0")}</span> ${c}`;
+      }
+      return `${formatRichNumber(val)} ${c}`;
+    }
+    case "old_price": {
+      const val = Number(product.oldPrice) || 0;
+      if (!val) return "";
+      const c = el.props?.currency || defaultCurrency;
+      return `<span style="text-decoration:line-through;">${formatRichNumber(val)} ${c}</span>`;
+    }
+    case "discount": {
+      const d = computeRichDiscount(product);
+      if (d == null) return "";
+      return escapeHtml((el.props?.format || "-{d}%").replace("{d}", String(d)));
+    }
+    case "barcode":
+      return ""; // рисуется отдельно через SVG/JsBarcode
+    case "store_name":
+      return escapeHtml(
+        el.props?.useGlobal ? (settings?.receipt_title || settings?.site_name || "") : (el.props?.text || "")
+      );
+    case "date": {
+      if (el.props?.mode === "fixed" && el.props?.fixedDate) {
+        const d = new Date(el.props.fixedDate);
+        if (!isNaN(d.getTime())) {
+          return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+        }
+      }
+      const now = new Date();
+      return `${String(now.getDate()).padStart(2, "0")}.${String(now.getMonth() + 1).padStart(2, "0")}.${now.getFullYear()}`;
+    }
+    case "article":
+      return escapeHtml((el.props?.prefix || "") + (product.article || ""));
+    case "unit": {
+      const up = Number(product.unitPrice) || 0;
+      const u = product.unit || "";
+      return escapeHtml((el.props?.prefix || "") + (up ? formatRichNumber(up) + " " + defaultCurrency + " / " : "") + u);
+    }
+    case "country":
+      return escapeHtml((el.props?.prefix || "") + (product.country || ""));
+    case "custom_text":
+      return escapeHtml(el.props?.text || "");
+    default:
+      return "";
+  }
+};
+
+// Один экземпляр этикетки по "богатому" шаблону — единицы всегда мм (печать 1:1),
+// логика позиционирования и подгонки штрихкода зеркалит label-editor.html.
+const renderRichLabelBody = (template: RichLabelTemplate, product: any, settings: any): string => {
+  if (typeof document === "undefined") return "";
+  const wrap = document.createElement("div");
+  wrap.className = "rich-label-instance";
+  wrap.style.position = "relative";
+  wrap.style.width = `${template.width}mm`;
+  wrap.style.height = `${template.height}mm`;
+  wrap.style.background = "#fff";
+  wrap.style.overflow = "hidden";
+  wrap.style.flexShrink = "0";
+
+  (template.elements || []).forEach((el) => {
+    const node = document.createElement("div");
+    node.style.position = "absolute";
+    node.style.left = `${el.x}mm`;
+    node.style.top = `${el.y}mm`;
+    node.style.width = `${el.w}mm`;
+    node.style.height = `${el.h}mm`;
+    node.style.fontSize = `${el.fontSize}mm`;
+    node.style.fontWeight = el.bold ? "700" : "400";
+    node.style.color = el.color || "#000";
+    node.style.overflow = "hidden";
+    node.style.display = "flex";
+    node.style.lineHeight = "1.1";
+    node.style.whiteSpace = "pre-wrap";
+    node.style.wordBreak = "break-word";
+    node.style.textAlign = (el.align as any) || "left";
+    node.style.justifyContent = el.align === "center" ? "center" : el.align === "right" ? "flex-end" : "flex-start";
+    node.style.alignItems = ["price", "old_price", "discount"].includes(el.type) ? "center" : "flex-start";
+    if (el.rot) {
+      node.style.transform = `rotate(${el.rot}deg)`;
+      node.style.transformOrigin = "center center";
+    }
+
+    if (el.type === "line") {
+      node.style.display = "block";
+      if (el.props?.orientation === "vertical") {
+        node.style.borderLeft = `${el.props.thickness}mm ${el.props.style} ${el.color}`;
+      } else {
+        node.style.borderTop = `${el.props.thickness}mm ${el.props.style} ${el.color}`;
+      }
+    } else if (el.type === "frame") {
+      node.style.display = "block";
+      node.style.border = `${el.props.thickness}mm ${el.props.style} ${el.color}`;
+      node.style.borderRadius = `${el.props.radius || 0}mm`;
+    } else if (el.type === "barcode") {
+      const ns = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(ns, "svg") as unknown as SVGElement;
+      (svg as any).style.width = "100%";
+      (svg as any).style.height = "100%";
+      (svg as any).style.display = "block";
+      node.appendChild(svg as any);
+      const value = String(product.barcode || "").trim();
+      try {
+        if (!value) throw new Error("нет кода");
+        const UNITS_PER_MM = 12;
+        const targetW = el.w * UNITS_PER_MM;
+        const targetH = el.h * UNITS_PER_MM;
+        const barHeight = el.props?.showDigits ? targetH * 0.6 : targetH * 0.86;
+        const baseOpts: any = {
+          format: el.props?.format || "EAN13",
+          displayValue: !!el.props?.showDigits,
+          margin: Math.max(2, targetH * 0.06),
+          font: "monospace",
+          fontSize: Math.max(8, targetH * 0.22),
+          textMargin: 1,
+          height: barHeight,
+          width: 2,
+        };
+        JsBarcode(svg as any, value, baseOpts);
+        const nativeW = parseFloat((svg as any).getAttribute("width") || "0");
+        const fitWidth = Math.max(0.6, 2 * (targetW / nativeW));
+        JsBarcode(svg as any, value, { ...baseOpts, width: fitWidth });
+        const w = parseFloat((svg as any).getAttribute("width") || "0");
+        const h = parseFloat((svg as any).getAttribute("height") || "0");
+        if (w && h) {
+          (svg as any).setAttribute("viewBox", `0 0 ${w} ${h}`);
+          (svg as any).removeAttribute("width");
+          (svg as any).removeAttribute("height");
+          (svg as any).setAttribute("preserveAspectRatio", "xMidYMid meet");
+        }
+      } catch (err) {
+        (svg as any).remove();
+        node.style.alignItems = "center";
+        node.style.justifyContent = "center";
+        node.style.border = "1px dashed #c33";
+        node.style.color = "#c33";
+        node.style.fontSize = "9px";
+        node.textContent = "Штрих-код: нет кода";
+      }
+    } else {
+      const inner = document.createElement("div");
+      inner.innerHTML = buildRichElementContentHTML(el, product, settings);
+      node.appendChild(inner);
+    }
+
+    wrap.appendChild(node);
+  });
+
+  return wrap.outerHTML;
+};
+
+// Штрихкод-этикетки печатаются по одной на "страницу" размером точно с саму
+// этикетку — это ожидаемо для рулонных этикеточных принтеров/наклеек.
+const wrapRichLabelPages = (instances: string[], template: RichLabelTemplate) => {
+  const pages = instances
+    .map((html, i) => {
+      const isLast = i === instances.length - 1;
+      const pageBreak = isLast ? "" : "page-break-after:always;break-after:page;";
+      return `<div style="width:${template.width}mm;height:${template.height}mm;${pageBreak}">${html}</div>`;
+    })
+    .join("");
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        @page { size: ${template.width}mm ${template.height}mm; margin: 0; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #000; }
+      </style>
+    </head>
+    <body>${pages}</body>
+    </html>
+  `;
+};
+
+// Ценники печатаются максимально плотно на обычных листах A4 — экономия
+// бумаги важнее, чем для рулонных этикеток, и принтер обычно самый обычный.
+const wrapRichLabelPagesGrid = (instances: string[], template: RichLabelTemplate) => {
+  const PAGE_W = 210, PAGE_H = 297, MARGIN = 8, GAP_X = 3, GAP_Y = 3;
+  const usableW = PAGE_W - MARGIN * 2;
+  const usableH = PAGE_H - MARGIN * 2;
+  const cols = Math.max(1, Math.floor((usableW + GAP_X) / (template.width + GAP_X)));
+  const rows = Math.max(1, Math.floor((usableH + GAP_Y) / (template.height + GAP_Y)));
+  const perPage = cols * rows;
+  const pageCount = Math.max(1, Math.ceil(instances.length / perPage));
+
+  let pagesHtml = "";
+  for (let p = 0; p < pageCount; p++) {
+    const pageItems = instances.slice(p * perPage, (p + 1) * perPage);
+    const isLast = p === pageCount - 1;
+    const pageBreak = isLast ? "" : "page-break-after:always;break-after:page;";
+    pagesHtml += `<div class="grid-page" style="${pageBreak}"><div class="grid-inner">${pageItems.join("")}</div></div>`;
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        @page { size: A4; margin: 0; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #000; }
+        .grid-page { width: ${PAGE_W}mm; height: ${PAGE_H}mm; padding: ${MARGIN}mm; overflow: hidden; }
+        .grid-inner { display: flex; flex-wrap: wrap; gap: ${GAP_Y}mm ${GAP_X}mm; width: ${usableW}mm; }
+      </style>
+    </head>
+    <body>${pagesHtml}</body>
+    </html>
+  `;
+};
+
+// Собирает готовые страницы под конкретный "богатый" шаблон, раскладка
+// зависит от его роли: ценник — плотная сетка на A4, штрихкод — по одному
+// экземпляру на страницу (размер страницы = размер этикетки).
+const buildRichLabelHtml = (
+  richTpl: RichLabelTemplate & { role?: string },
+  items: Array<{ product: any; qty: number }>,
+  settings: any
+) => {
+  const instances: string[] = [];
+  items.forEach(({ product, qty }) => {
+    const body = renderRichLabelBody(richTpl, adaptProductForRichLabel(product), settings);
+    for (let i = 0; i < Math.max(1, qty); i++) instances.push(body);
+  });
+
+  if (richTpl.role === "price_tag") {
+    return { html: wrapRichLabelPagesGrid(instances, richTpl), pageWidthMm: 210, pageHeightMm: 297 };
+  }
+  return { html: wrapRichLabelPages(instances, richTpl), pageWidthMm: richTpl.width, pageHeightMm: richTpl.height };
 };
 
 if (typeof window !== "undefined") {
@@ -399,6 +708,14 @@ export const usePrinter = () => {
     qty = 1,
     template: typeof DEFAULT_PRICE_TAG_TEMPLATE | null = null
   ) => {
+    // template передают явно только для предпросмотра старого шаблона во
+    // вкладке "Этикетки" — в этом случае "богатый" шаблон не подключаем.
+    if (!template) {
+      const richTpl = parseRichTemplate(settings?.label_active_template_price_tag);
+      if (richTpl) {
+        return buildRichLabelHtml(richTpl, [{ product, qty }], settings).html;
+      }
+    }
     const tpl = template
       ? { ...DEFAULT_PRICE_TAG_TEMPLATE, ...template }
       : parseTemplate(settings?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
@@ -468,6 +785,12 @@ export const usePrinter = () => {
     qty = 1,
     template: typeof DEFAULT_BARCODE_TEMPLATE | null = null
   ) => {
+    if (!template) {
+      const richTpl = parseRichTemplate(settings.value?.label_active_template_barcode);
+      if (richTpl) {
+        return buildRichLabelHtml(richTpl, [{ product, qty }], settings.value).html;
+      }
+    }
     const tpl = template ? { ...DEFAULT_BARCODE_TEMPLATE, ...template } : parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE);
     const body = generateBarcodeLabelBody(product, tpl);
     const pages = Array.from({ length: Math.max(1, qty) }, () => body).join("");
@@ -479,35 +802,48 @@ export const usePrinter = () => {
   // количество копий, шаблон и размер общие для всей партии.
   const printLabelBatch = async (
     items: Array<{ product: any; qty: number }>,
-    opts: { type?: "price_tag" | "barcode"; printerName?: string } = {}
+    opts: { type?: "price_tag" | "barcode"; printerName?: string; template?: RichLabelTemplate } = {}
   ) => {
-    const { type = "price_tag", printerName } = opts;
+    const { type = "price_tag", printerName, template: explicitTemplate } = opts;
     try {
+      // Явно выбранный на странице печати шаблон имеет приоритет; если его нет —
+      // берём тот, что помечен активной ролью в редакторе (обратная совместимость).
+      const richKey = type === "barcode" ? "label_active_template_barcode" : "label_active_template_price_tag";
+      const richTpl = explicitTemplate || parseRichTemplate(settings.value?.[richKey]);
+
       let htmlContent: string;
-      if (type === "barcode") {
+      let pageWidthMm: number;
+      let pageHeightMm: number;
+
+      if (richTpl) {
+        const built = buildRichLabelHtml(richTpl, items, settings.value);
+        htmlContent = built.html;
+        pageWidthMm = built.pageWidthMm;
+        pageHeightMm = built.pageHeightMm;
+      } else if (type === "barcode") {
         const tpl = parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE);
         const pages = items
           .flatMap(({ product, qty }) => Array.from({ length: Math.max(1, qty) }, () => generateBarcodeLabelBody(product, tpl)))
           .join("");
         htmlContent = wrapBarcodeLabelPages(pages, tpl);
+        pageWidthMm = tpl.width_mm;
+        pageHeightMm = tpl.height_mm;
       } else {
         const tpl = parseTemplate(settings.value?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
         const pages = items
           .flatMap(({ product, qty }) => Array.from({ length: Math.max(1, qty) }, () => generatePriceTagBody(product, settings.value, tpl)))
           .join("");
         htmlContent = wrapPriceTagPages(pages, tpl);
+        pageWidthMm = tpl.width_mm;
+        pageHeightMm = tpl.height_mm;
       }
-
-      const tplForSize = type === "barcode"
-        ? parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE)
-        : parseTemplate(settings.value?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
 
       if (typeof window !== "undefined" && window.electronAPI) {
         window.electronAPI.printHTML({
           html: htmlContent,
           printerName: printerName || activePrinter.value,
-          pageWidthMm: tplForSize.width_mm,
-          pageHeightMm: tplForSize.height_mm,
+          pageWidthMm,
+          pageHeightMm,
         });
       } else {
         printViaBrowser(htmlContent);
@@ -619,9 +955,13 @@ export const usePrinter = () => {
           ? generateBarcodeLabelHtml(product, qty)
           : generatePriceTagHtml(product, settings.value, qty);
 
-      const tplForSize = type === "barcode"
-        ? parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE)
-        : parseTemplate(settings.value?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
+      const richKey = type === "barcode" ? "label_active_template_barcode" : "label_active_template_price_tag";
+      const richTpl = parseRichTemplate(settings.value?.[richKey]);
+      const tplForSize = richTpl
+        ? { width_mm: richTpl.width, height_mm: richTpl.height }
+        : type === "barcode"
+          ? parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE)
+          : parseTemplate(settings.value?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
 
       if (typeof window !== "undefined" && window.electronAPI) {
         window.electronAPI.printHTML({

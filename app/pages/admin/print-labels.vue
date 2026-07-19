@@ -6,7 +6,35 @@ definePageMeta({
 
 const { queue, clearQueue } = usePrintQueue();
 const { printers, activePrinter, fetchPrinters, printLabelBatch } = usePrinter();
+const { settings, fetchPublicSettings } = useSettings();
 const uiStore = useUiStore();
+
+// Список шаблонов приходит из редактора этикеток (вкладка "Редактор этикеток"
+// в настройках) — каждый шаблон сам решает свою раскладку при печати через
+// роль ("Ценник" — плотно на A4, "Штрихкод-этикетка" — по одному на лист).
+const availableTemplates = computed(() => {
+  try {
+    const parsed = JSON.parse(settings.value?.label_templates_all || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+});
+const roleLabel = (role) =>
+  role === "price_tag" ? "Ценник" : role === "barcode" ? "Штрихкод-этикетка" : "без роли";
+const selectedTemplateId = ref("");
+watch(
+  availableTemplates,
+  (list) => {
+    if (list.length && !list.some((t) => t.id === selectedTemplateId.value)) {
+      selectedTemplateId.value = list[0].id;
+    }
+  },
+  { immediate: true },
+);
+const selectedTemplate = computed(
+  () => availableTemplates.value.find((t) => t.id === selectedTemplateId.value) || null,
+);
 
 const showProductPicker = ref(false);
 const pickerItems = computed(() =>
@@ -32,7 +60,6 @@ const isElectron = computed(
   () => typeof window !== "undefined" && !!window.electronAPI,
 );
 
-const templateType = ref("price_tag");
 const selectedPrinter = ref("");
 const isPrinting = ref(false);
 
@@ -47,10 +74,15 @@ const removeItem = (index) => {
 onMounted(async () => {
   selectedPrinter.value = activePrinter.value;
   if (isElectron.value) await fetchPrinters();
+  if (!Object.keys(settings.value || {}).length) await fetchPublicSettings();
 });
 
 const print = async () => {
   if (queue.value.length === 0) return;
+  if (!selectedTemplate.value) {
+    uiStore.addToast("Выберите шаблон этикетки — создайте его в редакторе этикеток", "warning");
+    return;
+  }
   isPrinting.value = true;
   try {
     await printLabelBatch(
@@ -64,7 +96,7 @@ const print = async () => {
         qty: Math.max(1, Number(item.qty) || 1),
       })),
       {
-        type: templateType.value,
+        template: selectedTemplate.value,
         printerName: selectedPrinter.value,
       },
     );
@@ -163,10 +195,26 @@ const print = async () => {
 
           <div class="mb-3">
             <label class="form-label small fw-bold">Шаблон</label>
-            <select v-model="templateType" class="form-select rounded-3">
-              <option value="price_tag">Ценник</option>
-              <option value="barcode">Этикетка со штрихкодом</option>
+            <select
+              v-model="selectedTemplateId"
+              class="form-select rounded-3"
+              :disabled="availableTemplates.length === 0"
+            >
+              <option v-if="availableTemplates.length === 0" value="">
+                Нет шаблонов — создайте в редакторе этикеток
+              </option>
+              <option v-for="t in availableTemplates" :key="t.id" :value="t.id">
+                {{ t.name }} · {{ roleLabel(t.role) }} · {{ t.width }}×{{ t.height }} мм
+              </option>
             </select>
+            <small v-if="selectedTemplate" class="text-muted d-block mt-1">
+              {{
+                selectedTemplate.role === "price_tag"
+                  ? "Печатается максимально плотно на листах A4."
+                  : "Каждая этикетка — на отдельном листе размером " +
+                    selectedTemplate.width + "×" + selectedTemplate.height + " мм."
+              }}
+            </small>
           </div>
 
           <div class="mb-3">
@@ -202,6 +250,7 @@ const print = async () => {
     <AdminProductPickerModal
       :show="showProductPicker"
       :items="pickerItems"
+      :multi-select="true"
       @close="showProductPicker = false"
       @select="addProduct"
     />

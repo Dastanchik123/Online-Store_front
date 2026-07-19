@@ -2,6 +2,11 @@
 const props = defineProps({
   show: Boolean,
   items: { type: Array, default: () => [] },
+  // multiSelect — модалка остаётся открытой после выбора, можно накликать
+  // сразу несколько товаров (напр. печать этикеток на партию); закрывается
+  // только по «Готово». По умолчанию выключено — сохраняет старое поведение
+  // (клик сразу добавляет в накладную и закрывает модалку).
+  multiSelect: { type: Boolean, default: false },
 });
 const emit = defineEmits(["close", "select", "create-product"]);
 
@@ -96,11 +101,12 @@ const formatPrice = (price) => {
   return parseFloat(price).toLocaleString("ru-RU") + " сом";
 };
 
-// Клик по товару сразу добавляет его в накладную и закрывает модалку —
-// не нужно кликать несколько раз и отдельно жать «Готово»
+// Клик по товару сразу добавляет его в накладную. В обычном режиме модалка
+// тут же закрывается (не нужно отдельно жать «Готово»); в multiSelect —
+// остаётся открытой, чтобы можно было накликать ещё товаров подряд.
 const pickProduct = (product) => {
   emit("select", product);
-  emit("close");
+  if (!props.multiSelect) emit("close");
 };
 </script>
 
@@ -152,6 +158,7 @@ const pickProduct = (product) => {
                   v-for="(p, index) in products"
                   :key="p.id"
                   class="picker-row"
+                  :class="{ 'picker-row-selected': multiSelect && quantityInCart(p.id) }"
                   @click="pickProduct(p)"
                 >
                   <td class="ps-3 text-muted small">{{ index + 1 }}</td>
@@ -175,7 +182,7 @@ const pickProduct = (product) => {
                       class="badge bg-primary-subtle text-primary"
                       style="font-size: 0.65rem"
                     >
-                      В приёме: {{ quantityInCart(p.id) }}
+                      {{ multiSelect ? "Добавлено" : "В приёме" }}: {{ quantityInCart(p.id) }}
                     </span>
                   </td>
                 </tr>
@@ -305,6 +312,14 @@ const pickProduct = (product) => {
 
 .picker-row:hover {
   background: #f1f5f9;
+}
+
+.picker-row-selected {
+  background: #eff6ff;
+}
+
+.picker-row-selected:hover {
+  background: #dbeafe;
 }
 
 .picker-search {

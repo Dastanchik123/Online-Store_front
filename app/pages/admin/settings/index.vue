@@ -1,6 +1,5 @@
 <script setup>
 const { getAllSettings, updateSettings, uploadFile } = useSettings();
-const { generatePriceTagHtml, generateBarcodeLabelHtml } = usePrinter();
 const ui = useUiStore();
 
 definePageMeta({
@@ -12,6 +11,7 @@ const loading = ref(true);
 const saving = ref(false);
 const sett = ref({});
 const logoFile = ref(null);
+const labelEditorFrame = ref(null);
 
 const tabs = [
   { key: "general", label: "Общее", icon: "bi-gear" },
@@ -19,7 +19,7 @@ const tabs = [
   { key: "social", label: "Соцсети", icon: "bi-share" },
   { key: "payment", label: "Оплата", icon: "bi-credit-card" },
   { key: "pos", label: "Касса и чек", icon: "bi-display" },
-  { key: "labels", label: "Этикетки", icon: "bi-tag" },
+  { key: "label-editor", label: "Редактор этикетки/ценника", icon: "bi-easel3" },
 ];
 const activeTab = ref("general");
 
@@ -40,45 +40,6 @@ const defaultBarcodeTemplate = () => ({
 
 const priceTagTemplate = ref(defaultPriceTagTemplate());
 const barcodeTemplate = ref(defaultBarcodeTemplate());
-const previewScale = 3;
-
-const previewProduct = {
-  name: "Название товара",
-  short_description: "Краткое описание товара",
-  sku: "1234567890",
-  price: 299.95,
-  sale_price: 249,
-};
-
-const priceTagPreviewHtml = computed(() =>
-  generatePriceTagHtml(previewProduct, sett.value, 1, priceTagTemplate.value),
-);
-const barcodePreviewHtml = computed(() =>
-  generateBarcodeLabelHtml(previewProduct, 1, barcodeTemplate.value),
-);
-
-// Шаблоны — это самостоятельные HTML-документы (свой <style>, @page и т.д.),
-// поэтому их нельзя вставлять через v-html в div — теги body/style утекут
-// в стили всей страницы админки. Рендерим в изолированный iframe.
-const priceTagPreviewFrame = ref(null);
-const barcodePreviewFrame = ref(null);
-
-const writeFrame = (frameEl, html) => {
-  const doc = frameEl?.contentDocument;
-  if (!doc) return;
-  doc.open();
-  doc.write(html);
-  doc.close();
-};
-
-watch(priceTagPreviewHtml, (html) => writeFrame(priceTagPreviewFrame.value, html), {
-  immediate: true,
-  flush: "post",
-});
-watch(barcodePreviewHtml, (html) => writeFrame(barcodePreviewFrame.value, html), {
-  immediate: true,
-  flush: "post",
-});
 
 const fetchSettings = async () => {
   loading.value = true;
@@ -111,6 +72,10 @@ const fetchSettings = async () => {
         /* используем дефолт при битом JSON */
       }
     }
+
+    lastSyncedPriceTag.value = obj.label_active_template_price_tag || "";
+    lastSyncedBarcode.value = obj.label_active_template_barcode || "";
+    lastSyncedAllTemplates.value = obj.label_templates_all || "";
   } catch (e) {
     ui.addToast("Ошибка при загрузке настроек", "error");
   } finally {
@@ -138,6 +103,50 @@ const save = async () => {
     saving.value = false;
   }
 };
+
+// Редактор этикеток (label-editor.html, встроен через iframe) сам решает,
+// какой шаблон помечен ролью "Ценник"/"Штрихкод" в его собственном UI, и на
+// каждое изменение такого шаблона шлёт сюда postMessage — никакой отдельной
+// кнопки "Сделать активным" не нужно, всё сохраняется автоматически.
+const richSyncStatus = ref("idle"); // idle | saving | saved
+const lastSyncedPriceTag = ref(undefined);
+const lastSyncedBarcode = ref(undefined);
+const lastSyncedAllTemplates = ref(undefined);
+
+const handleLabelEditorMessage = async (event) => {
+  if (!event.data || event.data.source !== "label-editor") return;
+  if (labelEditorFrame.value && event.source !== labelEditorFrame.value.contentWindow) return;
+
+  const priceTagJson = event.data.priceTag ? JSON.stringify(event.data.priceTag) : "";
+  const barcodeJson = event.data.barcode ? JSON.stringify(event.data.barcode) : "";
+  const allTemplatesJson = event.data.allTemplates ? JSON.stringify(event.data.allTemplates) : "";
+
+  const updates = {};
+  if (priceTagJson !== lastSyncedPriceTag.value) updates.label_active_template_price_tag = priceTagJson;
+  if (barcodeJson !== lastSyncedBarcode.value) updates.label_active_template_barcode = barcodeJson;
+  if (allTemplatesJson !== lastSyncedAllTemplates.value) updates.label_templates_all = allTemplatesJson;
+  if (Object.keys(updates).length === 0) return;
+
+  richSyncStatus.value = "saving";
+  try {
+    await updateSettings({ ...sett.value, ...updates });
+    Object.assign(sett.value, updates);
+    lastSyncedPriceTag.value = priceTagJson;
+    lastSyncedBarcode.value = barcodeJson;
+    lastSyncedAllTemplates.value = allTemplatesJson;
+    richSyncStatus.value = "saved";
+  } catch (e) {
+    richSyncStatus.value = "idle";
+    ui.addToast("Ошибка автосохранения шаблона печати", "error");
+  }
+};
+
+onMounted(() => {
+  window.addEventListener("message", handleLabelEditorMessage);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("message", handleLabelEditorMessage);
+});
 
 const handleLogoUpload = async (event) => {
   const file = event.target.files[0];
@@ -530,122 +539,27 @@ onMounted(fetchSettings);
         </div>
       </div>
 
-      <div v-show="activeTab === 'labels'" class="row g-4">
-        <div class="col-lg-5">
-          <div class="card border-0 shadow-sm rounded-4 p-4 mb-4">
-            <h6 class="fw-bold mb-3 border-bottom pb-2">Ценник (58×40мм по умолчанию)</h6>
-
-            <div class="row g-2 mb-3">
-              <div class="col-6">
-                <label class="form-label small fw-bold">Ширина, мм</label>
-                <input v-model.number="priceTagTemplate.width_mm" type="number" class="form-control form-control-sm rounded-3" />
-              </div>
-              <div class="col-6">
-                <label class="form-label small fw-bold">Высота, мм</label>
-                <input v-model.number="priceTagTemplate.height_mm" type="number" class="form-control form-control-sm rounded-3" />
-              </div>
-            </div>
-
-            <div class="form-check form-switch mb-2">
-              <input v-model="priceTagTemplate.show_description" class="form-check-input" type="checkbox" role="switch" id="ptDesc" />
-              <label class="form-check-label small" for="ptDesc">Показывать описание товара (под названием)</label>
-            </div>
-            <div class="form-check form-switch mb-2">
-              <input v-model="priceTagTemplate.show_date" class="form-check-input" type="checkbox" role="switch" id="ptDate" />
-              <label class="form-check-label small" for="ptDate">Показывать дату (сверху справа)</label>
-            </div>
-            <div class="form-check form-switch mb-2">
-              <input v-model="priceTagTemplate.show_old_price" class="form-check-input" type="checkbox" role="switch" id="ptOldPrice" />
-              <label class="form-check-label small" for="ptOldPrice">Показывать старую цену при скидке (зачёркнутая)</label>
-            </div>
-            <div class="form-check form-switch mb-2">
-              <input v-model="priceTagTemplate.show_barcode" class="form-check-input" type="checkbox" role="switch" id="ptBarcode" />
-              <label class="form-check-label small" for="ptBarcode">Показывать код и штрихкод (низ слева)</label>
-            </div>
-            <div class="form-check form-switch mb-3">
-              <input v-model="priceTagTemplate.show_company" class="form-check-input" type="checkbox" role="switch" id="ptCompany" />
-              <label class="form-check-label small" for="ptCompany">Показывать название магазина (низ справа, под ценой)</label>
-            </div>
-
-            <label class="form-label small fw-bold">Расположение блоков</label>
-            <select v-model="priceTagTemplate.mirrored" class="form-select form-select-sm rounded-3">
-              <option :value="false">Код/штрихкод — слева, цена — справа</option>
-              <option :value="true">Код/штрихкод — справа, цена — слева</option>
-            </select>
-          </div>
-
-          <div class="card border-0 shadow-sm rounded-4 p-4">
-            <h6 class="fw-bold mb-3 border-bottom pb-2">Этикетка со штрихкодом (40×30мм по умолчанию)</h6>
-            <div class="row g-2">
-              <div class="col-6">
-                <label class="form-label small fw-bold">Ширина, мм</label>
-                <input v-model.number="barcodeTemplate.width_mm" type="number" class="form-control form-control-sm rounded-3" />
-              </div>
-              <div class="col-6">
-                <label class="form-label small fw-bold">Высота, мм</label>
-                <input v-model.number="barcodeTemplate.height_mm" type="number" class="form-control form-control-sm rounded-3" />
-              </div>
-            </div>
-            <div class="form-text small mt-2">
-              Компактная этикетка всегда показывает название, штрихкод, код и цену — без даты и названия магазина.
-            </div>
-          </div>
-        </div>
-
-        <div class="col-lg-7">
-          <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
-            <h6 class="fw-bold mb-3 border-bottom pb-2">Предпросмотр</h6>
-            <div class="d-flex flex-wrap gap-4">
-              <div>
-                <div class="small fw-bold text-muted mb-2">Ценник</div>
-                <div
-                  class="label-preview-frame"
-                  :style="{
-                    width: priceTagTemplate.width_mm * previewScale + 'mm',
-                    height: priceTagTemplate.height_mm * previewScale + 'mm',
-                  }"
-                >
-                  <iframe
-                    ref="priceTagPreviewFrame"
-                    scrolling="no"
-                    :style="{
-                      width: priceTagTemplate.width_mm + 'mm',
-                      height: priceTagTemplate.height_mm + 'mm',
-                      border: 0,
-                      transform: `scale(${previewScale})`,
-                      transformOrigin: 'top left',
-                    }"
-                  ></iframe>
-                </div>
-              </div>
-              <div>
-                <div class="small fw-bold text-muted mb-2">Этикетка со штрихкодом</div>
-                <div
-                  class="label-preview-frame"
-                  :style="{
-                    width: barcodeTemplate.width_mm * previewScale + 'mm',
-                    height: barcodeTemplate.height_mm * previewScale + 'mm',
-                  }"
-                >
-                  <iframe
-                    ref="barcodePreviewFrame"
-                    scrolling="no"
-                    :style="{
-                      width: barcodeTemplate.width_mm + 'mm',
-                      height: barcodeTemplate.height_mm + 'mm',
-                      border: 0,
-                      transform: `scale(${previewScale})`,
-                      transformOrigin: 'top left',
-                    }"
-                  ></iframe>
-                </div>
-              </div>
-            </div>
-            <div class="form-text small mt-3">
-              Предпросмотр использует те же шаблоны, что и реальная печать — на примере тестового товара.
-            </div>
-          </div>
-        </div>
+      <div v-show="activeTab === 'label-editor'" class="card border-0 shadow-sm rounded-4 p-0 overflow-hidden position-relative">
+        <span
+          class="rich-sync-dot"
+          :class="{
+            'is-saving': richSyncStatus === 'saving',
+            'is-saved': richSyncStatus === 'saved',
+          }"
+          :title="
+            richSyncStatus === 'saving'
+              ? 'Сохранение шаблона...'
+              : richSyncStatus === 'saved'
+                ? 'Шаблон сохранён и применяется при печати'
+                : 'Назначьте роль шаблона («Ценник»/«Штрихкод») в редакторе слева, чтобы он применялся при печати'
+          "
+        ></span>
+        <iframe
+          ref="labelEditorFrame"
+          src="/label-editor.html"
+          title="Редактор этикеток"
+          class="label-editor-frame"
+        ></iframe>
       </div>
     </div>
   </div>
@@ -678,9 +592,35 @@ onMounted(fetchSettings);
   border-bottom-color: #0ea5e9;
 }
 
-.label-preview-frame {
-  border: 1px dashed #cbd5e1;
-  border-radius: 8px;
-  overflow: hidden;
+.label-editor-frame {
+  width: 100%;
+  height: calc(100vh - 230px);
+  min-height: 560px;
+  border: 0;
+  display: block;
+}
+
+.rich-sync-dot {
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  z-index: 5;
+  transition: background-color 0.3s ease;
+  cursor: default;
+}
+.rich-sync-dot.is-saving {
+  background: #f59e0b;
+  animation: rich-sync-pulse 1s ease-in-out infinite;
+}
+.rich-sync-dot.is-saved {
+  background: #22c55e;
+}
+@keyframes rich-sync-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 </style>
