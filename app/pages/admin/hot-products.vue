@@ -36,12 +36,19 @@ const renameModal = ref({
 const fetchHotProducts = async () => {
   isLoading.value = true;
   try {
-    const res = await getProducts({
-      is_hot: true,
-      per_page: 100,
-      sort: "hot_order",
-      direction: "asc",
-    });
+    // noCache: обязательно — иначе после добавления/удаления/переноса товара
+    // сработает SWR-кэш /products (см. useApi.ts): он отдаёт старый список
+    // сразу, а фоновое обновление некому подхватить (onRefresh не передан),
+    // и список тут просто не обновится до перезагрузки страницы.
+    const res = await getProducts(
+      {
+        is_hot: true,
+        per_page: 100,
+        sort: "hot_order",
+        direction: "asc",
+      },
+      { noCache: true },
+    );
     hotProducts.value = res.data || [];
   } catch (e) {
     ui.error("Ошибка при загрузке горячих товаров");
