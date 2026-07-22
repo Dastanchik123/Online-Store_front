@@ -60,6 +60,19 @@ const isElectron = computed(
   () => typeof window !== "undefined" && !!window.electronAPI,
 );
 
+// Только для ценников (role=price_tag) — они печатаются сеткой, и сетка
+// по-разному укладывается на A4 (несколько столбцов, разрывы по 297мм) и
+// на чековой ленте 80мм (один-два столбца, без разрывов, впритык).
+// Штрихкод-этикетки печатаются по одной штуке размером с саму этикетку —
+// для них выбор бумаги роли не играет.
+const paperMode = ref("a4");
+if (import.meta.client) {
+  paperMode.value = localStorage.getItem("label_paper_mode") || "a4";
+}
+watch(paperMode, (val) => {
+  if (import.meta.client) localStorage.setItem("label_paper_mode", val);
+});
+
 const selectedPrinter = ref("");
 const isPrinting = ref(false);
 
@@ -98,6 +111,7 @@ const print = async () => {
       {
         template: selectedTemplate.value,
         printerName: selectedPrinter.value,
+        paperMode: paperMode.value,
       },
     );
     uiStore.addToast(`Отправлено на печать: ${totalLabels.value} этикеток`, "success");
@@ -210,11 +224,19 @@ const print = async () => {
             <small v-if="selectedTemplate" class="text-muted d-block mt-1">
               {{
                 selectedTemplate.role === "price_tag"
-                  ? "Печатается максимально плотно на листах A4."
+                  ? "Печатается плотной сеткой — впритык по всей ширине выбранной бумаги."
                   : "Каждая этикетка — на отдельном листе размером " +
                     selectedTemplate.width + "×" + selectedTemplate.height + " мм."
               }}
             </small>
+          </div>
+
+          <div v-if="selectedTemplate && selectedTemplate.role === 'price_tag'" class="mb-3">
+            <label class="form-label small fw-bold">Бумага</label>
+            <select v-model="paperMode" class="form-select rounded-3">
+              <option value="a4">А4 (несколько столбцов, листами)</option>
+              <option value="roll80">Чековая лента 80мм (впритык, без разрывов)</option>
+            </select>
           </div>
 
           <div class="mb-3">

@@ -123,7 +123,7 @@ onMounted(() => {
 
 <template>
   <div class="cart-page">
-    <div class="container-fluid px-0 py-5">
+    <div class="container-fluid px-0 pb-5">
       <h2 class="mb-4">Корзина</h2>
 
       
@@ -156,11 +156,13 @@ onMounted(() => {
       
       <div v-else class="row">
         <div class="col-lg-8">
-          <div class="card shadow-sm border-0 mb-4">
+          <div class="card shadow-sm border-0 mb-4 items-card">
             <div
               class="card-header bg-white d-flex justify-content-between align-items-center"
             >
-              <h5 class="mb-0">Товары в корзине</h5>
+              <h5 class="mb-0">
+                Товары в корзине ({{ cartStore.itemsCount }})
+              </h5>
               <button
                 class="btn btn-sm btn-outline-danger"
                 @click="handleClearCart"
@@ -215,7 +217,7 @@ onMounted(() => {
         
         <div class="col-lg-4">
           <div
-            class="card shadow-sm border-0 sticky-top"
+            class="card shadow-sm border-0 summary-card"
             style="top: 100px; z-index: 10; border-radius: 20px"
           >
             <div
@@ -281,7 +283,7 @@ onMounted(() => {
                 </NuxtLink>
                 <NuxtLink
                   to="/catalog"
-                  class="btn btn-link text-decoration-none text-muted mt-2 btn-sm"
+                  class="btn btn-link text-decoration-none text-muted mt-2 btn-sm text-center"
                 >
                   <i class="bi bi-arrow-left me-1"></i> Продолжить покупки
                 </NuxtLink>
@@ -307,5 +309,39 @@ onMounted(() => {
 .checkout-btn:hover:not(:disabled) {
   transform: scale(1.02);
   box-shadow: 0 10px 20px rgba(56, 189, 248, 0.4) !important;
+}
+
+.summary-card {
+  position: sticky;
+}
+
+@media (max-width: 991px) {
+  .summary-card {
+    position: static;
+  }
+}
+
+@media (max-width: 576px) {
+  .items-card {
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none !important;
+  }
+
+  .items-card .card-header {
+    background: transparent !important;
+    padding: 0 0 0.75rem;
+  }
+
+  .items-card .card-header h5 {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #64748b;
+  }
+
+  .items-card .card-body {
+    background: transparent !important;
+    padding: 0 !important;
+  }
 }
 </style>

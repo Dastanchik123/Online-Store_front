@@ -28,6 +28,14 @@ const selectedTemplate = computed(
   () => availableTemplates.value.find((t) => t.id === selectedTemplateId.value) || null,
 );
 
+const paperMode = ref("a4");
+if (import.meta.client) {
+  paperMode.value = localStorage.getItem("label_paper_mode") || "a4";
+}
+watch(paperMode, (val) => {
+  if (import.meta.client) localStorage.setItem("label_paper_mode", val);
+});
+
 const localItems = ref([]);
 const selectedPrinter = ref("");
 const isPrinting = ref(false);
@@ -80,6 +88,7 @@ const print = async () => {
       {
         template: selectedTemplate.value,
         printerName: selectedPrinter.value,
+        paperMode: paperMode.value,
       },
     );
     uiStore.addToast(`Отправлено на печать: ${totalLabels.value} этикеток`, "success");
@@ -161,6 +170,14 @@ const print = async () => {
             <option v-for="t in availableTemplates" :key="t.id" :value="t.id">
               {{ t.name }} · {{ roleLabel(t.role) }} · {{ t.width }}×{{ t.height }} мм
             </option>
+          </select>
+        </div>
+
+        <div v-if="selectedTemplate && selectedTemplate.role === 'price_tag'" class="col-md-6">
+          <label class="form-label small fw-bold">Бумага</label>
+          <select v-model="paperMode" class="form-select rounded-3">
+            <option value="a4">А4 (несколько столбцов, листами)</option>
+            <option value="roll80">Чековая лента 80мм (впритык, без разрывов)</option>
           </select>
         </div>
 

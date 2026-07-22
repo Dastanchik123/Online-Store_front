@@ -175,15 +175,49 @@ const handleRemove = async () => {
 }
 
 @media (max-width: 768px) {
+  .cart-item-card {
+    position: relative;
+    padding: 0.85rem;
+    border-radius: 14px;
+  }
+
   .cart-item-body {
-    flex-direction: column;
     align-items: flex-start;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   .item-image-wrapper {
-    width: 100% !important;
-    height: 150px !important;
+    width: 64px !important;
+    height: 64px !important;
+    border-radius: 10px;
+  }
+
+  .item-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+
+  .item-info {
+    padding-right: 2rem;
+  }
+
+  .item-title {
+    font-size: 0.95rem;
+  }
+
+  .item-controls {
+    width: calc(100% + 64px + 0.75rem);
+    margin-left: calc(-64px - 0.75rem);
+    justify-content: space-between;
+  }
+
+  .remove-btn {
+    position: absolute;
+    top: 0.85rem;
+    right: 0.85rem;
+    width: 30px !important;
+    height: 30px !important;
   }
 }
 
@@ -246,7 +280,7 @@ const handleRemove = async () => {
 }
 
 .item-title {
-  font-size: 1.05rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: #1e293b;
   text-decoration: none;
@@ -406,5 +440,33 @@ const handleRemove = async () => {
 
 .remove-btn:active {
   transform: scale(0.9);
+}
+
+@media (max-width: 576px) {
+  .quantity-selector {
+    background: transparent;
+    border: none;
+    padding: 0;
+    gap: 0.5rem;
+  }
+
+  .qty-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    box-shadow: none;
+  }
+
+  .qty-btn:last-child {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+  }
+
+  .qty-btn:last-child:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
 }
 </style>

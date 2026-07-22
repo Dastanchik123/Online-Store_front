@@ -76,6 +76,9 @@ const fetchSettings = async () => {
     lastSyncedPriceTag.value = obj.label_active_template_price_tag || "";
     lastSyncedBarcode.value = obj.label_active_template_barcode || "";
     lastSyncedAllTemplates.value = obj.label_templates_all || "";
+
+    settingsLoaded.value = true;
+    maybePushTemplatesToLabelEditor();
   } catch (e) {
     ui.addToast("Ошибка при загрузке настроек", "error");
   } finally {
@@ -96,6 +99,7 @@ const save = async () => {
       label_template_price_tag: JSON.stringify(priceTagTemplate.value),
       label_template_barcode: JSON.stringify(barcodeTemplate.value),
     });
+    hasUnsavedLabelChanges.value = false;
     ui.addToast("Настройки успешно сохранены", "success");
   } catch (e) {
     ui.addToast("Ошибка при сохранении", "error");
@@ -105,17 +109,49 @@ const save = async () => {
 };
 
 // Редактор этикеток (label-editor.html, встроен через iframe) сам решает,
-// какой шаблон помечен ролью "Ценник"/"Штрихкод" в его собственном UI, и на
-// каждое изменение такого шаблона шлёт сюда postMessage — никакой отдельной
-// кнопки "Сделать активным" не нужно, всё сохраняется автоматически.
-const richSyncStatus = ref("idle"); // idle | saving | saved
+// какой шаблон помечен ролью "Ценник"/"Штрихкод" в его собственном UI и на
+// каждое изменение шлёт сюда postMessage. Правки только копятся в sett.value
+// (в памяти) и уходят на сервер по общей кнопке "Сохранить изменения" —
+// как и остальные вкладки настроек, без отдельного автосохранения.
 const lastSyncedPriceTag = ref(undefined);
 const lastSyncedBarcode = ref(undefined);
 const lastSyncedAllTemplates = ref(undefined);
+const hasUnsavedLabelChanges = ref(false);
 
-const handleLabelEditorMessage = async (event) => {
+// Редактор хранит свои шаблоны в localStorage браузера и сам их оттуда не
+// подтягивает — только шлёт наружу через postMessage. Поэтому при первом
+// открытии (пустой localStorage) он показывает демо-заглушку, а не то, что
+// реально лежит в БД. Чтобы так не путать, при загрузке iframe и по его
+// запросу отправляем туда актуальный label_templates_all.
+const iframeLoaded = ref(false);
+const settingsLoaded = ref(false);
+const pushTemplatesToLabelEditor = () => {
+  if (!labelEditorFrame.value?.contentWindow) return;
+  let templates = [];
+  try {
+    templates = JSON.parse(sett.value.label_templates_all || "[]");
+  } catch (e) {
+    templates = [];
+  }
+  if (!templates.length) return;
+  labelEditorFrame.value.contentWindow.postMessage({ source: "settings-page", templates }, "*");
+};
+const maybePushTemplatesToLabelEditor = () => {
+  if (iframeLoaded.value && settingsLoaded.value) pushTemplatesToLabelEditor();
+};
+const onLabelEditorFrameLoad = () => {
+  iframeLoaded.value = true;
+  maybePushTemplatesToLabelEditor();
+};
+
+const handleLabelEditorMessage = (event) => {
   if (!event.data || event.data.source !== "label-editor") return;
   if (labelEditorFrame.value && event.source !== labelEditorFrame.value.contentWindow) return;
+
+  if (event.data.requestTemplates) {
+    pushTemplatesToLabelEditor();
+    return;
+  }
 
   const priceTagJson = event.data.priceTag ? JSON.stringify(event.data.priceTag) : "";
   const barcodeJson = event.data.barcode ? JSON.stringify(event.data.barcode) : "";
@@ -127,18 +163,13 @@ const handleLabelEditorMessage = async (event) => {
   if (allTemplatesJson !== lastSyncedAllTemplates.value) updates.label_templates_all = allTemplatesJson;
   if (Object.keys(updates).length === 0) return;
 
-  richSyncStatus.value = "saving";
-  try {
-    await updateSettings({ ...sett.value, ...updates });
-    Object.assign(sett.value, updates);
-    lastSyncedPriceTag.value = priceTagJson;
-    lastSyncedBarcode.value = barcodeJson;
-    lastSyncedAllTemplates.value = allTemplatesJson;
-    richSyncStatus.value = "saved";
-  } catch (e) {
-    richSyncStatus.value = "idle";
-    ui.addToast("Ошибка автосохранения шаблона печати", "error");
-  }
+  // Только копим в памяти — на сервер уйдёт вместе с остальными настройками
+  // по кнопке "Сохранить изменения" вверху страницы.
+  Object.assign(sett.value, updates);
+  lastSyncedPriceTag.value = priceTagJson;
+  lastSyncedBarcode.value = barcodeJson;
+  lastSyncedAllTemplates.value = allTemplatesJson;
+  hasUnsavedLabelChanges.value = true;
 };
 
 onMounted(() => {
@@ -543,15 +574,13 @@ onMounted(fetchSettings);
         <span
           class="rich-sync-dot"
           :class="{
-            'is-saving': richSyncStatus === 'saving',
-            'is-saved': richSyncStatus === 'saved',
+            'is-unsaved': hasUnsavedLabelChanges,
+            'is-saved': !hasUnsavedLabelChanges && settingsLoaded,
           }"
           :title="
-            richSyncStatus === 'saving'
-              ? 'Сохранение шаблона...'
-              : richSyncStatus === 'saved'
-                ? 'Шаблон сохранён и применяется при печати'
-                : 'Назначьте роль шаблона («Ценник»/«Штрихкод») в редакторе слева, чтобы он применялся при печати'
+            hasUnsavedLabelChanges
+              ? 'Есть несохранённые изменения шаблонов — нажмите «Сохранить изменения» вверху страницы'
+              : 'Шаблоны сохранены и применяются при печати'
           "
         ></span>
         <iframe
@@ -559,6 +588,7 @@ onMounted(fetchSettings);
           src="/label-editor.html"
           title="Редактор этикеток"
           class="label-editor-frame"
+          @load="onLabelEditorFrameLoad"
         ></iframe>
       </div>
     </div>
@@ -612,7 +642,7 @@ onMounted(fetchSettings);
   transition: background-color 0.3s ease;
   cursor: default;
 }
-.rich-sync-dot.is-saving {
+.rich-sync-dot.is-unsaved {
   background: #f59e0b;
   animation: rich-sync-pulse 1s ease-in-out infinite;
 }

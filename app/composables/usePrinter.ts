@@ -299,50 +299,70 @@ const wrapRichLabelPages = (instances: string[], template: RichLabelTemplate) =>
   `;
 };
 
-// Ценники печатаются максимально плотно на обычных листах A4 — экономия
-// бумаги важнее, чем для рулонных этикеток, и принтер обычно самый обычный.
-const wrapRichLabelPagesGrid = (instances: string[], template: RichLabelTemplate) => {
-  const PAGE_W = 210, PAGE_H = 297, MARGIN = 8, GAP_X = 3, GAP_Y = 3;
-  const usableW = PAGE_W - MARGIN * 2;
-  const usableH = PAGE_H - MARGIN * 2;
-  const cols = Math.max(1, Math.floor((usableW + GAP_X) / (template.width + GAP_X)));
-  const rows = Math.max(1, Math.floor((usableH + GAP_Y) / (template.height + GAP_Y)));
-  const perPage = cols * rows;
+// Ценники печатаются плотной сеткой — на A4 (лист режется на страницы по
+// 297мм) либо на чековой ленте 80мм (одна непрерывная "страница", высота
+// растёт под фактическое количество этикеток). В обоих случаях лист
+// обрезается по факту занятых рядов, а не тянется на всю бумагу пустым —
+// экономия бумаги важнее, чем визуальная "стандартность" листа.
+const wrapRichLabelPagesGrid = (
+  instances: string[],
+  template: RichLabelTemplate,
+  opts: { paperWidthMm: number; paperHeightMm?: number; marginMm?: number; gapMm?: number }
+): { html: string; pageHeightMm: number } => {
+  const { paperWidthMm, paperHeightMm, marginMm = 8, gapMm = 3 } = opts;
+  const usableW = paperWidthMm - marginMm * 2;
+  const cols = Math.max(1, Math.floor((usableW + gapMm) / (template.width + gapMm)));
+  const heightForRows = (rows: number) => rows * template.height + Math.max(0, rows - 1) * gapMm + marginMm * 2;
+  const styleBlock = `
+    @page { size: ${paperWidthMm}mm __PAGE_H__mm; margin: 0; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; color: #000; }
+    .grid-page { width: ${paperWidthMm}mm; padding: ${marginMm}mm; overflow: hidden; }
+    .grid-inner { display: flex; flex-wrap: wrap; gap: ${gapMm}mm; width: ${usableW}mm; }
+  `;
+
+  // Чековая лента: печать непрерывная, без разрывов — одна "страница"
+  // высотой ровно под то, что реально уместилось.
+  if (!paperHeightMm) {
+    const rows = Math.max(1, Math.ceil(instances.length / cols));
+    const pageH = heightForRows(rows);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${styleBlock.replace("__PAGE_H__", String(pageH))}</style></head>
+      <body><div class="grid-page"><div class="grid-inner">${instances.join("")}</div></div></body></html>`;
+    return { html, pageHeightMm: pageH };
+  }
+
+  const usableH = paperHeightMm - marginMm * 2;
+  const rowsPerPage = Math.max(1, Math.floor((usableH + gapMm) / (template.height + gapMm)));
+  const perPage = cols * rowsPerPage;
   const pageCount = Math.max(1, Math.ceil(instances.length / perPage));
 
   let pagesHtml = "";
+  let maxPageHeight = 0;
   for (let p = 0; p < pageCount; p++) {
     const pageItems = instances.slice(p * perPage, (p + 1) * perPage);
     const isLast = p === pageCount - 1;
     const pageBreak = isLast ? "" : "page-break-after:always;break-after:page;";
-    pagesHtml += `<div class="grid-page" style="${pageBreak}"><div class="grid-inner">${pageItems.join("")}</div></div>`;
+    const rowsUsed = Math.min(rowsPerPage, Math.max(1, Math.ceil(pageItems.length / cols)));
+    const pageH = heightForRows(rowsUsed);
+    maxPageHeight = Math.max(maxPageHeight, pageH);
+    pagesHtml += `<div class="grid-page" style="height:${pageH}mm;${pageBreak}"><div class="grid-inner">${pageItems.join("")}</div></div>`;
   }
 
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <style>
-        @page { size: A4; margin: 0; }
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: Arial, sans-serif; color: #000; }
-        .grid-page { width: ${PAGE_W}mm; height: ${PAGE_H}mm; padding: ${MARGIN}mm; overflow: hidden; }
-        .grid-inner { display: flex; flex-wrap: wrap; gap: ${GAP_Y}mm ${GAP_X}mm; width: ${usableW}mm; }
-      </style>
-    </head>
-    <body>${pagesHtml}</body>
-    </html>
-  `;
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${styleBlock.replace("__PAGE_H__", String(maxPageHeight))}</style></head>
+    <body>${pagesHtml}</body></html>`;
+  return { html, pageHeightMm: maxPageHeight };
 };
 
 // Собирает готовые страницы под конкретный "богатый" шаблон, раскладка
-// зависит от его роли: ценник — плотная сетка на A4, штрихкод — по одному
-// экземпляру на страницу (размер страницы = размер этикетки).
+// зависит от его роли: ценник — плотная сетка (на A4 или на чековой ленте
+// 80мм, смотря что выбрал пользователь), штрихкод — по одному экземпляру
+// на страницу (размер страницы = размер этикетки, уже само по себе подходит
+// и под рулонный принтер).
 const buildRichLabelHtml = (
   richTpl: RichLabelTemplate & { role?: string },
   items: Array<{ product: any; qty: number }>,
-  settings: any
+  settings: any,
+  paperMode: "a4" | "roll80" = "a4"
 ) => {
   const instances: string[] = [];
   items.forEach(({ product, qty }) => {
@@ -351,7 +371,11 @@ const buildRichLabelHtml = (
   });
 
   if (richTpl.role === "price_tag") {
-    return { html: wrapRichLabelPagesGrid(instances, richTpl), pageWidthMm: 210, pageHeightMm: 297 };
+    const opts = paperMode === "roll80"
+      ? { paperWidthMm: 80, marginMm: 3, gapMm: 2 }
+      : { paperWidthMm: 210, paperHeightMm: 297, marginMm: 8, gapMm: 3 };
+    const { html, pageHeightMm } = wrapRichLabelPagesGrid(instances, richTpl, opts);
+    return { html, pageWidthMm: opts.paperWidthMm, pageHeightMm };
   }
   return { html: wrapRichLabelPages(instances, richTpl), pageWidthMm: richTpl.width, pageHeightMm: richTpl.height };
 };
@@ -802,9 +826,9 @@ export const usePrinter = () => {
   // количество копий, шаблон и размер общие для всей партии.
   const printLabelBatch = async (
     items: Array<{ product: any; qty: number }>,
-    opts: { type?: "price_tag" | "barcode"; printerName?: string; template?: RichLabelTemplate } = {}
+    opts: { type?: "price_tag" | "barcode"; printerName?: string; template?: RichLabelTemplate; paperMode?: "a4" | "roll80" } = {}
   ) => {
-    const { type = "price_tag", printerName, template: explicitTemplate } = opts;
+    const { type = "price_tag", printerName, template: explicitTemplate, paperMode = "a4" } = opts;
     try {
       // Явно выбранный на странице печати шаблон имеет приоритет; если его нет —
       // берём тот, что помечен активной ролью в редакторе (обратная совместимость).
@@ -816,7 +840,7 @@ export const usePrinter = () => {
       let pageHeightMm: number;
 
       if (richTpl) {
-        const built = buildRichLabelHtml(richTpl, items, settings.value);
+        const built = buildRichLabelHtml(richTpl, items, settings.value, paperMode);
         htmlContent = built.html;
         pageWidthMm = built.pageWidthMm;
         pageHeightMm = built.pageHeightMm;
