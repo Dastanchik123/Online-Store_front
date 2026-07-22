@@ -22,12 +22,29 @@ const availableTemplates = computed(() => {
 });
 const roleLabel = (role) =>
   role === "price_tag" ? "Ценник" : role === "barcode" ? "Штрихкод-этикетка" : "без роли";
+
+// Шаблон, помеченный активным для роли "штрихкод" в редакторе этикеток
+// (settings.label_active_template_barcode) — именно его печатает
+// одиночная кнопка "Штрих-код" на /admin/products. Очередь сюда чаще всего
+// приходит с товарами для печати штрихкодов, поэтому по умолчанию
+// подставляем тот же шаблон, а не первый попавшийся в общем списке.
+const defaultTemplateId = computed(() => {
+  try {
+    const active = JSON.parse(settings.value?.label_active_template_barcode || "null");
+    if (active?.id && availableTemplates.value.some((t) => t.id === active.id)) {
+      return active.id;
+    }
+  } catch (e) {
+    /* битый JSON — падаем на подбор ниже */
+  }
+  return availableTemplates.value.find((t) => t.role === "barcode")?.id || availableTemplates.value[0]?.id || "";
+});
 const selectedTemplateId = ref("");
 watch(
   availableTemplates,
   (list) => {
     if (list.length && !list.some((t) => t.id === selectedTemplateId.value)) {
-      selectedTemplateId.value = list[0].id;
+      selectedTemplateId.value = defaultTemplateId.value;
     }
   },
   { immediate: true },

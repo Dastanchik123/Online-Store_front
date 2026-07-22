@@ -57,12 +57,17 @@ const searchForHot = async () => {
   }
   isSearching.value = true;
   try {
-    const res = await getProducts({ search: searchQuery.value, per_page: 10 });
+    // Товары, уже добавленные в горячие, всё равно попадают в топ выдачи по
+    // релевантности (например, все молотки уже добавлены) — если брать только
+    // 10 штук и потом отфильтровывать горячие, список на экране может стать
+    // пустым, хотя невыбранные совпадения есть. Берём с запасом и обрезаем
+    // до 10 уже после фильтрации.
+    const res = await getProducts({ search: searchQuery.value, per_page: 30 });
 
     const hotIds = hotProducts.value.map((p) => p.id);
-    searchResults.value = (res.data || []).filter(
-      (p) => !hotIds.includes(p.id),
-    );
+    searchResults.value = (res.data || [])
+      .filter((p) => !hotIds.includes(p.id))
+      .slice(0, 10);
   } catch (e) {
     console.error(e);
   } finally {
