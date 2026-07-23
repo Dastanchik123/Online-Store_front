@@ -12,7 +12,6 @@ const {
   deleteProduct,
   downloadProductsExport,
   downloadProductsExcel,
-  downloadProductBarcode,
 } = useProducts();
 
 const { setQueue } = usePrintQueue();
@@ -656,14 +655,6 @@ onUnmounted(() => {
                   >
                     <i class="bi bi-box-seam"></i>
                   </NuxtLink>
-                  <button
-                    @click="downloadProductBarcode(product.id)"
-                    class="btn-action barcode shadow-sm"
-                    style="width: 22px; height: 22px; font-size: 0.7rem;"
-                    title="Штрих-код"
-                  >
-                    <i class="bi bi-upc-scan"></i>
-                  </button>
                   <button
                     @click="goToPrintLabels(product)"
                     class="btn-action barcode shadow-sm"

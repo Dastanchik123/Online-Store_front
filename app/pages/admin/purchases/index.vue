@@ -912,7 +912,7 @@ onUnmounted(() => {
                 class="btn btn-sm btn-dark rounded-pill px-3"
                 @click="openPrintModalBulk"
               >
-                <i class="bi bi-tags me-1"></i>Печать ценников ({{ selectedItemsCount }})
+                <i class="bi bi-tags me-1"></i>Печать этикеток ({{ selectedItemsCount }})
               </button>
               <button
                 class="btn btn-sm btn-primary rounded-pill px-3"

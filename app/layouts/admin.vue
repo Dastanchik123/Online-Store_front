@@ -143,7 +143,7 @@ onUnmounted(() => {
             to="/admin/print-labels"
             v-if="authStore.hasPermission('products.view')"
             @click="closeSidebar"
-            ><i class="bi bi-tag me-2"></i>Печать ценников</NuxtLink
+            ><i class="bi bi-tag me-2"></i>Печать этикеток</NuxtLink
           >
         </div>
 
