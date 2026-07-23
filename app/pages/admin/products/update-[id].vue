@@ -8,7 +8,7 @@ const route = useRoute();
 const router = useRouter();
 const uiStore = useUiStore();
 const productsStore = useProductsStore();
-const { getProduct, updateProduct, getCategories, generateAiDescription } = useProducts();
+const { getProduct, updateProduct, getCategories, generateSku, generateAiDescription } = useProducts();
 const { getImageUrl } = useImageUrl();
 const id = route.params.id;
 
@@ -82,6 +82,15 @@ const fetchProduct = async () => {
     router.push("/admin/products");
   } finally {
     isLoading.value = false;
+  }
+};
+
+const handleGenerateSku = async () => {
+  try {
+    const res = await generateSku();
+    form.value.sku = res.sku;
+  } catch (error) {
+    console.error("Error generating SKU", error);
   }
 };
 
@@ -267,15 +276,25 @@ onMounted(async () => {
 
             <div class="col-md-6">
               <label class="form-label">SKU (Артикул) *</label>
-              <input
-                v-model="form.sku"
-                type="text"
-                class="form-control"
-                :class="{ 'is-invalid': errors.sku }"
-                required
-              />
-              <div v-if="errors.sku" class="invalid-feedback">
-                {{ errors.sku[0] }}
+              <div class="input-group">
+                <input
+                  v-model="form.sku"
+                  type="text"
+                  class="form-control"
+                  :class="{ 'is-invalid': errors.sku }"
+                  required
+                />
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  @click="handleGenerateSku"
+                  title="Сгенерировать SKU"
+                >
+                  <i class="bi bi-magic"></i>
+                </button>
+                <div v-if="errors.sku" class="invalid-feedback">
+                  {{ errors.sku[0] }}
+                </div>
               </div>
             </div>
           </div>
