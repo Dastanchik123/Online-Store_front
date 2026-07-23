@@ -53,6 +53,7 @@ const toggleGroup = (group) => {
   } else {
     activeGroup.value = group;
     hotProductIndex.value = 0;
+    document.activeElement?.blur();
   }
 };
 
@@ -149,6 +150,7 @@ const handleGlobalKeyDown = async (e) => {
     activeGroup.value = hotGroups.value[nextIndex];
     hotGroupIndex.value = nextIndex;
     hotProductIndex.value = 0;
+    document.activeElement?.blur();
     return;
   }
 
@@ -231,6 +233,7 @@ const handleGlobalKeyDown = async (e) => {
         hotGroupIndex.value = 0;
         activeGroup.value = hotGroups.value[0];
         hotProductIndex.value = 0;
+        document.activeElement?.blur();
       }
     }
     return;

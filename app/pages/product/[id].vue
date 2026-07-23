@@ -157,7 +157,7 @@ const handleAddToCart = async () => {
           В корзину <i class="bi bi-arrow-right ms-1"></i>
         </a>
       </div>
-    `);
+    `, { html: true });
   } catch (err) {
     uiStore.error(err.data?.message || "Ошибка добавления в корзину");
   } finally {
