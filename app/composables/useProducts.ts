@@ -216,9 +216,10 @@ export const useProducts = () => {
     );
   };
 
-  const generateSku = async () => {
+  const generateSku = async (currentSku?: string) => {
     try {
-      return await api.apiFetch("/products/generate-sku");
+      const query = currentSku ? `?current=${encodeURIComponent(currentSku)}` : "";
+      return await api.apiFetch(`/products/generate-sku${query}`);
     } catch (error) {
       throw error;
     }

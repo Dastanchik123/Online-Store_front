@@ -45,7 +45,7 @@ const fetchCategories = async () => {
 
 const handleGenerateSku = async () => {
   try {
-    const res = await generateSku();
+    const res = await generateSku(form.value.sku);
     form.value.sku = res.sku;
   } catch (error) {
     console.error("Error generating SKU", error);
