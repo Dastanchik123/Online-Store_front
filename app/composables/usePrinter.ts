@@ -81,7 +81,7 @@ const parseRichTemplate = (json: string | undefined | null): RichLabelTemplate |
   return null;
 };
 
-// Реальные товары не имеют полей oldPrice/barcode/article/unit/country из
+// Реальные товары не имеют полей oldPrice/barcode/article/country из
 // редактора — приводим к его формату (sku служит и артикулом, и штрихкодом).
 const adaptProductForRichLabel = (product: any) => {
   const regularPrice = Number(product?.price || 0);
@@ -93,7 +93,7 @@ const adaptProductForRichLabel = (product: any) => {
     oldPrice: hasSale ? regularPrice : 0,
     barcode: product?.sku || "",
     article: product?.sku || "",
-    unit: "",
+    unit: product?.unit || "",
     unitPrice: 0,
     country: "",
   };

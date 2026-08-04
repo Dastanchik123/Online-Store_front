@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Kurulush Store</string>
+    <string name="title_activity_main">Kurulush Store</string>
+    <string name="package_name">kg.kurulush.store</string>
+    <string name="custom_url_scheme">kg.kurulush.store</string>
+</resources>

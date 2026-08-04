@@ -27,12 +27,30 @@ const form = ref({
   is_active: true,
   in_stock: true,
   dimensions: "",
+  unit: "шт",
   stock_quantity: 0,
 });
+
+const UNIT_OPTIONS = ["шт", "уп", "кг", "г", "л", "м", "м²", "м³", "пара", "компл", "рулон", "мешок", "бухта"];
 
 const selectedFile = ref(null);
 const imagePreview = ref(null);
 const gallery = ref([]);
+const attributeList = ref([]);
+
+const addAttribute = () => {
+  attributeList.value.push({ key: "", value: "" });
+};
+
+const removeAttribute = (index) => {
+  attributeList.value.splice(index, 1);
+};
+
+const preventEnterSubmit = (event) => {
+  const tag = event.target.tagName;
+  if (tag === "TEXTAREA" || tag === "BUTTON") return;
+  event.preventDefault();
+};
 
 const fetchCategories = async () => {
   try {
@@ -162,6 +180,12 @@ const handleSubmit = async () => {
       });
     }
 
+    attributeList.value.forEach((item) => {
+      if (item.key) {
+        formData.append(`attributes[${item.key}]`, item.value);
+      }
+    });
+
     await createProduct(formData);
     uiStore.success("Товар успешно создан");
     router.push("/admin/products");
@@ -194,7 +218,7 @@ onMounted(() => {
 
     <div class="card shadow-sm">
       <div class="card-body">
-        <form @submit.prevent="handleSubmit">
+        <form @submit.prevent="handleSubmit" @keydown.enter="preventEnterSubmit">
           
           <div class="row g-3 mb-4">
             <div class="col-md-6">
@@ -284,7 +308,7 @@ onMounted(() => {
 
           
           <div class="row g-3 mb-4">
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">Закупочная цена</label>
               <div class="input-group">
                 <input
@@ -301,7 +325,7 @@ onMounted(() => {
               </div>
             </div>
 
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">Цена продажи *</label>
               <div class="input-group">
                 <input
@@ -320,7 +344,7 @@ onMounted(() => {
             </div>
 
             <div class="col-md-3">
-              <label class="form-label">Цена со скидкой</label>
+              <label class="form-label">Цена по акции</label>
               <div class="input-group">
                 <input
                   v-model.number="form.sale_price"
@@ -334,13 +358,18 @@ onMounted(() => {
 
             <div class="col-md-3">
               <label class="form-label">Начальный остаток</label>
-              <input
-                v-model.number="form.stock_quantity"
-                type="number"
-                class="form-control"
-                placeholder="0"
-                min="0"
-              />
+              <div class="input-group">
+                <input
+                  v-model.number="form.stock_quantity"
+                  type="number"
+                  class="form-control"
+                  placeholder="0"
+                  min="0"
+                />
+                <select v-model="form.unit" class="form-select" style="max-width: 90px;">
+                  <option v-for="u in UNIT_OPTIONS" :key="u" :value="u">{{ u }}</option>
+                </select>
+              </div>
               <div class="form-text text-muted" style="font-size: 0.75rem">
                 Только при создании
               </div>
@@ -441,8 +470,9 @@ onMounted(() => {
                 :style="draggedGalleryIndex === index ? 'opacity: 0.5' : ''"
               >
                 <img :src="item.preview" class="rounded" style="width: 100%; height: 100px; object-fit: cover;" draggable="false" />
-                <button 
-                  @click.prevent="removeGalleryImage(index)" 
+                <button
+                  type="button"
+                  @click.prevent="removeGalleryImage(index)"
                   class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1 p-0"
                   style="width: 24px; height: 24px; line-height: 22px; border-radius: 50%; opacity: 0.9;"
                   title="Удалить"
@@ -476,7 +506,41 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="d-flex justify-content-end gap-2 pt-3 border-top">
+          <div class="border-top pt-4">
+            <label class="form-label mb-2">Характеристики</label>
+            <div
+              v-for="(attr, index) in attributeList"
+              :key="index"
+              class="input-group mb-2"
+            >
+              <input
+                v-model="attr.key"
+                placeholder="Название (напр. Цвет)"
+                class="form-control"
+              />
+              <input
+                v-model="attr.value"
+                placeholder="Значение (напр. Красный)"
+                class="form-control"
+              />
+              <button
+                type="button"
+                @click.prevent="removeAttribute(index)"
+                class="btn btn-outline-danger"
+              >
+                ✕
+              </button>
+            </div>
+            <button
+              type="button"
+              @click.prevent="addAttribute"
+              class="btn btn-sm btn-link text-decoration-none ps-0"
+            >
+              + Добавить характеристику
+            </button>
+          </div>
+
+          <div class="d-flex justify-content-end gap-2 pt-3 border-top mt-3">
             <NuxtLink to="/admin/products" class="btn btn-outline-secondary">
               Отмена
             </NuxtLink>

@@ -5,6 +5,9 @@
   "scripts": {
     "build": "nuxt build",
     "build:laravel": "NUXT_TARGET=laravel NUXT_PUBLIC_API_BASE=/api nuxt generate && rm -rf ../Online-Store_back/public/_nuxt && cp -r .output/public/. ../Online-Store_back/public/",
+    "build:capacitor": "NUXT_TARGET=capacitor nuxt generate",
+    "cap:sync": "npm run build:capacitor && npx cap sync android",
+    "cap:open": "npx cap open android",
     "dev": "nuxt dev --host",
     "dev:https": "nuxt dev --host --https",
     "generate": "nuxt generate",
@@ -14,6 +17,8 @@
     "kiosk": "google-chrome --kiosk --kiosk-printing --disable-print-preview http://localhost:3000/cashier"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
     "@nuxtjs/bootstrap": "^0.0.1",
     "@pinia/nuxt": "^0.11.3",
     "@popperjs/core": "^2.11.8",
@@ -32,6 +37,7 @@
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/uuid": "^10.0.0",
     "electron": "^31.0.0",

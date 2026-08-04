@@ -32,8 +32,11 @@ const form = ref({
   is_active: true,
   in_stock: true,
   dimensions: "",
+  unit: "шт",
   attributes: {},
 });
+
+const UNIT_OPTIONS = ["шт", "уп", "кг", "г", "л", "м", "м²", "м³", "пара", "компл", "рулон", "мешок", "бухта"];
 
 const selectedFile = ref(null);
 const imagePreview = ref(null);
@@ -168,6 +171,20 @@ const handleGenerateDescription = async () => {
   }
 };
 
+const preventEnterSubmit = (event) => {
+  const tag = event.target.tagName;
+  if (tag === "TEXTAREA" || tag === "BUTTON") return;
+  event.preventDefault();
+};
+
+const formEl = ref(null);
+const handleCtrlEnter = () => {
+  // requestSubmit() (не прямой вызов handleSubmit) прогоняет нативную
+  // HTML5-валидацию (required и т.д.) — при провале браузер сам покажет
+  // подсказку и submit-событие не долетит до @submit.prevent.
+  formEl.value?.requestSubmit();
+};
+
 const handleSubmit = async () => {
   isSaving.value = true;
   errors.value = {};
@@ -258,7 +275,12 @@ onMounted(async () => {
 
     <div v-else class="card shadow-sm">
       <div class="card-body">
-        <form @submit.prevent="handleSubmit">
+        <form
+          ref="formEl"
+          @submit.prevent="handleSubmit"
+          @keydown.enter="preventEnterSubmit"
+          @keydown.ctrl.enter="handleCtrlEnter"
+        >
           <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label">Название товара *</label>
@@ -396,13 +418,18 @@ onMounted(async () => {
 
             <div class="col-md-3">
               <label class="form-label">Количество на складе</label>
-              <input
-                v-model="form.stock_quantity"
-                type="number"
-                class="form-control"
-                disabled
-                title="Изменяется только через закупки или инвентаризацию"
-              />
+              <div class="input-group">
+                <input
+                  v-model="form.stock_quantity"
+                  type="number"
+                  class="form-control"
+                  disabled
+                  title="Изменяется только через закупки или инвентаризацию"
+                />
+                <select v-model="form.unit" class="form-select" style="max-width: 90px;">
+                  <option v-for="u in UNIT_OPTIONS" :key="u" :value="u">{{ u }}</option>
+                </select>
+              </div>
               <div class="form-text text-muted" style="font-size: 0.75rem">
                 Изменяется только через закупки
               </div>
@@ -499,8 +526,9 @@ onMounted(async () => {
                   @load="(e) => e.target.classList.add('is-loaded')"
                   @error="(e) => e.target.classList.add('is-loaded', 'is-broken')"
                 />
-                <button 
-                  @click.prevent="removeGalleryImage(index)" 
+                <button
+                  type="button"
+                  @click.prevent="removeGalleryImage(index)"
                   class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1 p-0"
                   style="width: 24px; height: 24px; line-height: 22px; border-radius: 50%; opacity: 0.9;"
                   title="Удалить"
@@ -551,6 +579,7 @@ onMounted(async () => {
                 class="form-control"
               />
               <button
+                type="button"
                 @click.prevent="removeAttribute(index)"
                 class="btn btn-outline-danger"
               >
@@ -558,6 +587,7 @@ onMounted(async () => {
               </button>
             </div>
             <button
+              type="button"
               @click.prevent="addAttribute"
               class="btn btn-sm btn-link text-decoration-none ps-0"
             >

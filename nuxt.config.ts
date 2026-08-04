@@ -2,12 +2,16 @@
 
 // NUXT_TARGET=laravel — SPA-сборка для раздачи прямо из public/ Laravel
 // (same-origin с API: нет CORS-preflight и лишнего домена). Запуск: npm run build:laravel
+// NUXT_TARGET=capacitor — та же статическая SPA-сборка, но с абсолютным apiBase
+// (грузится из file:// / android_asset, same-origin не работает). Запуск: npm run build:capacitor
 const isLaravelTarget = process.env.NUXT_TARGET === "laravel";
+const isCapacitorTarget = process.env.NUXT_TARGET === "capacitor";
+const isStaticTarget = isLaravelTarget || isCapacitorTarget;
 
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   devtools: { enabled: true },
-  ssr: !isLaravelTarget,
+  ssr: !isStaticTarget,
   modules: ["@pinia/nuxt"],
 
   runtimeConfig: {
@@ -64,7 +68,7 @@ export default defineNuxtConfig({
   },
 
   nitro: {
-    preset: isLaravelTarget ? "static" : "vercel",
+    preset: isStaticTarget ? "static" : "vercel",
     devProxy: {
       "/api": {
         target: "https://online-store-back.fly.dev/api",

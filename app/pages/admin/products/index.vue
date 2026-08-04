@@ -623,7 +623,7 @@ onUnmounted(() => {
               <td class="py-1">
                 <div class="stock-badge py-0 px-2" :class="stockClass(product)" style="font-size: 0.7rem;">
                   <span class="count">{{ product.stock_quantity }}</span>
-                  <span class="unit ms-1">шт.</span>
+                  <span class="unit ms-1">{{ product.unit || "шт" }}.</span>
                 </div>
               </td>
               <td class="py-1">
