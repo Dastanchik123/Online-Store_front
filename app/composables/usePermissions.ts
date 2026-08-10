@@ -25,11 +25,31 @@ export const usePermissions = () => {
     });
   };
 
+  const getRoles = async () => {
+    return await api.apiFetch("/roles");
+  };
+
+  const createRole = async (name: string, label: string) => {
+    return await api.apiFetch("/roles", {
+      method: "POST",
+      body: { name, label },
+    });
+  };
+
+  const deleteRole = async (roleId: number) => {
+    return await api.apiFetch(`/roles/${roleId}`, {
+      method: "DELETE",
+    });
+  };
+
   return {
     myPermissions,
     fetchMyPermissions,
     hasPermission,
     getPermissionsByRole,
     updateRolePermissions,
+    getRoles,
+    createRole,
+    deleteRole,
   };
 };

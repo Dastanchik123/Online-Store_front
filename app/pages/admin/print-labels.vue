@@ -1,7 +1,8 @@
 <script setup>
 definePageMeta({
   layout: "admin",
-  middleware: "purchaser",
+  middleware: "permission",
+  permission: "products.view",
 });
 
 const { queue, clearQueue } = usePrintQueue();

@@ -1,7 +1,8 @@
 <script setup>
 definePageMeta({
   layout: "admin",
-  middleware: "purchaser",
+  middleware: "permission",
+  permission: "products.view",
 });
 
 const uiStore = useUiStore();
@@ -43,7 +44,7 @@ const isExportingPdf = ref(false);
 const exportPdf = async () => {
   isExportingPdf.value = true;
   try {
-    await downloadProductsExport(filters);
+    await downloadProductsExport(filters.value);
   } catch (error) {
     uiStore.error(error.message || "Ошибка при экспорте PDF");
   } finally {
@@ -302,7 +303,7 @@ const formatPrice = (price) => {
   return (
     parseFloat(price).toLocaleString("ru-RU", {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 2,
     }) + " сом"
   );
 };
@@ -443,7 +444,7 @@ onUnmounted(() => {
         </div>
         <div class="col-auto d-flex gap-2">
           <button
-            @click="downloadProductsExcel(filters)"
+            @click="downloadProductsExcel(filters.value)"
             class="btn btn-light rounded-pill px-4 py-2 fw-bold shadow-sm"
           >
             <i class="bi bi-file-earmark-excel me-2 text-success"></i>Экспорт

@@ -98,6 +98,14 @@
                   <i class="bi bi-wallet2 me-2"></i>Рабочее место Кассира
                 </NuxtLink>
               </li>
+              <li v-if="authStore.isManager">
+                <NuxtLink
+                  class="dropdown-item text-primary py-2"
+                  to="/admin/orders"
+                >
+                  <i class="bi bi-person-badge me-2"></i>Панель Менеджера
+                </NuxtLink>
+              </li>
               <li v-if="authStore.isAdmin">
                 <NuxtLink
                   class="dropdown-item text-primary fw-bold py-2"
@@ -276,6 +284,15 @@
                   class="text-info"
                 >
                   <i class="bi bi-wallet2 me-3"></i>Рабочее место Кассира
+                </NuxtLink>
+              </li>
+              <li v-if="authStore.isManager">
+                <NuxtLink
+                  to="/admin/orders"
+                  @click="isMobileMenuOpen = false"
+                  class="text-primary"
+                >
+                  <i class="bi bi-person-badge me-3"></i>Панель Менеджера
                 </NuxtLink>
               </li>
               <li v-if="authStore.isAdmin">

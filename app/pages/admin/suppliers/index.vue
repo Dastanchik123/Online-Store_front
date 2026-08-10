@@ -12,7 +12,8 @@ const uiStore = useUiStore();
 
 definePageMeta({
   layout: "admin",
-  middleware: "purchaser",
+  middleware: "permission",
+  permission: "suppliers.manage",
 });
 
 const suppliers = ref([]);

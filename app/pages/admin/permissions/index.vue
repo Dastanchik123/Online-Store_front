@@ -1,5 +1,6 @@
 <script setup>
-const { getPermissionsByRole, updateRolePermissions } = usePermissions();
+const { getPermissionsByRole, updateRolePermissions, getRoles, createRole, deleteRole } =
+  usePermissions();
 const ui = useUiStore();
 
 definePageMeta({
@@ -7,11 +8,77 @@ definePageMeta({
   middleware: "admin",
 });
 
-const roles = ["purchaser", "cashier", "user"];
-const selectedRole = ref("purchaser");
+// Роли больше не захардкожены — приходят из БД (таблица roles), их можно
+// создавать/удалять прямо здесь. Роль admin сюда не попадает: у неё всегда
+// полный доступ, редактировать её права нет смысла.
+const roles = ref([]);
+const rolesLoading = ref(true);
+const selectedRole = ref("");
 const loading = ref(true);
 const saving = ref(false);
 const rolePermissions = ref([]);
+
+const showCreateForm = ref(false);
+const newRoleName = ref("");
+const newRoleLabel = ref("");
+const creatingRole = ref(false);
+
+const roleLabels = computed(() => {
+  const map = {};
+  for (const r of roles.value) map[r.name] = r.label;
+  return map;
+});
+
+const fetchRoles = async () => {
+  rolesLoading.value = true;
+  try {
+    const data = await getRoles();
+    roles.value = data.filter((r) => r.name !== "admin");
+    if (!selectedRole.value && roles.value.length) {
+      selectedRole.value = roles.value[0].name;
+    }
+  } catch (e) {
+    ui.addToast("Ошибка загрузки ролей", "error");
+  } finally {
+    rolesLoading.value = false;
+  }
+};
+
+const submitNewRole = async () => {
+  if (!newRoleName.value.trim() || !newRoleLabel.value.trim()) return;
+  creatingRole.value = true;
+  try {
+    await createRole(newRoleName.value.trim(), newRoleLabel.value.trim());
+    ui.addToast("Роль создана", "success");
+    newRoleName.value = "";
+    newRoleLabel.value = "";
+    showCreateForm.value = false;
+    await fetchRoles();
+  } catch (e) {
+    ui.addToast(
+      e?.data?.message || "Ошибка создания роли (имя должно быть латиницей, напр. senior_cashier)",
+      "error",
+    );
+  } finally {
+    creatingRole.value = false;
+  }
+};
+
+const removeRole = async (role) => {
+  if (role.is_system) return;
+  if (!confirm(`Удалить роль «${role.label}»?`)) return;
+  try {
+    await deleteRole(role.id);
+    ui.addToast("Роль удалена", "success");
+    if (selectedRole.value === role.name) selectedRole.value = "";
+    await fetchRoles();
+  } catch (e) {
+    ui.addToast(
+      e?.data?.message || "Не удалось удалить роль",
+      "error",
+    );
+  }
+};
 
 const availablePermissions = [
   {
@@ -80,24 +147,15 @@ const availablePermissions = [
     desc: "Просмотр и управление долгами покупателей.",
   },
   {
-    id: "settings.edit",
-    label: "Настройки магазина",
-    desc: "Изменение основных параметров сайта.",
-  },
-  {
     id: "marketing.manage",
     label: "Маркетинг",
     desc: "Управление скидочными купонами и баннерами.",
   },
   { id: "blog.manage", label: "Блог", desc: "Публикация новостей и статей." },
-  {
-    id: "users.manage",
-    label: "Пользователи",
-    desc: "Управление учётными записями клиентов и сотрудников.",
-  },
 ];
 
 const fetchRolePermissions = async () => {
+  if (!selectedRole.value) return;
   loading.value = true;
   try {
     const data = await getPermissionsByRole(selectedRole.value);
@@ -122,7 +180,10 @@ const save = async () => {
 };
 
 watch(selectedRole, fetchRolePermissions);
-onMounted(fetchRolePermissions);
+onMounted(async () => {
+  await fetchRoles();
+  await fetchRolePermissions();
+});
 </script>
 
 <template>
@@ -154,33 +215,87 @@ onMounted(fetchRolePermissions);
           style="top: 20px; z-index: 1"
         >
           <h6 class="fw-bold mb-3">Выберите роль</h6>
-          <div class="list-group list-group-flush">
-            <button
+          <div v-if="rolesLoading" class="text-center py-3">
+            <div class="spinner-border spinner-border-sm text-primary"></div>
+          </div>
+          <div v-else class="list-group list-group-flush">
+            <div
               v-for="role in roles"
-              :key="role"
-              @click="selectedRole = role"
-              class="list-group-item list-group-item-action border-0 rounded-3 mb-2 px-3 py-2 d-flex justify-content-between align-items-center transition-all"
-              :class="{
-                'bg-primary text-white shadow-md': selectedRole === role,
-                'bg-light text-dark': selectedRole !== role,
-              }"
+              :key="role.id"
+              class="d-flex align-items-center gap-1 mb-2"
             >
-              <span class="text-capitalize fw-medium">{{ role }}</span>
-              <i
-                class="bi"
-                :class="
-                  selectedRole === role ? 'bi-check-circle-fill' : 'bi-circle'
-                "
-              ></i>
+              <button
+                @click="selectedRole = role.name"
+                class="list-group-item list-group-item-action border-0 rounded-3 px-3 py-2 d-flex justify-content-between align-items-center transition-all flex-grow-1"
+                :class="{
+                  'bg-primary text-white shadow-md': selectedRole === role.name,
+                  'bg-light text-dark': selectedRole !== role.name,
+                }"
+              >
+                <span class="fw-medium">{{ role.label }}</span>
+                <i
+                  class="bi"
+                  :class="
+                    selectedRole === role.name ? 'bi-check-circle-fill' : 'bi-circle'
+                  "
+                ></i>
+              </button>
+              <button
+                v-if="!role.is_system"
+                class="btn btn-sm btn-outline-danger border-0"
+                title="Удалить роль"
+                @click="removeRole(role)"
+              >
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="!showCreateForm" class="mt-2">
+            <button
+              class="btn btn-sm btn-outline-primary w-100 rounded-3"
+              @click="showCreateForm = true"
+            >
+              <i class="bi bi-plus-lg me-1"></i>Новая роль
             </button>
           </div>
+          <div v-else class="mt-2 p-3 bg-light rounded-3">
+            <input
+              v-model="newRoleName"
+              type="text"
+              class="form-control form-control-sm mb-2"
+              placeholder="код роли, напр. senior_cashier"
+            />
+            <input
+              v-model="newRoleLabel"
+              type="text"
+              class="form-control form-control-sm mb-2"
+              placeholder="Название, напр. Старший кассир"
+            />
+            <div class="d-flex gap-2">
+              <button
+                class="btn btn-sm btn-primary flex-grow-1"
+                :disabled="creatingRole"
+                @click="submitNewRole"
+              >
+                Создать
+              </button>
+              <button
+                class="btn btn-sm btn-outline-secondary"
+                @click="showCreateForm = false"
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+
           <div
             class="alert alert-info mt-4 small mb-0 rounded-4 border-0 bg-info-subtle text-info-emphasis"
           >
             <div class="d-flex">
               <i class="bi bi-info-circle-fill me-2 fs-5"></i>
               <div>
-                Роль <b>{{ selectedRole }}</b> определяет уровень доступа
+                Роль <b>{{ roleLabels[selectedRole] }}</b> определяет уровень доступа
                 пользователя к системе.
               </div>
             </div>
@@ -197,8 +312,8 @@ onMounted(fetchRolePermissions);
             <div class="d-flex justify-content-between align-items-center mb-4">
               <h6 class="fw-bold m-0 fs-5">
                 Разрешения:
-                <span class="text-primary text-capitalize">{{
-                  selectedRole
+                <span class="text-primary">{{
+                  roleLabels[selectedRole]
                 }}</span>
               </h6>
               <div class="text-muted small">

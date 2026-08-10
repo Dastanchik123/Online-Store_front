@@ -1,7 +1,8 @@
 <script setup>
 definePageMeta({
   layout: "admin",
-  middleware: "admin",
+  middleware: "permission",
+  permission: "products.edit",
 });
 
 const { getProducts, updateProduct } = useProducts();
@@ -151,27 +152,64 @@ const removeFromHot = async (product) => {
   }
 };
 
-const moveItem = async (list, index, direction) => {
-  const newIndex = index + direction;
-  if (newIndex < 0 || newIndex >= list.length) return;
+// Меняет местами hot_order двух товаров на сервере (без перезагрузки списка —
+// вызывающий сам решает, когда обновить список, чтобы не дёргать
+// fetchHotProducts на каждый шаг при перетаскивании через несколько позиций).
+const swapOrder = async (itemA, itemB) => {
+  const orderA = itemA.hot_order;
+  const orderB = itemB.hot_order;
 
-  const itemA = list[index];
-  const itemB = list[newIndex];
+  const fdA = new FormData();
+  fdA.append("hot_order", orderB.toString());
 
-  const tempOrder = itemA.hot_order;
+  const fdB = new FormData();
+  fdB.append("hot_order", orderA.toString());
+
+  await Promise.all([
+    updateProduct(itemA.id, fdA),
+    updateProduct(itemB.id, fdB),
+  ]);
+
+  // Локально тоже меняем местами, чтобы следующий шаг (при drag через
+  // несколько позиций) считал уже от актуальных значений.
+  itemA.hot_order = orderB;
+  itemB.hot_order = orderA;
+};
+
+// ── Drag & drop переупорядочивания ──────────────────────────────
+const draggedIndex = ref(null);
+const dragOverIndex = ref(null);
+
+const onDragStart = (index) => {
+  draggedIndex.value = index;
+};
+
+const onDragOverItem = (index) => {
+  dragOverIndex.value = index;
+};
+
+const onDragEnd = () => {
+  draggedIndex.value = null;
+  dragOverIndex.value = null;
+};
+
+const onDropItem = async (targetIndex) => {
+  const sourceIndex = draggedIndex.value;
+  draggedIndex.value = null;
+  dragOverIndex.value = null;
+  if (sourceIndex === null || sourceIndex === targetIndex) return;
+
+  const list = filteredHotProducts.value;
+  const direction = targetIndex > sourceIndex ? 1 : -1;
 
   try {
-    const fdA = new FormData();
-    fdA.append("hot_order", itemB.hot_order.toString());
-
-    const fdB = new FormData();
-    fdB.append("hot_order", tempOrder.toString());
-
-    await Promise.all([
-      updateProduct(itemA.id, fdA),
-      updateProduct(itemB.id, fdB),
-    ]);
-
+    // Последовательные обмены соседей — та же логика, что у кнопок
+    // вверх/вниз, просто повторённая нужное число раз до целевой позиции.
+    let idx = sourceIndex;
+    while (idx !== targetIndex) {
+      await swapOrder(list[idx], list[idx + direction]);
+      idx += direction;
+    }
     await fetchHotProducts();
   } catch (e) {
     ui.error("Ошибка при изменении порядка");
@@ -477,8 +515,24 @@ onMounted(() => {
               <div
                 v-for="(p, index) in filteredHotProducts"
                 :key="p.id"
+                draggable="true"
+                @dragstart="onDragStart(index)"
+                @dragover.prevent="onDragOverItem(index)"
+                @drop.prevent="onDropItem(index)"
+                @dragend="onDragEnd"
                 class="hot-item d-flex align-items-center p-3 mb-2 rounded-4 border bg-white"
+                :class="{
+                  'is-dragging': draggedIndex === index,
+                  'is-drag-over': dragOverIndex === index && draggedIndex !== index,
+                }"
               >
+                <div
+                  class="drag-handle me-2 text-muted"
+                  title="Перетащите, чтобы изменить порядок"
+                >
+                  <i class="bi bi-grip-vertical fs-5"></i>
+                </div>
+
                 <div class="order-badge me-3 fw-bold text-primary">
                   {{ index + 1 }}
                 </div>
@@ -553,20 +607,6 @@ onMounted(() => {
                     </div>
                   </div>
                   <button
-                    @click="moveItem(filteredHotProducts, index, -1)"
-                    :disabled="index === 0"
-                    class="btn btn-sm btn-light rounded-circle"
-                  >
-                    <i class="bi bi-chevron-up"></i>
-                  </button>
-                  <button
-                    @click="moveItem(filteredHotProducts, index, 1)"
-                    :disabled="index === filteredHotProducts.length - 1"
-                    class="btn btn-sm btn-light rounded-circle"
-                  >
-                    <i class="bi bi-chevron-down"></i>
-                  </button>
-                  <button
                     @click="removeFromHot(p)"
                     class="btn btn-sm btn-light-danger rounded-circle text-danger ms-2"
                   >
@@ -637,6 +677,24 @@ onMounted(() => {
 .hot-item:hover {
   border-color: #3b82f6 !important;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+.hot-item.is-dragging {
+  opacity: 0.4;
+}
+
+.hot-item.is-drag-over {
+  border-color: #3b82f6 !important;
+  border-style: dashed !important;
+  background-color: rgba(59, 130, 246, 0.05) !important;
+}
+
+.drag-handle {
+  cursor: grab;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .order-badge {

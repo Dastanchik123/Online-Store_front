@@ -40,7 +40,7 @@ onUnmounted(() => {
 <template>
   <ClientOnly>
     <div
-      v-if="authStore.isAdmin || authStore.isPurchaser || authStore.isCashier"
+      v-if="authStore.user && authStore.user.role !== 'user'"
       class="admin-layout"
     >
       <div
@@ -227,7 +227,7 @@ onUnmounted(() => {
           <div class="section-title">ФИНАНСЫ И АНАЛИТИКА</div>
           <NuxtLink
             to="/admin/analytics"
-            v-if="authStore.hasPermission('reports.view')"
+            v-if="authStore.isAdmin"
             @click="closeSidebar"
             ><i class="bi bi-bar-chart-line me-2"></i>Отчеты</NuxtLink
           >
@@ -250,7 +250,7 @@ onUnmounted(() => {
           <div class="section-title">СИСТЕМА</div>
           <NuxtLink
             to="/admin/settings"
-            v-if="authStore.hasPermission('settings.edit')"
+            v-if="authStore.isAdmin"
             @click="closeSidebar"
             ><i class="bi bi-sliders me-2"></i>Настройки</NuxtLink
           >
@@ -262,7 +262,7 @@ onUnmounted(() => {
           >
           <NuxtLink
             to="/admin/users"
-            v-if="authStore.hasPermission('users.manage')"
+            v-if="authStore.isAdmin"
             @click="closeSidebar"
             ><i class="bi bi-person-gear me-2"></i>Пользователи</NuxtLink
           >

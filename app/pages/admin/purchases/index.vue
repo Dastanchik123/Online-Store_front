@@ -21,7 +21,8 @@ const productsStore = useProductsStore();
 
 definePageMeta({
   layout: "admin",
-  middleware: "purchaser",
+  middleware: "permission",
+  permission: "purchases.manage",
 });
 
 const activeTab = ref("list");
@@ -289,6 +290,24 @@ const newProductForm = ref({
   category_id: "",
   is_active: true,
   in_stock: true,
+  unit: "шт",
+  package_unit: null,
+  package_size: null,
+  package_price: null,
+  package_purchase_price: null,
+});
+const quickSellByPackage = ref(false);
+const QUICK_UNIT_OPTIONS = ["шт", "уп", "кг", "г", "л", "м", "м²", "м³", "пара", "компл", "рулон", "мешок", "бухта"];
+watch(quickSellByPackage, (enabled) => {
+  if (!enabled) {
+    newProductForm.value.package_unit = null;
+    newProductForm.value.package_size = null;
+    newProductForm.value.package_price = null;
+    newProductForm.value.package_purchase_price = null;
+  } else {
+    if (!newProductForm.value.package_unit) newProductForm.value.package_unit = "рулон";
+    if (!newProductForm.value.package_size) newProductForm.value.package_size = 1;
+  }
 });
 const productErrors = ref({});
 const isProductSaving = ref(false);
@@ -335,7 +354,13 @@ const handleQuickAddProduct = async () => {
       category_id: "",
       is_active: true,
       in_stock: true,
+      unit: "шт",
+      package_unit: null,
+      package_size: null,
+      package_price: null,
+      package_purchase_price: null,
     };
+    quickSellByPackage.value = false;
   } catch (error) {
     if (error.data?.errors) {
       productErrors.value = error.data.errors;
@@ -489,17 +514,58 @@ const addItem = (product) => {
     form.value.items[existingIndex].quantity++;
     focusQuantityInput(existingIndex);
   } else {
+    const isPackage = !!product.package_unit;
+    const unitBuyPrice = parseFloat(product.purchase_price || product.price || 0);
+    const unitSalePrice = parseFloat(product.price || 0);
+    // Если закупочная цена упаковки не задана на товаре — берём разумную
+    // стартовую оценку (цена за базовую единицу × размер упаковки), её
+    // всегда можно поправить вручную прямо в строке приёма.
+    const packageBuyPrice = parseFloat(
+      product.package_purchase_price || unitBuyPrice * (product.package_size || 1) || 0,
+    );
+    const packageSalePrice = parseFloat(product.package_price || 0);
+
     form.value.items.push({
       product_id: product.id,
       name: product.name,
       sku: product.sku || "",
       quantity: 1,
-      buy_price: parseFloat(product.purchase_price || product.price || 0),
-      sale_price: parseFloat(product.price || 0),
+      buy_price: isPackage ? packageBuyPrice : unitBuyPrice,
+      sale_price: isPackage ? packageSalePrice : unitSalePrice,
+      // "Карманы" для обеих цен — переключение шт/уп не теряет введённое
+      // вручную значение (см. toggleItemPackageMode).
+      unit_buy_price: unitBuyPrice,
+      unit_sale_price: unitSalePrice,
+      package_buy_price: packageBuyPrice,
+      package_sale_price: packageSalePrice,
       notes: "",
+      unit: product.unit || "шт",
+      package_unit: product.package_unit || null,
+      package_size: product.package_size || null,
+      // Если у товара настроена упаковка — по умолчанию приходуем ею
+      // (так же, как на кассе): безопаснее для типового случая "пришла коробка".
+      is_package: isPackage,
     });
     focusQuantityInput(form.value.items.length - 1);
   }
+};
+
+// Переключение шт/уп на строке приёма: сохраняет текущий ввод в "карман"
+// того режима, из которого уходим, и подставляет запомненное значение
+// для режима, в который переходим — переключение туда-обратно не теряет
+// вручную введённые цены.
+const toggleItemPackageMode = (item, wantPackage) => {
+  if (item.is_package === wantPackage) return;
+  if (item.is_package) {
+    item.package_buy_price = item.buy_price;
+    item.package_sale_price = item.sale_price;
+  } else {
+    item.unit_buy_price = item.buy_price;
+    item.unit_sale_price = item.sale_price;
+  }
+  item.is_package = wantPackage;
+  item.buy_price = wantPackage ? item.package_buy_price : item.unit_buy_price;
+  item.sale_price = wantPackage ? item.package_sale_price : item.unit_sale_price;
 };
 
 const removeItem = (index) => {
@@ -573,14 +639,44 @@ const handleEdit = (purchase) => {
   form.value = {
     supplier_id: purchase.supplier_id,
     paid_amount: purchase.paid_amount,
-    items: purchase.items.map((item) => ({
-      product_id: item.product_id,
-      name: item.product?.name || "Товар",
-      sku: item.product?.sku || "",
-      quantity: item.quantity,
-      buy_price: item.buy_price,
-      sale_price: parseFloat(item.product?.price || 0),
-    })),
+    items: purchase.items.map((item) => {
+      const product = item.product || {};
+      const isPackage = !!item.is_package;
+      // Товар мог храниться в приёме в режиме "уп." или "шт." — восстанавливаем
+      // обе цены-"кармана", чтобы переключатель мешок/кг работал сразу же,
+      // как и при добавлении нового товара (см. addItem).
+      const unitBuyPrice = parseFloat(
+        !isPackage
+          ? item.buy_price
+          : product.purchase_price || product.price || 0,
+      );
+      const packageBuyPrice = parseFloat(
+        isPackage
+          ? item.buy_price
+          : product.package_purchase_price || unitBuyPrice * (product.package_size || 1) || 0,
+      );
+      // PurchaseItem не хранит цену продажи отдельно от товара — берём
+      // текущие цены товара для обоих "карманов", как и раньше делал sale_price.
+      const unitSalePrice = parseFloat(product.price || 0);
+      const packageSalePrice = parseFloat(product.package_price || 0);
+
+      return {
+        product_id: item.product_id,
+        name: product.name || "Товар",
+        sku: product.sku || "",
+        quantity: item.quantity,
+        buy_price: item.buy_price,
+        sale_price: parseFloat(product.price || 0),
+        unit_buy_price: unitBuyPrice,
+        unit_sale_price: unitSalePrice,
+        package_buy_price: packageBuyPrice,
+        package_sale_price: packageSalePrice,
+        unit: product.unit || "шт",
+        package_unit: product.package_unit || null,
+        package_size: product.package_size || null,
+        is_package: isPackage,
+      };
+    }),
   };
   Object.keys(selectedItems).forEach((key) => delete selectedItems[key]);
   activeTab.value = "create";
@@ -1030,6 +1126,30 @@ onUnmounted(() => {
                   </td>
                   <td class="ps-4">
                     <div class="fw-bold text-dark small">{{ item.name }}</div>
+                    <div
+                      v-if="item.package_unit"
+                      class="btn-group btn-group-sm mt-1"
+                      role="group"
+                    >
+                      <button
+                        type="button"
+                        class="btn py-0 px-2"
+                        style="font-size: 10px"
+                        :class="item.is_package ? 'btn-primary' : 'btn-outline-secondary'"
+                        @click="toggleItemPackageMode(item, true)"
+                      >
+                        {{ item.package_unit }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn py-0 px-2"
+                        style="font-size: 10px"
+                        :class="!item.is_package ? 'btn-primary' : 'btn-outline-secondary'"
+                        @click="toggleItemPackageMode(item, false)"
+                      >
+                        {{ item.unit }}
+                      </button>
+                    </div>
                   </td>
                   <td>
                     <input
@@ -1040,6 +1160,13 @@ onUnmounted(() => {
                       min="1"
                       @keyup.enter="$event.target.blur()"
                     />
+                    <div
+                      v-if="item.package_unit && item.is_package"
+                      class="text-muted text-center mt-1"
+                      style="font-size: 10px"
+                    >
+                      = {{ (item.quantity * item.package_size).toLocaleString("ru-RU") }} {{ item.unit }}
+                    </div>
                   </td>
                   <td>
                     <div class="input-group input-group-sm">
@@ -1287,7 +1414,7 @@ onUnmounted(() => {
         </div>
 
         <div class="row g-3 mb-0">
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label fw-bold small">Закупочная цена</label>
             <div class="input-group">
               <input
@@ -1308,7 +1435,7 @@ onUnmounted(() => {
               {{ productErrors.purchase_price[0] }}
             </div>
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label fw-bold small">Цена продажи *</label>
             <div class="input-group shadow-none">
               <input
@@ -1325,6 +1452,73 @@ onUnmounted(() => {
               >
               <div v-if="productErrors.price" class="invalid-feedback d-block">
                 {{ productErrors.price[0] }}
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-bold small">Ед. измерения</label>
+            <select v-model="newProductForm.unit" class="form-select rounded-3">
+              <option v-for="u in QUICK_UNIT_OPTIONS" :key="u" :value="u">{{ u }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <div class="form-check mb-2">
+            <input
+              id="quickSellByPackage"
+              v-model="quickSellByPackage"
+              type="checkbox"
+              class="form-check-input"
+            />
+            <label class="form-check-label small" for="quickSellByPackage">
+              Продаётся упаковкой (рулон, мешок, бухта — вместе с продажей вразвес)
+            </label>
+          </div>
+          <div v-if="quickSellByPackage" class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold small">Единица упаковки</label>
+              <select v-model="newProductForm.package_unit" class="form-select">
+                <option v-for="u in QUICK_UNIT_OPTIONS" :key="u" :value="u">{{ u }}</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold small">Размер упаковки</label>
+              <input
+                v-model.number="newProductForm.package_size"
+                type="number"
+                step="0.001"
+                min="0.001"
+                class="form-control"
+                placeholder="Напр. 40"
+              />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold small">Закупочная цена за упаковку</label>
+              <div class="input-group">
+                <input
+                  v-model.number="newProductForm.package_purchase_price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  class="form-control"
+                  placeholder="0.00"
+                />
+                <span class="input-group-text bg-light text-muted">сом</span>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold small">Цена продажи за упаковку</label>
+              <div class="input-group">
+                <input
+                  v-model.number="newProductForm.package_price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  class="form-control"
+                  placeholder="0.00"
+                />
+                <span class="input-group-text bg-light text-muted">сом</span>
               </div>
             </div>
           </div>

@@ -1,7 +1,8 @@
 <script setup>
 definePageMeta({
   layout: "admin",
-  middleware: "admin",
+  middleware: "permission",
+  permission: "products.edit",
 });
 
 const uiStore = useUiStore();
@@ -29,9 +30,26 @@ const form = ref({
   dimensions: "",
   unit: "шт",
   stock_quantity: 0,
+  package_unit: null,
+  package_size: null,
+  package_price: null,
+  package_purchase_price: null,
 });
 
 const UNIT_OPTIONS = ["шт", "уп", "кг", "г", "л", "м", "м²", "м³", "пара", "компл", "рулон", "мешок", "бухта"];
+
+const sellByPackage = ref(false);
+watch(sellByPackage, (enabled) => {
+  if (!enabled) {
+    form.value.package_unit = null;
+    form.value.package_size = null;
+    form.value.package_price = null;
+    form.value.package_purchase_price = null;
+  } else {
+    if (!form.value.package_unit) form.value.package_unit = "рулон";
+    if (!form.value.package_size) form.value.package_size = 1;
+  }
+});
 
 const selectedFile = ref(null);
 const imagePreview = ref(null);
@@ -362,6 +380,7 @@ onMounted(() => {
                 <input
                   v-model.number="form.stock_quantity"
                   type="number"
+                  step="0.001"
                   class="form-control"
                   placeholder="0"
                   min="0"
@@ -376,7 +395,85 @@ onMounted(() => {
             </div>
           </div>
 
-          
+
+          <div class="mb-4">
+            <div class="form-check mb-2">
+              <input
+                id="sellByPackage"
+                v-model="sellByPackage"
+                type="checkbox"
+                class="form-check-input"
+              />
+              <label class="form-check-label" for="sellByPackage">
+                Продаётся упаковкой (рулон, мешок, бухта — вместе с продажей вразвес)
+              </label>
+            </div>
+            <div v-if="sellByPackage" class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">Единица упаковки</label>
+                <select v-model="form.package_unit" class="form-select">
+                  <option v-for="u in UNIT_OPTIONS" :key="u" :value="u">{{ u }}</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Размер упаковки ({{ form.unit }})</label>
+                <input
+                  v-model.number="form.package_size"
+                  type="number"
+                  step="0.001"
+                  min="0.001"
+                  class="form-control"
+                  :class="{ 'is-invalid': errors.package_size }"
+                  placeholder="Напр. 40"
+                />
+                <div v-if="errors.package_size" class="text-danger small">
+                  {{ errors.package_size[0] }}
+                </div>
+                <div class="form-text text-muted" style="font-size: 0.75rem">
+                  1 — упаковка равна одной штуке. Увеличьте, если в упаковке
+                  несколько единиц (например, рулон = 40 м)
+                </div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Закупочная цена за упаковку</label>
+                <div class="input-group">
+                  <input
+                    v-model.number="form.package_purchase_price"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    class="form-control"
+                    :class="{ 'is-invalid': errors.package_purchase_price }"
+                    placeholder="Напр. 350"
+                  />
+                  <span class="input-group-text">сом</span>
+                </div>
+                <div v-if="errors.package_purchase_price" class="text-danger small">
+                  {{ errors.package_purchase_price[0] }}
+                </div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Цена продажи за упаковку</label>
+                <div class="input-group">
+                  <input
+                    v-model.number="form.package_price"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    class="form-control"
+                    :class="{ 'is-invalid': errors.package_price }"
+                    placeholder="Напр. 1800"
+                  />
+                  <span class="input-group-text">сом</span>
+                </div>
+                <div v-if="errors.package_price" class="text-danger small">
+                  {{ errors.package_price[0] }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+
           <div class="mb-4">
             <label class="form-label">Краткое описание</label>
             <textarea

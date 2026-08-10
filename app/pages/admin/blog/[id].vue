@@ -7,7 +7,8 @@ const config = useRuntimeConfig();
 
 definePageMeta({
   layout: "admin",
-  middleware: "admin",
+  middleware: "permission",
+  permission: "blog.manage",
 });
 
 const form = ref({

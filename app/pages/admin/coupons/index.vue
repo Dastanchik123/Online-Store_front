@@ -4,7 +4,8 @@ const ui = useUiStore();
 
 definePageMeta({
   layout: "admin",
-  middleware: "admin",
+  middleware: "permission",
+  permission: "marketing.manage",
 });
 
 const loading = ref(true);

@@ -5,6 +5,8 @@ definePageMeta({
 });
 
 const uiStore = useUiStore();
+const authStore = useAuthStore();
+const canEditOrders = computed(() => authStore.hasPermission("orders.edit"));
 const {
   getOrders,
   updateOrder,
@@ -659,8 +661,8 @@ onUnmounted(() => {
                     type="button"
                     class="badge-modern-status border-0 dropdown-toggle"
                     :class="statusLabelClass(order.status)"
-                    data-bs-toggle="dropdown"
-                    :disabled="quickUpdatingId === order.id"
+                    :data-bs-toggle="canEditOrders ? 'dropdown' : null"
+                    :disabled="quickUpdatingId === order.id || !canEditOrders"
                   >
                     <span
                       v-if="quickUpdatingId === order.id"
@@ -692,8 +694,8 @@ onUnmounted(() => {
                   <button
                     type="button"
                     class="btn btn-sm btn-light border rounded-pill dropdown-toggle d-flex align-items-center gap-1"
-                    data-bs-toggle="dropdown"
-                    :disabled="quickUpdatingId === order.id"
+                    :data-bs-toggle="canEditOrders ? 'dropdown' : null"
+                    :disabled="quickUpdatingId === order.id || !canEditOrders"
                   >
                     <span
                       v-if="quickUpdatingId === order.id"
@@ -844,6 +846,7 @@ onUnmounted(() => {
               <select
                 v-model="selectedOrder.status"
                 class="form-select border-0 shadow-sm rounded-3 mb-2"
+                :disabled="!canEditOrders"
               >
                 <option value="pending">⏳ Ожидает</option>
                 <option value="processing">🛠️ В обработке</option>
@@ -866,6 +869,7 @@ onUnmounted(() => {
               <select
                 v-model="selectedOrder.payment_status"
                 class="form-select border-0 shadow-sm rounded-3"
+                :disabled="!canEditOrders"
               >
                 <option value="pending">⏳ Ожидает</option>
                 <option value="paid">✅ Оплачено</option>
@@ -878,6 +882,7 @@ onUnmounted(() => {
               <select
                 v-model="selectedOrder.payment_method"
                 class="form-select border-0 shadow-sm rounded-3"
+                :disabled="!canEditOrders"
               >
                 <option :value="null">Не указан</option>
                 <option value="cash">🚚 Оплата при получении</option>
@@ -1053,7 +1058,7 @@ onUnmounted(() => {
             >
               <i class="bi bi-printer me-2"></i>Чек
             </button>
-            <div class="dropdown">
+            <div v-if="canEditOrders" class="dropdown">
               <button
                 class="btn btn-outline-danger rounded-pill px-3 fw-bold dropdown-toggle"
                 type="button"
@@ -1095,6 +1100,7 @@ onUnmounted(() => {
               Закрыть
             </button>
             <button
+              v-if="canEditOrders"
               class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm"
               :disabled="isUpdating"
               @click="updateOrderStatus"

@@ -1,7 +1,8 @@
 <script setup>
 definePageMeta({
   layout: "admin",
-  middleware: "cashier",
+  middleware: "permission",
+  permission: "debts.view",
 });
 
 const uiStore = useUiStore();

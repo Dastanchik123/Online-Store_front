@@ -6,7 +6,8 @@ const config = useRuntimeConfig();
 
 definePageMeta({
   layout: "admin",
-  middleware: "admin",
+  middleware: "permission",
+  permission: "marketing.manage",
 });
 
 const loading = ref(true);
