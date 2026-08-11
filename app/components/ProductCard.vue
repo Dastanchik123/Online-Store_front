@@ -48,7 +48,7 @@ const discountPercent = computed(() => {
 const cartItem = computed(() =>
   cartStore.getItems.find((item) => item.product_id === props.product.id),
 );
-const cartQty = computed(() => cartItem.value?.quantity || 0);
+const cartQty = computed(() => parseFloat(cartItem.value?.quantity) || 0);
 const qtyBusy = ref(false);
 
 const handleAddToCart = async () => {

@@ -4,6 +4,7 @@ const { getAdjustments, createAdjustment, updateAdjustment, deleteAdjustment } =
   useAccounting();
 const { getProducts } = useProducts();
 const uiStore = useUiStore();
+const authStore = useAuthStore();
 
 definePageMeta({
   layout: "admin",
@@ -670,6 +671,7 @@ onMounted(async () => {
                         <i class="bi bi-pencil fs-6 text-primary"></i>
                       </button>
                       <button
+                        v-if="authStore.hasPermission('inventory.delete')"
                         class="btn btn-sm btn-light rounded-circle border shadow-sm p-1"
                         @click="handleDelete(adj.id)"
                         title="Удалить"

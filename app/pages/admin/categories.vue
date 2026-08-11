@@ -6,6 +6,7 @@ definePageMeta({
 });
 
 const uiStore = useUiStore();
+const authStore = useAuthStore();
 const productsStore = useProductsStore();
 const api = useApi();
 const { getImageUrl } = useImageUrl();
@@ -286,6 +287,7 @@ onUnmounted(() => {
                   <i class="bi bi-pencil"></i>
                 </button>
                 <button
+                  v-if="authStore.hasPermission('categories.delete')"
                   @click="handleDelete(cat.id)"
                   class="btn btn-sm btn-outline-danger"
                 >

@@ -64,7 +64,7 @@ function initDb() {
       price DECIMAL(15,2),
       sale_price DECIMAL(15,2),
       purchase_price DECIMAL(15,2),
-      stock_quantity INTEGER,
+      stock_quantity DECIMAL(12,3),
       image TEXT,
       is_active INTEGER DEFAULT 1,
       in_stock INTEGER DEFAULT 1,
@@ -83,6 +83,10 @@ function initDb() {
   ensureColumn(db, 'products', 'hot_order', 'INTEGER');
   ensureColumn(db, 'products', 'hot_group', 'TEXT');
   ensureColumn(db, 'products', 'sales_count', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'products', 'unit', "TEXT DEFAULT 'шт'");
+  ensureColumn(db, 'products', 'package_unit', 'TEXT');
+  ensureColumn(db, 'products', 'package_size', 'DECIMAL(12,3)');
+  ensureColumn(db, 'products', 'package_price', 'DECIMAL(15,2)');
   db.prepare('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS idx_products_server_id ON products(server_id)').run();
 
@@ -128,7 +132,7 @@ function initDb() {
       product_uuid TEXT,
       product_name TEXT,
       product_sku TEXT,
-      quantity INTEGER,
+      quantity DECIMAL(12,3),
       price_at_sale DECIMAL(15,2),
       total DECIMAL(15,2)
     )
@@ -136,6 +140,7 @@ function initDb() {
   ensureColumn(db, 'order_items', 'product_name', 'TEXT');
   ensureColumn(db, 'order_items', 'product_sku', 'TEXT');
   ensureColumn(db, 'order_items', 'total', 'DECIMAL(15,2)');
+  ensureColumn(db, 'order_items', 'is_package', 'INTEGER DEFAULT 0');
 
   // Заказы, пришедшие с сервера, храним ещё и целиком (json) —
   // так ответы GET /orders неотличимы от серверных (relations и т.д.)

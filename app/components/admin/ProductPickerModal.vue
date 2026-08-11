@@ -165,6 +165,9 @@ const pickProduct = (product) => {
                   <td class="text-muted font-monospace small">{{ p.sku || "—" }}</td>
                   <td>
                     <div class="fw-bold text-dark small">{{ p.name }}</div>
+                    <div v-if="p.package_unit" class="text-muted" style="font-size: 0.68rem">
+                      {{ p.package_unit }} = {{ p.package_size }} {{ p.unit || "шт" }}
+                    </div>
                   </td>
                   <td class="text-end small">{{ formatPrice(p.purchase_price) }}</td>
                   <td class="text-end small">{{ formatPrice(p.price) }}</td>

@@ -59,6 +59,9 @@ const toggleGroup = (group) => {
 
 const cashAmount = ref(0);
 const transferAmount = ref(0);
+// Кассир вручную разбил оплату (наличные/перевод) — дальнейшие пересчёты
+// суммы (правка цены/кол-ва товара, купон) не должны стирать этот ввод.
+const paymentTouched = ref(false);
 const isDebt = ref(false);
 const dueDate = ref("");
 const activeField = ref("cash");
@@ -541,17 +544,30 @@ const handleVkbdEnter = () => {
 };
 
 const addToCart = (product) => {
-  const existing = cart.value.find((item) => item.product_id === product.id);
+  // Если у товара настроена упаковка — по умолчанию продаём именно ею
+  // (безопаснее для админа/кассира: не нужно каждый раз переключать).
+  const defaultIsPackage = !!product.package_unit;
+  const existing = cart.value.find(
+    (item) => item.product_id === product.id && !!item.is_package === defaultIsPackage
+  );
   if (existing) {
     existing.quantity++;
   } else {
+    const unitPrice = product.sale_price || product.price;
     cart.value.push({
+      id: crypto.randomUUID(),
       product_id: product.id,
       uuid: product.uuid,
       name: product.name,
-      price: product.sale_price || product.price,
+      price: defaultIsPackage ? product.package_price : unitPrice,
+      unit_price: unitPrice,
       purchase_price: product.purchase_price,
       quantity: 1,
+      is_package: defaultIsPackage,
+      unit: product.unit || "шт",
+      package_unit: product.package_unit || null,
+      package_size: product.package_size || null,
+      package_price: product.package_price || null,
       sku: product.sku,
       image_url: product.image_url,
       stock_quantity: product.stock_quantity,
@@ -559,6 +575,24 @@ const addToCart = (product) => {
   }
 
   activeGroup.value = null;
+};
+
+// Переключение строки корзины между продажей упаковкой (рулон/мешок) и
+// дробной базовой единицей (метр/кг) — у товара может быть обе цены сразу.
+const togglePackageMode = (item) => {
+  const wantPackage = !item.is_package;
+  const existingOther = cart.value.find(
+    (c) => c !== item && c.product_id === item.product_id && !!c.is_package === wantPackage
+  );
+  if (existingOther) {
+    // Строка с таким режимом уже есть — сливаем в неё, а не дублируем
+    existingOther.quantity += wantPackage ? 1 : Number(item.package_size || 1);
+    removeFromCart(cart.value.indexOf(item));
+    return;
+  }
+  item.is_package = wantPackage;
+  item.price = wantPackage ? item.package_price : item.unit_price;
+  item.quantity = 1;
 };
 
 // Сканер штрихкодов на кассе: обычный товар — короткий числовой SKU,
@@ -573,10 +607,12 @@ const addScannedCheckoutItems = (items) => {
       existing.quantity += item.quantity;
     } else {
       cart.value.push({
+        id: crypto.randomUUID(),
         product_id: item.product_id,
         name: item.name,
         price: item.price,
         quantity: item.quantity,
+        is_package: false,
         sku: item.sku,
         image_url: item.image_url,
         stock_quantity: item.stock_quantity,
@@ -674,7 +710,9 @@ const submitCancelIdentifier = () => {
 };
 
 const updateQuantity = (item, delta) => {
-  const newQty = item.quantity + delta;
+  // Для дробной единицы (метр/кг) шаг мельче, чем для штучной/упаковочной продажи
+  const step = item.is_package || item.unit === "шт" ? 1 : 0.1;
+  const newQty = Math.round((item.quantity + delta * step) * 1000) / 1000;
   if (newQty > 0) {
     item.quantity = newQty;
   }
@@ -688,6 +726,7 @@ const selectUser = (user) => {
 
 const handleCashInput = () => {
   if (isDebt.value) return;
+  paymentTouched.value = true;
   const currentCash = parseFloat(cashAmount.value) || 0;
   const total = payableAmount.value;
   if (currentCash < total) {
@@ -699,6 +738,7 @@ const handleCashInput = () => {
 
 const handleTransferInput = () => {
   if (isDebt.value) return;
+  paymentTouched.value = true;
   // Перевод/картой сдачу не дают — сумма не может превышать оплату
   if (transferAmount.value > payableAmount.value) {
     transferAmount.value = payableAmount.value;
@@ -954,6 +994,7 @@ const resetPos = () => {
   selectedUser.value = null;
   cashAmount.value = 0;
   transferAmount.value = 0;
+  paymentTouched.value = false;
   isDebt.value = false;
   dueDate.value = "";
   couponCode.value = "";
@@ -963,19 +1004,25 @@ const resetPos = () => {
 
 const clearCart = () => {
   cart.value = [];
+  paymentTouched.value = false;
   ui.addToast("Корзина очищена", "info");
 };
 
 watch(totalPrice, (newTotal) => {
   if (!isDebt.value) {
     couponDiscount.value = Math.min(couponDiscount.value, newTotal);
-    cashAmount.value = Math.max(newTotal - couponDiscount.value, 0);
-    transferAmount.value = 0;
+    // Кассир уже вручную разбил оплату (наличные/перевод) — правка цены
+    // или количества товара не должна стирать этот ввод, только сумму
+    // "наличными" по умолчанию до первого ручного ввода.
+    if (!paymentTouched.value) {
+      cashAmount.value = Math.max(newTotal - couponDiscount.value, 0);
+      transferAmount.value = 0;
+    }
   }
 });
 
 watch(couponDiscount, (newDiscount) => {
-  if (!isDebt.value) {
+  if (!isDebt.value && !paymentTouched.value) {
     cashAmount.value = Math.max(totalPrice.value - newDiscount, 0);
   }
 });
@@ -1305,47 +1352,71 @@ watch(couponDiscount, (newDiscount) => {
                         class="small text-muted text-uppercase"
                         style="font-size: 10px"
                       >
-                        <th class="ps-3 border-0 py-3" style="width: 40px">
+                        <th class="ps-3 border-0 py-2" style="width: 40px">
                           #
                         </th>
-                        <th class="border-0 py-3">Товар</th>
-                        <th class="text-center border-0 py-3">Кол-во</th>
-                        <th class="text-center border-0 py-3">Цена</th>
-                        <th class="text-end pe-3 border-0 py-3">Сумма</th>
-                        <th class="border-0 py-3" style="width: 50px"></th>
+                        <th class="border-0 py-2">Товар</th>
+                        <th class="text-center border-0 py-2">Кол-во</th>
+                        <th class="text-center border-0 py-2">Цена</th>
+                        <th class="text-end pe-3 border-0 py-2">Сумма</th>
+                        <th class="border-0 py-2" style="width: 50px"></th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr
                         v-for="(item, index) in cart"
-                        :key="item.product_id"
+                        :key="item.id || item.product_id"
                         class="cart-item-row"
                         :class="{
                           'bg-primary bg-opacity-10': activeCartIndex === index,
                         }"
                       >
                         <td
-                          class="ps-3 py-3 text-muted small fw-bold"
+                          class="ps-3 py-2 text-muted small fw-bold"
                           style="width: 40px"
                         >
                           {{ index + 1 }}
                         </td>
-                        <td class="py-3">
-                          <div class="fw-bold small lh-sm mb-1">
+                        <td class="py-2">
+                          <div class="fw-bold small lh-sm">
                             {{ item.name }}
                           </div>
                           <div class="text-muted" style="font-size: 10px">
                             {{ item.sku }}
                           </div>
+                          <div
+                            v-if="item.package_unit"
+                            class="btn-group btn-group-sm mt-1"
+                            role="group"
+                          >
+                            <button
+                              type="button"
+                              class="btn py-0 px-2"
+                              style="font-size: 10px"
+                              :class="!item.is_package ? 'btn-primary' : 'btn-outline-secondary'"
+                              @click="!item.is_package || togglePackageMode(item)"
+                            >
+                              {{ item.unit }}
+                            </button>
+                            <button
+                              type="button"
+                              class="btn py-0 px-2"
+                              style="font-size: 10px"
+                              :class="item.is_package ? 'btn-primary' : 'btn-outline-secondary'"
+                              @click="item.is_package || togglePackageMode(item)"
+                            >
+                              {{ item.package_unit }}
+                            </button>
+                          </div>
                         </td>
-                        <td class="py-3">
+                        <td class="py-2">
                           <div
                             class="d-flex align-items-center justify-content-center gap-2"
                           >
                             <button
                               @click="updateQuantity(item, -1)"
                               class="btn btn-light border border-secondary border-opacity-25 rounded-3 p-0 d-flex align-items-center justify-content-center shadow-xs touch-btn"
-                              style="width: 38px; height: 38px"
+                              style="width: 32px; height: 32px"
                             >
                               <i class="bi bi-dash-lg text-secondary"></i>
                             </button>
@@ -1365,13 +1436,13 @@ watch(couponDiscount, (newDiscount) => {
                             <button
                               @click="updateQuantity(item, 1)"
                               class="btn btn-light border border-secondary border-opacity-25 rounded-3 p-0 d-flex align-items-center justify-content-center shadow-xs touch-btn"
-                              style="width: 38px; height: 38px"
+                              style="width: 32px; height: 32px"
                             >
                               <i class="bi bi-plus-lg text-secondary"></i>
                             </button>
                           </div>
                         </td>
-                        <td class="py-3">
+                        <td class="py-2">
                           <div
                             class="d-flex align-items-center justify-content-center"
                           >
@@ -1408,21 +1479,22 @@ watch(couponDiscount, (newDiscount) => {
                                 isFocused = true;
                                 numpadBuffer = '';
                               "
+                              readonly
                               class="form-control text-center fw-black border-0 bg-transparent p-0 shadow-none fs-6 text-primary animate-fade-in"
                               style="width: 80px"
                             />
                           </div>
                         </td>
-                        <td class="text-end pe-3 py-3 fs-6 fw-black">
+                        <td class="text-end pe-3 py-2 fs-6 fw-black">
                           {{ (item.price * item.quantity).toLocaleString() }}
                         </td>
-                        <td class="py-3 text-center">
+                        <td class="py-2 text-center">
                           <button
                             @click="removeFromCart(index)"
                             class="btn btn-light-danger rounded-circle d-flex align-items-center justify-content-center shadow-xs mx-auto"
-                            style="width: 40px; height: 40px"
+                            style="width: 34px; height: 34px"
                           >
-                            <i class="bi bi-trash-fill fs-5"></i>
+                            <i class="bi bi-trash-fill fs-6"></i>
                           </button>
                         </td>
                       </tr>
@@ -1766,14 +1838,16 @@ watch(couponDiscount, (newDiscount) => {
                             {{
                               activeField === "quantity"
                                 ? "Изменение кол-ва"
-                                : "Ввод суммы"
+                                : activeField === "price"
+                                  ? "Изменение цены"
+                                  : "Ввод суммы"
                             }}
                           </div>
                           <div
                             class="small text-muted fw-bold text-truncate"
                             style="max-width: 150px"
                           >
-                            <template v-if="activeField === 'quantity'">
+                            <template v-if="activeField === 'quantity' || activeField === 'price'">
                               {{ cart[activeCartIndex]?.name || "Товар" }}
                             </template>
                             <template v-else>

@@ -33,6 +33,10 @@ function shapeProduct(p) {
     sale_price: p.sale_price ?? p.price,
     purchase_price: p.purchase_price,
     stock_quantity: p.stock_quantity,
+    unit: p.unit,
+    package_unit: p.package_unit,
+    package_size: p.package_size,
+    package_price: p.package_price,
     in_stock: !!p.in_stock,
     is_active: !!p.is_active,
     is_hot: !!p.is_hot,
@@ -149,9 +153,14 @@ function posCreateSale(db, body, ctx) {
   // Валидации из настроек магазина (кэш с сервера)
   const allowPriceChange = getStoreSetting(db, 'pos_allow_price_change', '1');
   for (const { item, product } of resolved) {
-    const originalPrice = Number(product.sale_price ?? product.price);
+    const isPackageItem = !!item.is_package;
+    const originalPrice = isPackageItem && product.package_price != null
+      ? Number(product.package_price)
+      : Number(product.sale_price ?? product.price);
     const sellingPrice = Number(item.price);
-    const costPrice = Number(product.purchase_price || 0);
+    const costPrice = isPackageItem && product.package_size
+      ? Number(product.purchase_price || 0) * Number(product.package_size)
+      : Number(product.purchase_price || 0);
 
     if ((allowPriceChange === '0' || allowPriceChange === 'false') && Math.abs(sellingPrice - originalPrice) > 0.01) {
       return fail(`Изменение цены запрещено настройками системы для товара: ${product.name}`, 422);
@@ -227,21 +236,25 @@ function posCreateSale(db, body, ctx) {
     );
 
     const stmtItem = db.prepare(`
-      INSERT INTO order_items (uuid, order_uuid, product_uuid, product_name, product_sku, quantity, price_at_sale, total)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO order_items (uuid, order_uuid, product_uuid, product_name, product_sku, quantity, is_package, price_at_sale, total)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const shapedItems = [];
     for (const { item, product } of resolved) {
       const itemUuid = randomUUID();
+      const isPackageItem = !!item.is_package;
+      const baseQty = isPackageItem && product.package_size
+        ? Number(item.quantity) * Number(product.package_size)
+        : Number(item.quantity);
       const lineTotal = Number(item.price) * Number(item.quantity);
-      stmtItem.run(itemUuid, orderUuid, product.uuid, product.name, product.sku, item.quantity, item.price, lineTotal);
+      stmtItem.run(itemUuid, orderUuid, product.uuid, product.name, product.sku, item.quantity, isPackageItem ? 1 : 0, item.price, lineTotal);
       db.prepare(`
         UPDATE products
         SET stock_quantity = stock_quantity - ?,
             sales_count = COALESCE(sales_count, 0) + ?,
             in_stock = CASE WHEN stock_quantity - ? > 0 THEN 1 ELSE 0 END
         WHERE uuid = ?
-      `).run(item.quantity, item.quantity, item.quantity, product.uuid);
+      `).run(baseQty, baseQty, baseQty, product.uuid);
 
       shapedItems.push({
         uuid: itemUuid,
@@ -251,6 +264,7 @@ function posCreateSale(db, body, ctx) {
         name: product.name,
         sku: product.sku,
         quantity: item.quantity,
+        is_package: isPackageItem,
         price: item.price,
         total: lineTotal,
         product: shapeProduct(db.prepare('SELECT * FROM products WHERE uuid = ?').get(product.uuid)),
@@ -280,6 +294,7 @@ function posCreateSale(db, body, ctx) {
         name: i.product_name,
         sku: i.sku,
         quantity: i.quantity,
+        is_package: i.is_package,
         price: i.price,
       })),
     }));
@@ -585,12 +600,20 @@ function purchaseCreate(db, body) {
       VALUES (?, ?, 'completed', ?, ?, ?)
     `).run(purchaseUuid, Number(body.supplier_id), JSON.stringify(shaped), nowIso, nowIso);
 
-    // приход товара — увеличиваем локальные остатки
+    // приход товара — увеличиваем локальные остатки (в базовой единице)
     for (const i of items) {
+      const product = db.prepare('SELECT * FROM products WHERE server_id = ?').get(Number(i.product_id));
+      const isPackageItem = !!i.is_package;
+      const baseQty = isPackageItem && product && product.package_size
+        ? Number(i.quantity) * Number(product.package_size)
+        : Number(i.quantity);
+      const unitPurchasePrice = isPackageItem && product && product.package_size
+        ? Number(i.buy_price) / Number(product.package_size)
+        : Number(i.buy_price);
       db.prepare(`
         UPDATE products SET stock_quantity = stock_quantity + ?, in_stock = 1, purchase_price = ?
         WHERE server_id = ?
-      `).run(Number(i.quantity), Number(i.buy_price), Number(i.product_id));
+      `).run(baseQty, unitPurchasePrice, Number(i.product_id));
     }
 
     db.prepare(`
@@ -598,7 +621,7 @@ function purchaseCreate(db, body) {
       VALUES ('PURCHASE_CREATE', ?, ?)
     `).run(purchaseUuid, JSON.stringify({
       supplier_id: body.supplier_id,
-      items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity, buy_price: i.buy_price })),
+      items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity, is_package: !!i.is_package, buy_price: i.buy_price })),
       paid_amount: paidAmount,
       notes: body.notes || null,
       created_at: nowIso,

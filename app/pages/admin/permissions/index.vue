@@ -114,7 +114,12 @@ const availablePermissions = [
   {
     id: "products.edit",
     label: "Редактирование товаров",
-    desc: "Создание, изменение и удаление карточек товаров.",
+    desc: "Создание и изменение карточек товаров.",
+  },
+  {
+    id: "products.delete",
+    label: "Удаление товаров",
+    desc: "Безвозвратное удаление карточек товаров из каталога.",
   },
   {
     id: "categories.manage",
@@ -122,9 +127,19 @@ const availablePermissions = [
     desc: "Создание и редактирование структуры категорий.",
   },
   {
+    id: "categories.delete",
+    label: "Удаление категорий",
+    desc: "Удаление категорий товаров.",
+  },
+  {
     id: "suppliers.manage",
     label: "Управление поставщиками",
     desc: "Ведение базы поставщиков.",
+  },
+  {
+    id: "suppliers.delete",
+    label: "Удаление поставщиков",
+    desc: "Удаление карточек поставщиков.",
   },
   {
     id: "purchases.manage",
@@ -132,9 +147,19 @@ const availablePermissions = [
     desc: "Оформление поступлений товаров на склад.",
   },
   {
+    id: "purchases.delete",
+    label: "Удаление закупок",
+    desc: "Удаление оформленных закупок.",
+  },
+  {
     id: "inventory.manage",
     label: "Инвентаризация",
     desc: "Проведение ревизии остатков.",
+  },
+  {
+    id: "inventory.delete",
+    label: "Удаление корректировок",
+    desc: "Удаление записей инвентаризации.",
   },
   {
     id: "reports.view",

@@ -112,13 +112,13 @@ const computeRichDiscount = (product: any): number | null => {
 };
 
 const buildRichElementContentHTML = (el: RichLabelElement, product: any, settings: any): string => {
-  const defaultCurrency = settings?.currency_symbol || "сом";
+  const defaultCurrency = settings?.currency_symbol !== undefined ? settings.currency_symbol : "сом";
   switch (el.type) {
     case "product_name":
       return escapeHtml(product.name || "");
     case "price": {
       const val = Number(product.price) || 0;
-      const c = el.props?.currency || defaultCurrency;
+      const c = el.props?.currency !== undefined ? el.props.currency : defaultCurrency;
       if (el.props?.showKopecks) {
         const whole = Math.floor(val);
         const kop = Math.round((val - whole) * 100);
@@ -129,7 +129,7 @@ const buildRichElementContentHTML = (el: RichLabelElement, product: any, setting
     case "old_price": {
       const val = Number(product.oldPrice) || 0;
       if (!val) return "";
-      const c = el.props?.currency || defaultCurrency;
+      const c = el.props?.currency !== undefined ? el.props.currency : defaultCurrency;
       return `<span style="text-decoration:line-through;">${formatRichNumber(val)} ${c}</span>`;
     }
     case "discount": {
@@ -435,15 +435,21 @@ export const usePrinter = () => {
   };
 
   const generateInvoiceHtml = (order: any, settings: any = {}) => {
-    const itemsHtml = order?.items?.map((item: any, index: number) => `
+    const itemsHtml = order?.items?.map((item: any, index: number) => {
+      const itemUnit = item.is_package
+        ? (item.product?.package_unit || item.product?.unit || item.unit || "шт")
+        : (item.product?.unit || item.unit || "шт");
+      return `
       <tr style="border-bottom: 1px solid #f1f5f9;">
         <td style="padding: 10px 8px; color: #64748b; font-size: 11px;">${index + 1}</td>
         <td style="padding: 10px 8px; font-weight: 500; color: #1e293b; font-size: 12px;">${escapeHtml(item.product_name || item.name)}</td>
-        <td style="padding: 10px 8px; text-align: center; color: #64748b; font-size: 12px;">${item.quantity} шт.</td>
+        <td style="padding: 10px 8px; text-align: center; color: #64748b; font-size: 12px;">${item.quantity}</td>
+        <td style="padding: 10px 4px; color: #64748b; font-size: 12px; white-space: nowrap; width: 1%;">${escapeHtml(itemUnit)}</td>
         <td style="padding: 10px 8px; text-align: right; color: #64748b; font-size: 12px;">${Math.round(item.price).toLocaleString()}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: #0f172a; font-size: 12px;">${Math.round(item.price * item.quantity).toLocaleString()}</td>
       </tr>
-    `).join('') || '<tr><td colspan="5" style="text-align:center; padding: 20px;">Нет данных</td></tr>';
+    `;
+    }).join('') || '<tr><td colspan="6" style="text-align:center; padding: 20px;">Нет данных</td></tr>';
 
     const shopName = escapeHtml(settings.receipt_title || settings.site_name || 'BRAND STORE');
     const dateStr = new Date(order?.created_at || new Date()).toLocaleString('ru-RU', {
@@ -523,6 +529,7 @@ export const usePrinter = () => {
                 <th style="width: 40px;">№</th>
                 <th>Товар</th>
                 <th style="text-align: center; width: 80px;">Кол-во</th>
+                <th style="white-space: nowrap; width: 1%; padding: 10px 4px;">Ед.</th>
                 <th style="text-align: right; width: 100px;">Цена</th>
                 <th style="text-align: right; width: 120px;">Сумма</th>
               </tr>
@@ -553,14 +560,20 @@ export const usePrinter = () => {
   };
 
   const generateReceiptHtml = (order: any, settings: any = {}) => {
-    const itemsHtml = order.items.map((item: any) => `
+    const itemsHtml = order.items.map((item: any) => {
+      const itemUnit = item.is_package
+        ? (item.product?.package_unit || item.product?.unit || item.unit || "шт")
+        : (item.product?.unit || item.unit || "шт");
+      return `
       <tr>
         <td style="padding: 1mm 0; font-size: 10px;">${escapeHtml(item.product_name || item.name)}</td>
-        <td style="padding: 1mm 0; font-size: 10px; text-align: center;">${item.quantity}</td>
+        <td style="padding: 1mm 0; font-size: 10px; text-align: center;">${parseFloat(item.quantity) || 0}</td>
+        <td style="padding: 1mm 0 1mm 2mm; font-size: 10px; white-space: nowrap; width: 1%;">${escapeHtml(itemUnit)}</td>
         <td style="padding: 1mm 0; font-size: 10px; text-align: right;">${Math.round(item.price)}</td>
         <td style="padding: 1mm 0; font-size: 10px; text-align: right;">${Math.round(item.price * item.quantity)}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     const shopName = escapeHtml(settings.receipt_title || settings.site_name || 'МОЙ МАГАЗИН');
     const dateStr = new Date().toLocaleString('ru-RU');
@@ -590,7 +603,7 @@ export const usePrinter = () => {
         <div class="divider"></div>
         <table>
           <thead>
-            <tr><th>Товар</th><th>Кол</th><th>Цена</th><th style="text-align: right;">Сумма</th></tr>
+            <tr><th>Товар</th><th>Кол</th><th style="white-space: nowrap; width: 1%; padding-left: 2mm;">Ед.</th><th>Цена</th><th style="text-align: right;">Сумма</th></tr>
           </thead>
           <tbody>${itemsHtml}</tbody>
         </table>
@@ -667,7 +680,7 @@ export const usePrinter = () => {
           <span class="price-int">${priceInt}</span>
           <span class="price-frac">${priceFrac}</span>
         </div>
-        <div class="price-cur">сом</div>
+        <div class="price-cur">${escapeHtml(settings?.currency_symbol !== undefined ? settings.currency_symbol : "сом")}</div>
         <div class="tag-meta">Цена за: 1 шт.${companyName ? `<br>${companyName}` : ""}</div>
       </div>
     `;
@@ -749,7 +762,7 @@ export const usePrinter = () => {
   };
 
   // Один "лист" компактной этикетки со штрихкодом (без обёртки документа).
-  const generateBarcodeLabelBody = (product: any, tpl: typeof DEFAULT_BARCODE_TEMPLATE) => {
+  const generateBarcodeLabelBody = (product: any, tpl: typeof DEFAULT_BARCODE_TEMPLATE, settings: any = {}) => {
     const name = escapeHtml(product?.name || "Товар");
     const sku = escapeHtml(product?.sku || "");
 
@@ -764,7 +777,7 @@ export const usePrinter = () => {
         <div class="lbl-barcode">${barcodeSvg}</div>
         <div class="lbl-bottom">
           <span class="lbl-sku">${sku}</span>
-          <span class="lbl-price">${Math.round(price).toLocaleString("ru-RU")} сом</span>
+          <span class="lbl-price">${Math.round(price).toLocaleString("ru-RU")} ${escapeHtml(settings?.currency_symbol !== undefined ? settings.currency_symbol : "сом")}</span>
         </div>
       </div>
     `;
@@ -816,7 +829,7 @@ export const usePrinter = () => {
       }
     }
     const tpl = template ? { ...DEFAULT_BARCODE_TEMPLATE, ...template } : parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE);
-    const body = generateBarcodeLabelBody(product, tpl);
+    const body = generateBarcodeLabelBody(product, tpl, settings.value);
     const pages = Array.from({ length: Math.max(1, qty) }, () => body).join("");
     return wrapBarcodeLabelPages(pages, tpl);
   };
@@ -847,7 +860,7 @@ export const usePrinter = () => {
       } else if (type === "barcode") {
         const tpl = parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE);
         const pages = items
-          .flatMap(({ product, qty }) => Array.from({ length: Math.max(1, qty) }, () => generateBarcodeLabelBody(product, tpl)))
+          .flatMap(({ product, qty }) => Array.from({ length: Math.max(1, qty) }, () => generateBarcodeLabelBody(product, tpl, settings.value)))
           .join("");
         htmlContent = wrapBarcodeLabelPages(pages, tpl);
         pageWidthMm = tpl.width_mm;

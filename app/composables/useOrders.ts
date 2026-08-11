@@ -77,7 +77,7 @@ export const useOrders = () => {
   const downloadOrderInvoice = async (id: number | string) => {
     return await api.downloadFile(
       `/reports/order/${id}`,
-      `Order_Invoice_${id}.pdf`
+      `Накладная_№${id}.pdf`
     );
   };
 
@@ -100,7 +100,7 @@ export const useOrders = () => {
     downloadOrderThermalReceipt: async (id: number | string) => {
       return await api.downloadFile(
         `/reports/order/${id}/thermal`,
-        `Thermal_Receipt_${id}.pdf`
+        `Чек_№${id}.pdf`
       );
     },
     returnOrderItems: async (id: number | string, items: any[]) => {

@@ -35,13 +35,13 @@
           <div class="quantity-selector">
             <button
               class="qty-btn"
-              @click="handleQuantityChange(item.quantity - 1)"
-              :disabled="isUpdating || item.quantity <= 1"
+              @click="handleQuantityChange(qty - 1)"
+              :disabled="isUpdating || qty <= 1"
             >
               <i class="bi bi-dash"></i>
             </button>
             <div class="qty-display">
-              <span v-if="!isUpdating">{{ item.quantity }}</span>
+              <span v-if="!isUpdating">{{ qty }}</span>
               <div
                 v-else
                 class="spinner-border spinner-border-sm text-primary"
@@ -50,7 +50,7 @@
             </div>
             <button
               class="qty-btn"
-              @click="handleQuantityChange(item.quantity + 1)"
+              @click="handleQuantityChange(qty + 1)"
               :disabled="isUpdating"
             >
               <i class="bi bi-plus"></i>
@@ -59,7 +59,7 @@
 
           <div class="item-actions">
             <div class="item-total">
-              {{ formatPrice(item.price * item.quantity) }} <span>сом</span>
+              {{ formatPrice(item.price * qty) }} <span>сом</span>
             </div>
             <button
               class="remove-btn"
@@ -73,9 +73,9 @@
         </div>
 
         <div class="item-summary-readonly" v-else>
-          <div class="readonly-qty">x{{ item.quantity }}</div>
+          <div class="readonly-qty">x{{ qty }}</div>
           <div class="item-total">
-            {{ formatPrice(item.price * item.quantity) }} <span>сом</span>
+            {{ formatPrice(item.price * qty) }} <span>сом</span>
           </div>
         </div>
       </div>
@@ -100,6 +100,8 @@ const emit = defineEmits(["update-quantity", "remove"]);
 const isUpdating = ref(false);
 const isRemoving = ref(false);
 const { getImageUrl } = useImageUrl();
+
+const qty = computed(() => parseFloat(props.item.quantity) || 0);
 
 const formatPrice = (price) => {
   return parseFloat(price).toLocaleString("ru-RU", {

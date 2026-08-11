@@ -1,5 +1,6 @@
 <script setup>
 const route = useRoute();
+const router = useRouter();
 const { getProduct, getProducts } = useProducts();
 const { addToCart } = useCart();
 const authStore = useAuthStore();

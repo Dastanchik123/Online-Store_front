@@ -6,6 +6,7 @@ definePageMeta({
 });
 
 const uiStore = useUiStore();
+const authStore = useAuthStore();
 const productsStore = useProductsStore();
 
 const {
@@ -665,6 +666,7 @@ onUnmounted(() => {
                     <i class="bi bi-tag"></i>
                   </button>
                   <button
+                    v-if="authStore.hasPermission('products.delete')"
                     @click="handleDelete(product.id)"
                     class="btn-action delete shadow-sm"
                     style="width: 22px; height: 22px; font-size: 0.7rem;"

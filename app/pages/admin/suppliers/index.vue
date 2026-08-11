@@ -9,6 +9,7 @@ const {
   getPurchases,
 } = useAccounting();
 const uiStore = useUiStore();
+const authStore = useAuthStore();
 
 definePageMeta({
   layout: "admin",
@@ -332,6 +333,7 @@ onMounted(loadSuppliers);
                     <i class="bi bi-pencil-square"></i>
                   </button>
                   <button
+                    v-if="authStore.hasPermission('suppliers.delete')"
                     class="btn btn-action-delete"
                     @click="handleDelete(supplier.id)"
                     title="Удалить"

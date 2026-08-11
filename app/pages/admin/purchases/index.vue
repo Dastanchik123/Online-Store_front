@@ -17,6 +17,7 @@ const {
   getProducts: getProductsForBarcode,
 } = useProducts();
 const uiStore = useUiStore();
+const authStore = useAuthStore();
 const productsStore = useProductsStore();
 
 definePageMeta({
@@ -933,6 +934,7 @@ onUnmounted(() => {
                       <i class="bi bi-pencil-fill text-primary"></i>
                     </button>
                     <button
+                      v-if="authStore.hasPermission('purchases.delete')"
                       class="btn btn-sm btn-light rounded-pill border shadow-sm"
                       @click="handleDelete(p.id)"
                       title="Удалить"

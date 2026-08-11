@@ -34,6 +34,7 @@ export const usePos = () => {
           product_name: i.name,
           name: i.name,
           quantity: i.quantity,
+          is_package: !!i.is_package,
           price: i.price,
           total: i.price * i.quantity
         })),
