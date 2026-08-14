@@ -5,8 +5,8 @@
   "scripts": {
     "build": "nuxt build",
     "build:laravel": "NUXT_TARGET=laravel NUXT_PUBLIC_API_BASE=/api nuxt generate && rm -rf ../Online-Store_back/public/_nuxt && cp -r .output/public/. ../Online-Store_back/public/",
-    "build:capacitor": "NUXT_TARGET=capacitor nuxt generate",
-    "cap:sync": "npm run build:capacitor && npx cap sync android",
+    "build:capacitor": "NUXT_TARGET=capacitor NUXT_PUBLIC_API_BASE=https://online-store-back.fly.dev/api nuxt generate",
+    "cap:sync": "npx cap sync android",
     "cap:open": "npx cap open android",
     "dev": "nuxt dev --host",
     "dev:https": "nuxt dev --host --https",

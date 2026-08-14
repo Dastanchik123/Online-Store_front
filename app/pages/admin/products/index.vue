@@ -12,9 +12,9 @@ const productsStore = useProductsStore();
 const {
   getProducts,
   deleteProduct,
-  downloadProductsExport,
   downloadProductsExcel,
 } = useProducts();
+const { printProductsReport } = usePrinter();
 
 const { setQueue } = usePrintQueue();
 const goToPrintLabels = (product) => {
@@ -42,12 +42,19 @@ const products = ref({
 const categories = computed(() => productsStore.categories);
 const isLoading = ref(false);
 const isExportingPdf = ref(false);
-const exportPdf = async () => {
+// Отчёт формируется прямо в браузере из уже загруженных (с учётом фильтров)
+// товаров — раньше это генерил dompdf на бэке и падал по памяти на полном
+// каталоге (1000+ позиций), см. laravel.log.
+const exportPdf = () => {
+  if (!products.value.data.length) {
+    uiStore.error("Нет товаров для отчёта");
+    return;
+  }
   isExportingPdf.value = true;
   try {
-    await downloadProductsExport(filters.value);
+    printProductsReport(products.value.data);
   } catch (error) {
-    uiStore.error(error.message || "Ошибка при экспорте PDF");
+    uiStore.error(error.message || "Ошибка при формировании отчёта");
   } finally {
     isExportingPdf.value = false;
   }

@@ -559,6 +559,149 @@ export const usePrinter = () => {
     `;
   };
 
+  // PHP number_format($x, 2, '.', ' ') — точка как разделитель дробной части,
+  // пробел как разделитель тысяч (так же, как раньше форматировал dompdf-отчёт).
+  const formatReportMoney = (n: unknown): string => {
+    const num = Number(n) || 0;
+    const [int, frac] = num.toFixed(2).split(".");
+    return `${int.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}.${frac}`;
+  };
+
+  // Отчёт по остаткам товаров — рендерится и печатается прямо в браузере
+  // (Ctrl+P → "Сохранить как PDF"), без похода на бэкенд: тот же dompdf на
+  // 1000+ товарах упирался в memory_limit и падал (см. laravel.log). Вёрстка
+  // намеренно повторяет старый resources/views/pdf/products.blade.php.
+  const generateProductsReportHtml = (products: any[], reportSettings: any = {}) => {
+    const rows = products
+      .map((p, i) => {
+        const purchase = Number(p.purchase_price || 0);
+        const price = Number(p.price || 0);
+        const salePrice = Number(p.sale_price || 0);
+        const stock = Number(p.stock_quantity || 0);
+        const inStock = stock > 0;
+        return `
+          <tr>
+            <td class="text-center">${i + 1}</td>
+            <td style="font-weight: bold;">${escapeHtml(p.name)}</td>
+            <td style="white-space: nowrap;"><code>${escapeHtml(p.sku || "")}</code></td>
+            <td>${escapeHtml(p.category?.name || "-")}</td>
+            <td class="text-right">${formatReportMoney(purchase)} с</td>
+            <td class="text-right">
+              ${formatReportMoney(price)} с
+              ${salePrice ? `<br><small style="color: #e74c3c;">Акция: ${formatReportMoney(salePrice)} с</small>` : ""}
+            </td>
+            <td class="text-center" style="font-weight: bold;">${stock}</td>
+            <td class="text-center">
+              ${inStock ? '<span class="badge badge-success">В наличии</span>' : '<span class="badge badge-danger">Нет</span>'}
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const totalPurchase = products.reduce((s, p) => s + Number(p.purchase_price || 0) * Number(p.stock_quantity || 0), 0);
+    const totalSale = products.reduce((s, p) => s + Number(p.price || 0) * Number(p.stock_quantity || 0), 0);
+    const totalStock = products.reduce((s, p) => s + Number(p.stock_quantity || 0), 0);
+
+    const dateStr = new Date().toLocaleString("ru-RU", {
+      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+    const shopName = escapeHtml(reportSettings?.site_name || "Мой Магазин");
+
+    return `
+      <!DOCTYPE html>
+      <html lang="ru">
+      <head>
+        <meta charset="utf-8">
+        <meta name="color-scheme" content="light only">
+        <title>Отчет по остаткам товаров</title>
+        <style>
+          /* Без этого Chrome может применить авто-тёмную тему к голому HTML
+             без своих стилей (в отличие от dompdf, который её не знает) —
+             и отчёт напечатается/сохранится с перевёрнутыми цветами. */
+          :root { color-scheme: light only; }
+          @page { size: A4; margin: 1cm; }
+          * { box-sizing: border-box; }
+          html, body { background: #fff; }
+          body { font-family: Arial, 'Helvetica Neue', sans-serif; font-size: 10px; color: #333; margin: 0; }
+          .report-header { border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-bottom: 20px; overflow: hidden; }
+          .report-title { font-size: 18px; font-weight: bold; color: #2c3e50; }
+          .report-meta { float: right; text-align: right; color: #7f8c8d; }
+          table.products-table { width: 100%; border-collapse: collapse; }
+          table.products-table th {
+            background: #2c3e50; color: #fff; padding: 8px 4px; text-align: left; border: 1px solid #34495e;
+          }
+          table.products-table td { padding: 6px 4px; border: 1px solid #ecf0f1; }
+          table.products-table tr:nth-child(even) { background: #f9f9f9; }
+          thead { display: table-header-group; }
+          tr { page-break-inside: avoid; }
+          .badge { padding: 2px 5px; border-radius: 3px; font-size: 8px; text-transform: uppercase; font-weight: bold; }
+          .badge-success { background: #27ae60; color: #fff; }
+          .badge-danger { background: #e74c3c; color: #fff; }
+          .summary { margin-top: 20px; font-size: 11px; font-weight: bold; text-align: right; }
+          .text-right { text-align: right; }
+          .text-center { text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="report-header">
+          <div class="report-meta">
+            Дата отчета: ${dateStr}<br>
+            Всего позиций: ${products.length}
+          </div>
+          <div class="report-title">ОТЧЕТ ПО СКЛАДСКИМ ОСТАТКАМ</div>
+        </div>
+
+        <table class="products-table">
+          <thead>
+            <tr>
+              <th width="30">ID</th>
+              <th>Наименование товара</th>
+              <th style="white-space: nowrap;" width="1%">Артикул</th>
+              <th width="100">Категория</th>
+              <th class="text-right">Закуп</th>
+              <th class="text-right">Продажа</th>
+              <th class="text-right">Остаток</th>
+              <th class="text-center">Статус</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4" class="text-right" style="font-weight: bold;">Итого:</td>
+              <td class="text-right" style="font-weight: bold;">${formatReportMoney(totalPurchase)} с</td>
+              <td class="text-right" style="font-weight: bold;">${formatReportMoney(totalSale)} с</td>
+              <td class="text-center" style="font-weight: bold;">${totalStock}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div class="summary">
+          Общая стоимость закупа: ${formatReportMoney(totalPurchase)} с
+          <br>
+          Ожидаемая выручка: ${formatReportMoney(totalSale)} с
+        </div>
+
+        <div style="margin-top: 50px; font-size: 8px; color: #bdc3c7; text-align: center;">
+          Документ сформирован автоматически в системе учета "${shopName}"
+        </div>
+      </body>
+      </html>
+    `;
+  };
+
+  // Печать/сохранение отчёта по товарам целиком на клиенте: данные уже
+  // загружены на странице (с учётом текущих фильтров), поход на бэкенд не нужен.
+  const printProductsReport = (products: any[]) => {
+    const html = generateProductsReportHtml(products, settings.value);
+    if (typeof window !== "undefined" && window.electronAPI) {
+      window.electronAPI.printHTML({ html, printerName: activePrinter.value });
+    } else {
+      printViaBrowser(html);
+    }
+  };
+
   const generateReceiptHtml = (order: any, settings: any = {}) => {
     const itemsHtml = order.items.map((item: any) => {
       const itemUnit = item.is_package
@@ -1054,5 +1197,7 @@ export const usePrinter = () => {
     generateInvoiceHtml,
     generatePriceTagHtml,
     generateBarcodeLabelHtml,
+    generateProductsReportHtml,
+    printProductsReport,
   };
 };

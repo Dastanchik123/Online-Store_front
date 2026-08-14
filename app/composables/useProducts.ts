@@ -1,9 +1,7 @@
 import { useApi } from "./useApi";
-import { useReportExport } from "./useReportExport";
 
 export const useProducts = () => {
   const api = useApi();
-  const { runExport } = useReportExport();
 
   const getProducts = async (
     params: {
@@ -179,20 +177,6 @@ export const useProducts = () => {
     }
   };
 
-  const downloadProductsExport = async (
-    params: {
-      category_id?: number;
-      in_stock?: boolean;
-      search?: string;
-    } = {}
-  ) => {
-    return await runExport(
-      "products_pdf",
-      params,
-      `Products_Report_${new Date().toISOString().split("T")[0]}.pdf`
-    );
-  };
-
   const downloadProductsExcel = async (
     params: {
       category_id?: number;
@@ -247,7 +231,6 @@ export const useProducts = () => {
     createCategory,
     updateCategory,
     deleteCategory,
-    downloadProductsExport,
     downloadProductsExcel,
     generateSku,
     generateAiDescription,

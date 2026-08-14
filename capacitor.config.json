@@ -1,5 +1,9 @@
 {
   "appId": "kg.kurulush.store",
   "appName": "Kurulush Store",
-  "webDir": ".output/public"
+  "webDir": ".output/public",
+  "server": {
+    "url": "https://online-store-back.fly.dev",
+    "cleartext": false
+  }
 }
