@@ -122,6 +122,12 @@ onUnmounted(() => {
             ><i class="bi bi-shop me-2"></i>Оффлайн Продажи</NuxtLink
           >
           <NuxtLink
+            to="/admin/self-service-sales"
+            v-if="authStore.hasPermission('orders.view')"
+            @click="closeSidebar"
+            ><i class="bi bi-qr-code me-2"></i>Касса самообслуживания</NuxtLink
+          >
+          <NuxtLink
             to="/admin/orders"
             v-if="authStore.hasPermission('orders.view')"
             @click="closeSidebar"

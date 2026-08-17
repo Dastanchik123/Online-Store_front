@@ -53,6 +53,7 @@ const CROSS_INVALIDATE: Record<string, string[]> = {
   pos: ["products"],
   orders: ["products"],
   inventory: ["products"],
+  "self-service": ["products"],
 };
 
 const markApiCacheStale = (mutatedEndpoint: string) => {

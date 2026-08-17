@@ -14,7 +14,8 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "electron": "electron electron-main.cjs --no-sandbox",
-    "kiosk": "google-chrome --kiosk --kiosk-printing --disable-print-preview http://localhost:3000/cashier"
+    "kiosk": "google-chrome --kiosk --kiosk-printing --disable-print-preview http://localhost:3000/cashier",
+    "kiosk:self-service": "google-chrome --kiosk --kiosk-printing --disable-print-preview http://localhost:3000/self-service"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
