@@ -26,3 +26,6 @@ logs
 # Capacitor Android build artifacts
 android/.gradle
 android/app/build
+
+# electron-builder output
+release

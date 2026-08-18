@@ -17,7 +17,11 @@ const {
   clearDeviceToken,
   pairDevice,
 } = useSelfService();
-const { printReceipt } = usePrinter();
+const { printReceipt, printers, activePrinter, isConnected, initPrinter, setPrinter, testPrint } = usePrinter();
+
+// ───── Настройка принтера — своя кнопка/модалка на кассе самообслуживания,
+// т.к. здесь нет layout кассира и его модалки настройки принтера ─────
+const showPrinterModal = ref(false);
 
 // Терминал кассы — для мультикассового self-service (?terminal=SS2 в URL,
 // иначе берётся сохранённое значение, иначе SS1 по умолчанию). В Electron
@@ -26,6 +30,8 @@ const { printReceipt } = usePrinter();
 // (без Electron) — fallback на localStorage этого устройства.
 const terminalId = ref("SS1");
 onMounted(async () => {
+  await initPrinter();
+
   const fromQuery = String(route.query.terminal || "").trim();
   const electron = window.electronAPI;
 
@@ -359,8 +365,69 @@ onUnmounted(() => {
   <div class="ss-kiosk">
     <header class="ss-header">
       <div class="ss-title">Касса самообслуживания</div>
-      <div class="ss-terminal">{{ terminalId }}</div>
+      <div class="ss-header-right">
+        <button class="ss-printer-btn" @click="showPrinterModal = true" title="Настройка принтера">
+          <i class="bi bi-printer"></i>
+        </button>
+        <div class="ss-terminal">{{ terminalId }}</div>
+      </div>
     </header>
+
+    <!-- ══════════ Модалка настройки принтера ══════════ -->
+    <div v-if="showPrinterModal" class="modal-backdrop fade show"></div>
+    <div
+      v-if="showPrinterModal"
+      class="modal fade show d-block"
+      tabindex="-1"
+      @click.self="showPrinterModal = false"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 rounded-4 shadow-lg">
+          <div class="modal-header border-0 p-4">
+            <h5 class="modal-title fw-bold">Настройка принтера</h5>
+            <button type="button" class="btn-close" @click="showPrinterModal = false"></button>
+          </div>
+          <div class="modal-body p-4 pt-0">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <label class="form-label fw-bold mb-0">Выберите принтер</label>
+              <span :class="isConnected ? 'text-success' : 'text-info'" class="small fw-bold">
+                {{ isConnected ? "Принтер: Подключен (Electron)" : "Принтер: Обычный режим" }}
+              </span>
+            </div>
+
+            <select
+              :value="activePrinter"
+              @change="(e) => setPrinter(e.target.value)"
+              class="form-select rounded-3"
+            >
+              <option value="">-- По умолчанию --</option>
+              <option v-for="p in printers" :key="p" :value="p">{{ p }}</option>
+            </select>
+
+            <div v-if="!isConnected" class="alert alert-info mt-2 py-2 small">
+              Запустите приложение через <strong>Electron</strong> для выбора принтера и прямой печати.
+            </div>
+
+            <small class="text-muted mt-3 d-block">
+              Выбранный принтер будет использоваться для печати чеков БЕЗ открытия окна с диалогом печати.
+            </small>
+          </div>
+          <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-between">
+            <button
+              type="button"
+              class="btn btn-outline-info rounded-pill px-3 fw-bold"
+              @click="testPrint"
+              :disabled="!isConnected || !activePrinter"
+            >
+              <i class="bi bi-play-circle me-1"></i> Тест печати
+            </button>
+            <button type="button" class="btn btn-primary rounded-pill px-4" @click="showPrinterModal = false">
+              Готово
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ══════════ Пейринг устройства (первый запуск / отозванный токен) ══════════ -->
     <div v-if="screen === 'pairing'" class="ss-payment-screen">
@@ -610,7 +677,22 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .ss-title { font-size: 1.4rem; font-weight: 800; }
+.ss-header-right { display: flex; align-items: center; gap: 14px; }
 .ss-terminal { font-size: 0.9rem; opacity: 0.6; }
+.ss-printer-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 1rem;
+  opacity: 0.7;
+}
+.ss-printer-btn:active { opacity: 1; background: rgba(255, 255, 255, 0.2); }
 
 .ss-body {
   flex: 1;
@@ -661,7 +743,16 @@ onUnmounted(() => {
   border-radius: 16px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
   z-index: 15;
+  scrollbar-width: auto;
 }
+.ss-search-dropdown::-webkit-scrollbar { width: 14px; }
+.ss-search-dropdown::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 16px; }
+.ss-search-dropdown::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 16px;
+  border: 3px solid #f1f5f9;
+}
+.ss-search-dropdown::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 .ss-search-row {
   width: 100%;
   display: flex;
@@ -776,7 +867,7 @@ onUnmounted(() => {
 .ss-product-price { margin-top: 4px; font-weight: 800; color: #0ea5e9; font-size: 1.05rem; }
 
 .ss-cart {
-  width: 560px;
+  width: 680px;
   flex-shrink: 0;
   background: #fff;
   display: flex;

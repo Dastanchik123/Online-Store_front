@@ -91,6 +91,16 @@ const changePage = (page: number) => {
 const paymentStatusLabel = (status: string) =>
   ({ paid: "Оплачено", pending: "Ожидает оплаты", failed: "Отменён/не оплачен", refunded: "Возврат" })[status] ||
   status;
+const orderStatusLabel = (status: string) =>
+  ({
+    pending: "Ожидание",
+    processing: "Обработка",
+    shipped: "Отправлен",
+    delivered: "Доставлен",
+    cancelled: "Отменен",
+    refunded: "Возврат",
+    paid: "Оплачено",
+  })[status] || status;
 const paymentStatusClass = (status: string) =>
   ({
     paid: "bg-success-subtle text-success",
@@ -206,7 +216,7 @@ watch(() => filters.value.payment_status, () => { filters.value.page = 1; fetchS
                   {{ paymentStatusLabel(sale.payment_status) }}
                 </span>
               </td>
-              <td class="small text-muted">{{ sale.status }}</td>
+              <td class="small text-muted">{{ orderStatusLabel(sale.status) }}</td>
               <td class="text-end pe-4">
                 <button @click="openDetails(sale)" class="btn btn-sm btn-outline-primary rounded-pill px-3">
                   <i class="bi bi-info-circle me-1"></i> Детали

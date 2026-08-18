@@ -20,7 +20,14 @@ let db;
 // ─────────────────────────────────────────────
 //  Window
 // ─────────────────────────────────────────────
-function createWindow(url = 'https://online-store-back.fly.dev') {
+// --self-service — тот же самый Electron-шелл (IPC, SQLite, тихая печать),
+// просто стартовое окно сразу открывает кассу самообслуживания вместо
+// обычного логина. Для необслуживаемого киоска: npm run electron:self-service
+const START_URL = process.argv.includes('--self-service')
+  ? 'https://online-store-back.fly.dev/self-service'
+  : 'https://online-store-back.fly.dev';
+
+function createWindow(url = START_URL) {
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
