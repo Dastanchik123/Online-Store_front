@@ -1,7 +1,16 @@
 <script setup>
 const { settings, fetchPublicSettings } = useSettings();
+const { setSeo } = useSeo();
 
 onMounted(fetchPublicSettings);
+
+setSeo({
+  title: "О нас",
+  description:
+    "KurulushStore — интернет-магазин с широким ассортиментом товаров по выгодным ценам. Узнайте больше о нашей компании, ценностях и подходе к сервису.",
+  keywords: "о компании, о магазине, KurulushStore",
+  url: "/about",
+});
 </script>
 
 <template>

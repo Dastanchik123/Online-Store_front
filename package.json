@@ -40,7 +40,10 @@
       "target": "nsis"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Office"
     }
   },
@@ -48,6 +51,8 @@
     "@capacitor/android": "^8.4.2",
     "@capacitor/core": "^8.4.2",
     "@nuxtjs/bootstrap": "^0.0.1",
+    "@nuxtjs/robots": "^6.1.5",
+    "@nuxtjs/sitemap": "^8.3.4",
     "@pinia/nuxt": "^0.11.3",
     "@popperjs/core": "^2.11.8",
     "@zxing/browser": "^0.2.1",

@@ -1,7 +1,16 @@
 <script setup>
 const { settings, fetchPublicSettings } = useSettings();
+const { setSeo } = useSeo();
 
 onMounted(fetchPublicSettings);
+
+setSeo({
+  title: "Контакты",
+  description:
+    "Свяжитесь с интернет-магазином KurulushStore: адрес, телефон, часы работы и способы связи с поддержкой.",
+  keywords: "контакты, связаться, поддержка, KurulushStore",
+  url: "/contacts",
+});
 </script>
 
 <template>

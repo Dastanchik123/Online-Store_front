@@ -1184,38 +1184,38 @@ watch(couponDiscount, (newDiscount) => {
                 <span>POS ТЕРМИНАЛ</span>
               </h4>
             </div>
-            <div class="d-flex align-items-center gap-3">
+            <div class="d-flex align-items-center gap-2">
               <div
-                class="badge bg-light text-dark px-3 py-2 border rounded-pill d-flex align-items-center gap-2 shadow-sm"
+                class="btn btn-light rounded-circle shadow-sm border d-flex align-items-center justify-content-center"
+                style="width: 40px; height: 40px"
+                :title="`Кассир: ${authStore.user?.name}`"
               >
                 <i class="bi bi-person-badge text-primary fs-6"></i>
-                <span class="small fw-bold">{{ authStore.user?.name }}</span>
               </div>
               <div
-                class="badge px-3 py-2 border rounded-pill d-flex align-items-center gap-2 shadow-sm"
+                class="btn rounded-circle shadow-sm border d-flex align-items-center justify-content-center"
+                style="width: 40px; height: 40px"
                 :class="isConnected ? 'bg-success-subtle text-success' : 'bg-light text-muted'"
+                :title="`Принтер: ${isConnected ? 'Electron' : 'Browser'}`"
               >
                 <i class="bi bi-printer-fill fs-6"></i>
-                <span class="small fw-bold">{{ isConnected ? 'Electron' : 'Browser' }}</span>
               </div>
               <button
                 @click="showDeviceModal = true"
-                class="badge px-3 py-2 border rounded-pill d-flex align-items-center gap-2 shadow-sm bg-light text-dark"
-                style="cursor: pointer"
-                title="Тип устройства (для экранной клавиатуры)"
+                class="btn rounded-circle shadow-sm border bg-light text-dark d-flex align-items-center justify-content-center"
+                style="width: 40px; height: 40px"
+                :title="`Тип устройства: ${deviceType === 'monoblock' ? 'Моноблок' : 'ПК'} (для экранной клавиатуры)`"
               >
                 <i
                   class="bi fs-6"
                   :class="deviceType === 'monoblock' ? 'bi-tablet' : 'bi-pc-display'"
                 ></i>
-                <span class="small fw-bold">{{
-                  deviceType === "monoblock" ? "Моноблок" : "ПК"
-                }}</span>
               </button>
               <button
                 @click="loadAllProducts"
                 class="btn btn-light rounded-circle shadow-sm border"
                 style="width: 40px; height: 40px"
+                title="Обновить"
               >
                 <i
                   class="bi bi-arrow-clockwise"

@@ -2,6 +2,7 @@
 const { getProducts, getCategories } = useProducts();
 const route = useRoute();
 const router = useRouter();
+const { setSeo, setBreadcrumbs } = useSeo();
 
 const title = "Каталог товаров";
 
@@ -38,11 +39,49 @@ const loadData = async () => {
 
     products.value = productsData;
     categories.value = categoriesData;
+
+    updateSeo();
   } catch (err) {
     error.value = err.data?.message || "Ошибка загрузки данных";
   } finally {
     loading.value = false;
   }
+};
+
+// Динамические title/description: если выбрана категория — используем её
+// название и count товаров, иначе — общее описание каталога
+const updateSeo = () => {
+  const activeCategory = filters.value.category_id
+    ? categories.value.find((c) => c.id === filters.value.category_id)
+    : null;
+
+  const seoTitle = activeCategory
+    ? activeCategory.name
+    : "Каталог товаров";
+  const total = products.value?.total;
+
+  setSeo({
+    title: seoTitle,
+    description: activeCategory
+      ? `Купить ${activeCategory.name} в интернет-магазине KurulushStore${
+          total ? ` — ${total} товаров в наличии` : ""
+        }. Быстрая доставка, гарантия качества.`
+      : `Каталог товаров интернет-магазина KurulushStore${
+          total ? ` — ${total} товаров` : ""
+        }. Широкий ассортимент, выгодные цены, быстрая доставка.`,
+    keywords: activeCategory
+      ? `${activeCategory.name}, купить ${activeCategory.name}, каталог`
+      : "каталог товаров, интернет-магазин, купить онлайн",
+    url: `/catalog${route.fullPath.includes("?") ? route.fullPath.slice(route.fullPath.indexOf("?")) : ""}`,
+  });
+
+  setBreadcrumbs([
+    { name: "Главная", url: "/" },
+    { name: "Каталог", url: "/catalog" },
+    ...(activeCategory
+      ? [{ name: activeCategory.name, url: `/catalog?category_id=${activeCategory.id}` }]
+      : []),
+  ]);
 };
 
 const applyFilters = () => {

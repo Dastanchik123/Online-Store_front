@@ -14,8 +14,7 @@ export const useSeo = () => {
   }) => {
     const route = useRoute();
     const baseUrl =
-      config.public.apiBase?.replace("/api", "") ||
-      "https://online-store-back.onrender.com";
+      config.public.siteUrl || "https://online-store-back.onrender.com";
 
     const defaultTitle = "KurulushStore - Интернет-магазин";
     const defaultDescription =
@@ -116,8 +115,7 @@ export const useSeo = () => {
   const setProductSeo = (product: any) => {
     const config = useRuntimeConfig();
     const baseUrl =
-      config.public.apiBase?.replace("/api", "") ||
-      "https://online-store-back.onrender.com";
+      config.public.siteUrl || "https://online-store-back.onrender.com";
 
     const price = product.sale_price || product.price;
     const availability = product.stock_quantity > 0 ? "InStock" : "OutOfStock";
@@ -179,8 +177,7 @@ export const useSeo = () => {
   const setBreadcrumbs = (items: Array<{ name: string; url: string }>) => {
     const config = useRuntimeConfig();
     const baseUrl =
-      config.public.apiBase?.replace("/api", "") ||
-      "https://online-store-back.onrender.com";
+      config.public.siteUrl || "https://online-store-back.onrender.com";
 
     useHead({
       script: [

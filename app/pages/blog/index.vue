@@ -1,6 +1,7 @@
 <script setup>
 const { getPosts } = useBlog();
 const config = useRuntimeConfig();
+const { setSeo } = useSeo();
 
 const loading = ref(true);
 const posts = ref([]);
@@ -21,6 +22,14 @@ const fetchPosts = async () => {
 };
 
 onMounted(fetchPosts);
+
+setSeo({
+  title: "Блог",
+  description:
+    "Полезные статьи, новости и советы от интернет-магазина KurulushStore.",
+  keywords: "блог, статьи, новости, KurulushStore",
+  url: "/blog",
+});
 </script>
 
 <template>
