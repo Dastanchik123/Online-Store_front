@@ -20,7 +20,7 @@ let db;
 // ─────────────────────────────────────────────
 //  Window
 // ─────────────────────────────────────────────
-function createWindow() {
+function createWindow(url = 'https://online-store-back.fly.dev') {
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -31,8 +31,19 @@ function createWindow() {
     },
   });
 
-  win.loadURL('https://online-store-back.fly.dev');
+  win.loadURL(url);
   // win.webContents.openDevTools();
+
+  // Ссылки с target="_blank" (например «Открыть кассу» на self-service-sales)
+  // без этого обработчика Electron открывает новое окно БЕЗ preload —
+  // там window.electronAPI не определён, печать чека падает в браузерный
+  // window.print() с системным диалогом вместо тихой печати на принтер.
+  win.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+    createWindow(targetUrl);
+    return { action: 'deny' };
+  });
+
+  return win;
 }
 
 function notifyRenderer(channel, payload) {
@@ -204,6 +215,15 @@ ipcMain.handle('db-save-order', async (event, orderData) => {
 
 ipcMain.handle('get-terminal-id', () => getSetting(db, 'terminal_id') || 'k1');
 ipcMain.handle('set-terminal-id', (event, id) => setSetting(db, 'terminal_id', id));
+
+ipcMain.handle('get-self-service-terminal-id', () => getSetting(db, 'self_service_terminal_id') || 'SS1');
+ipcMain.handle('set-self-service-terminal-id', (event, id) => setSetting(db, 'self_service_terminal_id', id));
+
+// Device-токен киоска self-service — выдаётся один раз при пейринге
+// (см. SelfServiceDeviceController@pair), хранится в SQLite, а не
+// localStorage, чтобы пережить очистку данных браузера/переустановку.
+ipcMain.handle('get-self-service-device-token', () => getSetting(db, 'self_service_device_token') || null);
+ipcMain.handle('set-self-service-device-token', (event, token) => setSetting(db, 'self_service_device_token', token));
 
 // ─────────────────────────────────────────────
 //  IPC: Sync

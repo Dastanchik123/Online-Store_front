@@ -261,6 +261,12 @@ onUnmounted(() => {
             ><i class="bi bi-sliders me-2"></i>Настройки</NuxtLink
           >
           <NuxtLink
+            to="/admin/self-service-terminals"
+            v-if="authStore.isAdmin"
+            @click="closeSidebar"
+            ><i class="bi bi-tablet me-2"></i>Кассы самообслуживания</NuxtLink
+          >
+          <NuxtLink
             to="/admin/permissions"
             v-if="authStore.isAdmin"
             @click="closeSidebar"

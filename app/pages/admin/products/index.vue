@@ -325,11 +325,20 @@ const handleSearchInput = () => {
   }, 500);
 };
 
-const applyProductsData = (data, perPage) => {
+// Сравнение без служебного _idx — он приклеивается уже после fetch и
+// не должен считаться «изменением» товара
+const productContentEqual = (a, b) => {
+  const { _idx: _ai, ...ar } = a;
+  const { _idx: _bi, ...br } = b;
+  return JSON.stringify(ar) === JSON.stringify(br);
+};
+
+const applyProductsData = (data, perPage, isBackgroundRefresh = false) => {
+  let next;
   if (data && data.data && Array.isArray(data.data)) {
-    products.value = data;
+    next = data;
   } else if (Array.isArray(data)) {
-    products.value = {
+    next = {
       data: data,
       current_page: 1,
       last_page: 1,
@@ -337,7 +346,7 @@ const applyProductsData = (data, perPage) => {
       per_page: perPage || 15,
     };
   } else {
-    products.value = {
+    next = {
       data: [],
       current_page: 1,
       last_page: 1,
@@ -345,6 +354,23 @@ const applyProductsData = (data, perPage) => {
       per_page: 15,
     };
   }
+
+  // Фоновое SWR-обновление (onRefresh) присылает совершенно новые объекты
+  // товаров. v-memo строк сравнивает их по ссылке — если подменить массив
+  // как есть, «изменившимся» окажется абсолютно весь список, и виртуальный
+  // скролл разом перерисует все видимые строки (видна пустая сетка-заглушка,
+  // пока рендер не догонит). Поэтому для не изменившихся по содержимому
+  // товаров оставляем прежнюю ссылку — тогда v-memo пропускает их строки,
+  // и перерисовываются только реально изменившиеся товары.
+  if (isBackgroundRefresh) {
+    const prevById = new Map(products.value.data.map((p) => [p.id, p]));
+    next.data = next.data.map((p) => {
+      const prev = prevById.get(p.id);
+      return prev && productContentEqual(prev, p) ? prev : p;
+    });
+  }
+
+  products.value = next;
 
   // Сквозной номер приклеен к товару, а не вычисляется от позиции окна:
   // иначе v-memo строк не работал бы (номер менялся бы при каждом сдвиге)
@@ -367,7 +393,7 @@ const fetchProducts = async () => {
 
   try {
     const data = await getProducts(params, {
-      onRefresh: (fresh) => applyProductsData(fresh, params.per_page),
+      onRefresh: (fresh) => applyProductsData(fresh, params.per_page, true),
     });
     applyProductsData(data, params.per_page);
   } catch (error) {

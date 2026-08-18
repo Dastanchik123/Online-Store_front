@@ -6,30 +6,55 @@ definePageMeta({
 });
 
 const route = useRoute();
-const productsStore = useProductsStore();
+const { getProducts } = useProducts();
 const ui = useUiStore();
 const { getImageUrl } = useImageUrl();
-const { createOrder, getPaymentStatus, cancelOrder } = useSelfService();
+const {
+  createOrder,
+  getPaymentStatus,
+  cancelOrder,
+  getDeviceToken,
+  clearDeviceToken,
+  pairDevice,
+} = useSelfService();
 const { printReceipt } = usePrinter();
 
 // Терминал кассы — для мультикассового self-service (?terminal=SS2 в URL,
-// иначе берётся сохранённый в этом браузере/киоске, иначе SS1 по умолчанию)
+// иначе берётся сохранённое значение, иначе SS1 по умолчанию). В Electron
+// (выделенный киоск) хранится в SQLite через IPC — переживает переустановку/
+// очистку данных браузера, в отличие от localStorage. В обычном браузере
+// (без Electron) — fallback на localStorage этого устройства.
 const terminalId = ref("SS1");
-onMounted(() => {
+onMounted(async () => {
   const fromQuery = String(route.query.terminal || "").trim();
+  const electron = window.electronAPI;
+
   if (fromQuery) {
     terminalId.value = fromQuery;
-    localStorage.setItem("self_service_terminal_id", fromQuery);
+    if (electron?.setSelfServiceTerminalId) {
+      await electron.setSelfServiceTerminalId(fromQuery);
+    } else {
+      localStorage.setItem("self_service_terminal_id", fromQuery);
+    }
+  } else if (electron?.getSelfServiceTerminalId) {
+    terminalId.value = (await electron.getSelfServiceTerminalId()) || "SS1";
   } else {
     terminalId.value = localStorage.getItem("self_service_terminal_id") || "SS1";
   }
 });
 
-// ───── Каталог: переиспользуем существующий cache-first Pinia store ─────
+// ───── Каталог: свой полный список (per_page=-1), а не постранично —
+// иначе поиск и сканер штрихкода видят только первую страницу (15 штук
+// по умолчанию) и не находят товары, которых там не оказалось ─────
 const loadingCatalog = ref(true);
+const catalogProducts = ref([]);
+async function fetchCatalog() {
+  const res = await getProducts({ per_page: -1, is_active: true });
+  catalogProducts.value = res.data || [];
+}
 onMounted(async () => {
   try {
-    await Promise.all([productsStore.fetchProducts(), productsStore.fetchCategories()]);
+    await Promise.all([fetchCatalog(), fetchHotProducts()]);
   } catch (e) {
     ui.error("Не удалось загрузить каталог. Проверьте соединение.");
   } finally {
@@ -38,26 +63,75 @@ onMounted(async () => {
 });
 
 const searchQuery = ref("");
-const activeCategoryId = ref(null);
 
+// Полный каталог на кассе не выводим списком — товары добавляются через
+// горячие группы слева или сканер штрихкода; результаты поиска — выпадашкой
+// под полем ввода (как на обычной кассе, см. cashier/pos.vue)
 const visibleProducts = computed(() => {
-  let list = productsStore.products.filter((p) => p.is_active);
-
-  if (activeCategoryId.value) {
-    list = list.filter((p) => p.category_id === activeCategoryId.value);
-  }
-
   const q = searchQuery.value.trim().toLowerCase();
-  if (q) {
-    list = list.filter(
-      (p) =>
-        p.name?.toLowerCase().includes(q) ||
-        String(p.sku || "").toLowerCase().includes(q),
-    );
-  }
+  if (!q) return [];
 
-  return list;
+  return catalogProducts.value.filter(
+    (p) => p.name?.toLowerCase().includes(q) || String(p.sku || "").toLowerCase().includes(q),
+  );
 });
+
+// ───── Экранная клавиатура для моноблоков (см. components/pos/OnScreenKeyboard.vue) —
+// жёстко привязана к фокусу поля поиска, без отдельной кнопки закрытия ─────
+const isSearchFocused = ref(false);
+
+// Именно функция в <script>, а не inline `setTimeout(...)` в шаблоне — Vue
+// не разрешает браузерные глобалы (setTimeout/window/document) в inline-
+// выражениях шаблона, компилятор трактует их как _ctx.setTimeout и падает с
+// "_ctx.setTimeout is not a function" (клавиатура из-за этого не закрывалась).
+function scheduleSearchBlur() {
+  setTimeout(() => {
+    isSearchFocused.value = false;
+  }, 200);
+}
+
+function handleVkbdChar(ch) {
+  searchQuery.value += ch;
+}
+function handleVkbdBackspace() {
+  searchQuery.value = searchQuery.value.slice(0, -1);
+}
+function handleVkbdSpace() {
+  handleVkbdChar(" ");
+}
+function handleVkbdEnter() {
+  isSearchFocused.value = false;
+  document.activeElement?.blur();
+}
+function selectSearchResult(product) {
+  addToCart(product);
+  searchQuery.value = "";
+  isSearchFocused.value = false;
+}
+
+// ───── Горячие товары: отдельный запрос с is_hot=true (см. admin/hot-products.vue,
+// та же логика, что и в cashier/pos.vue) — сайдбар слева открывает
+// модалку на 90% экрана с товарами выбранной группы ─────
+const hotProducts = ref([]);
+async function fetchHotProducts() {
+  try {
+    const res = await getProducts({ is_hot: true, is_active: true, per_page: 100 });
+    hotProducts.value = res.data || [];
+  } catch (e) {
+    // сайдбар горячих товаров просто не покажется — не блокируем кассу
+  }
+}
+const hotGroups = computed(() => {
+  const groups = hotProducts.value.map((p) => p.hot_group).filter(Boolean);
+  return [...new Set(groups)];
+});
+const activeHotGroup = ref(null);
+const filteredHotProducts = computed(() =>
+  hotProducts.value.filter((p) => p.hot_group === activeHotGroup.value),
+);
+function toggleHotGroup(group) {
+  activeHotGroup.value = activeHotGroup.value === group ? null : group;
+}
 
 const formatMoney = (v) =>
   Number(v || 0).toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -115,7 +189,7 @@ function clearCart() {
 useBarcodeScanner((code) => {
   if (screen.value !== "catalog") return;
   const trimmed = code.trim();
-  const found = productsStore.products.find(
+  const found = catalogProducts.value.find(
     (p) => String(p.sku).toLowerCase() === trimmed.toLowerCase(),
   );
   if (found) {
@@ -125,8 +199,53 @@ useBarcodeScanner((code) => {
   }
 });
 
-// ───── Экраны: catalog → payment → success (+ error-состояния внутри payment) ─────
-const screen = ref("catalog"); // catalog | payment | success
+// ───── Пейринг устройства: касса без device-токена не может создавать заказы ─────
+// (см. EnsureSelfServiceDevice на бэкенде) — сотрудник вводит одноразовый код
+// из админки один раз при настройке киоска, дальше токен живёт в SQLite/localStorage.
+const pairingCode = ref("");
+const pairingError = ref("");
+const pairingLoading = ref(false);
+
+onMounted(async () => {
+  const token = await getDeviceToken();
+  if (!token) {
+    screen.value = "pairing";
+  }
+});
+
+async function submitPairing() {
+  const code = pairingCode.value.trim();
+  if (!code || pairingLoading.value) return;
+  pairingLoading.value = true;
+  pairingError.value = "";
+  try {
+    const res = await pairDevice(code);
+    // Терминал теперь официально закреплён за этим устройством на сервере —
+    // синхронизируем локальную метку, чтобы она не разъезжалась с реальностью.
+    terminalId.value = res.terminal_id;
+    const electron = window.electronAPI;
+    if (electron?.setSelfServiceTerminalId) {
+      await electron.setSelfServiceTerminalId(res.terminal_id);
+    } else {
+      localStorage.setItem("self_service_terminal_id", res.terminal_id);
+    }
+    pairingCode.value = "";
+    screen.value = "catalog";
+  } catch (e) {
+    pairingError.value = e?.data?.message || "Не удалось привязать кассу. Проверьте код.";
+  } finally {
+    pairingLoading.value = false;
+  }
+}
+
+async function handleUnauthorized() {
+  await clearDeviceToken();
+  stopPolling();
+  screen.value = "pairing";
+}
+
+// ───── Экраны: pairing → catalog → payment → success (+ error-состояния внутри payment) ─────
+const screen = ref("catalog"); // pairing | catalog | payment | success
 const checkingOut = ref(false);
 const currentOrder = ref(null);
 const currentPayment = ref(null);
@@ -155,6 +274,10 @@ async function checkout() {
 
     startPolling();
   } catch (e) {
+    if (e?.status === 401 || e?.statusCode === 401) {
+      await handleUnauthorized();
+      return;
+    }
     ui.error(e?.data?.message || "Не удалось создать заказ. Попробуйте ещё раз.");
   } finally {
     checkingOut.value = false;
@@ -177,6 +300,10 @@ function startPolling() {
         stopPolling();
       }
     } catch (e) {
+      if (e?.status === 401 || e?.statusCode === 401) {
+        await handleUnauthorized();
+        return;
+      }
       // сеть моргнула — просто попробуем на следующем тике
     }
   }, 2000);
@@ -235,8 +362,51 @@ onUnmounted(() => {
       <div class="ss-terminal">{{ terminalId }}</div>
     </header>
 
+    <!-- ══════════ Пейринг устройства (первый запуск / отозванный токен) ══════════ -->
+    <div v-if="screen === 'pairing'" class="ss-payment-screen">
+      <div class="ss-payment-card">
+        <h2>Настройка кассы</h2>
+        <p class="ss-payment-hint">
+          Введите код привязки, выданный администратором для этого терминала.
+        </p>
+        <form @submit.prevent="submitPairing">
+          <input
+            v-model="pairingCode"
+            type="text"
+            inputmode="numeric"
+            maxlength="6"
+            placeholder="000000"
+            class="ss-pairing-input"
+            autofocus
+          />
+          <p v-if="pairingError" class="ss-pairing-error">{{ pairingError }}</p>
+          <button
+            type="submit"
+            class="ss-back-btn ss-back-btn--primary"
+            :disabled="pairingLoading || !pairingCode.trim()"
+          >
+            {{ pairingLoading ? "Привязываем..." : "ПРИВЯЗАТЬ КАССУ" }}
+          </button>
+        </form>
+      </div>
+    </div>
+
     <!-- ══════════ Каталог + корзина ══════════ -->
-    <div v-if="screen === 'catalog'" class="ss-body">
+    <div v-else-if="screen === 'catalog'" class="ss-body">
+      <aside v-if="hotGroups.length > 0" class="ss-hot-sidebar">
+        <div class="ss-hot-sidebar-icon"><i class="bi bi-fire"></i></div>
+        <button
+          v-for="group in hotGroups"
+          :key="group"
+          class="ss-hot-tab"
+          :class="{ active: activeHotGroup === group }"
+          @click="toggleHotGroup(group)"
+        >
+          <i class="bi bi-fire"></i>
+          <span>{{ group }}</span>
+        </button>
+      </aside>
+
       <div class="ss-catalog">
         <div class="ss-search">
           <i class="bi bi-search"></i>
@@ -244,48 +414,43 @@ onUnmounted(() => {
             v-model="searchQuery"
             type="text"
             placeholder="Найти товар по названию или коду..."
+            @focus="isSearchFocused = true"
+            @blur="scheduleSearchBlur"
           />
-        </div>
 
-        <div class="ss-categories">
-          <button
-            class="ss-cat-btn"
-            :class="{ active: !activeCategoryId }"
-            @click="activeCategoryId = null"
-          >
-            Все товары
-          </button>
-          <button
-            v-for="cat in productsStore.categories"
-            :key="cat.id"
-            class="ss-cat-btn"
-            :class="{ active: activeCategoryId === cat.id }"
-            @click="activeCategoryId = cat.id"
-          >
-            {{ cat.name }}
-          </button>
+          <div v-if="isSearchFocused && searchQuery.trim()" class="ss-search-dropdown">
+            <button
+              v-for="product in visibleProducts"
+              :key="product.id"
+              class="ss-search-row"
+              :disabled="!product.in_stock"
+              @click="selectSearchResult(product)"
+            >
+              <div class="ss-search-row-img">
+                <img v-if="product.image" :src="getImageUrl(product.image)" :alt="product.name" />
+                <i v-else class="bi bi-image"></i>
+              </div>
+              <div class="ss-search-row-info">
+                <div class="ss-search-row-name">{{ product.name }}</div>
+                <div class="ss-search-row-sku">
+                  SKU: {{ product.sku }}
+                  <span v-if="!product.in_stock" class="ss-search-row-out">— нет в наличии</span>
+                </div>
+              </div>
+              <div class="ss-search-row-price">
+                {{ formatMoney(product.sale_price || product.price) }} сом
+              </div>
+            </button>
+            <div v-if="visibleProducts.length === 0" class="ss-search-row-empty">
+              Ничего не найдено
+            </div>
+          </div>
         </div>
 
         <div v-if="loadingCatalog" class="ss-loading">Загрузка каталога...</div>
-        <div v-else-if="visibleProducts.length === 0" class="ss-empty">Товары не найдены</div>
-        <div v-else class="ss-product-grid">
-          <button
-            v-for="product in visibleProducts"
-            :key="product.id"
-            class="ss-product-tile"
-            :disabled="!product.in_stock"
-            @click="addToCart(product)"
-          >
-            <div class="ss-product-img">
-              <img v-if="product.image" :src="getImageUrl(product.image)" :alt="product.name" />
-              <i v-else class="bi bi-image"></i>
-              <span v-if="!product.in_stock" class="ss-out-badge">Нет в наличии</span>
-            </div>
-            <div class="ss-product-name">{{ product.name }}</div>
-            <div class="ss-product-price">
-              {{ formatMoney(product.sale_price || product.price) }} сом
-            </div>
-          </button>
+        <div v-else class="ss-empty">
+          <i class="bi bi-fire ss-empty-icon"></i>
+          <span>Выберите товар слева или найдите его по названию/коду</span>
         </div>
       </div>
 
@@ -329,6 +494,48 @@ onUnmounted(() => {
           </button>
         </div>
       </aside>
+
+      <!-- Модалка горячей группы — сайдбар остаётся кликабельным поверх (можно
+           переключать группы, не закрывая модалку) -->
+      <Transition name="fade">
+        <div
+          v-if="activeHotGroup"
+          class="ss-hot-modal-backdrop"
+          @click="activeHotGroup = null"
+        ></div>
+      </Transition>
+      <Transition name="fade">
+        <div v-if="activeHotGroup" class="ss-hot-modal">
+          <div class="ss-hot-modal-header">
+            <h3><i class="bi bi-fire"></i> {{ activeHotGroup }}</h3>
+            <button class="ss-hot-modal-close" @click="activeHotGroup = null">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+          <div class="ss-hot-modal-grid">
+            <button
+              v-for="product in filteredHotProducts"
+              :key="product.id"
+              class="ss-product-tile"
+              :disabled="!product.in_stock"
+              @click="addToCart(product); activeHotGroup = null"
+            >
+              <div class="ss-product-img">
+                <img v-if="product.image" :src="getImageUrl(product.image)" :alt="product.name" />
+                <i v-else class="bi bi-image"></i>
+                <span v-if="!product.in_stock" class="ss-out-badge">Нет в наличии</span>
+              </div>
+              <div class="ss-product-name">{{ product.name }}</div>
+              <div class="ss-product-price">
+                {{ formatMoney(product.sale_price || product.price) }} сом
+              </div>
+            </button>
+            <div v-if="filteredHotProducts.length === 0" class="ss-empty">
+              Нет товаров в этой группе
+            </div>
+          </div>
+        </div>
+      </Transition>
     </div>
 
     <!-- ══════════ Экран оплаты ══════════ -->
@@ -370,6 +577,15 @@ onUnmounted(() => {
     </div>
 
     <UiToastContainer />
+
+    <PosOnScreenKeyboard
+      v-if="isSearchFocused"
+      :show-close="false"
+      @char="handleVkbdChar"
+      @backspace="handleVkbdBackspace"
+      @space="handleVkbdSpace"
+      @enter="handleVkbdEnter"
+    />
   </div>
 </template>
 
@@ -434,40 +650,80 @@ onUnmounted(() => {
 }
 .ss-search input:focus { outline: 3px solid #38bdf8; }
 
-.ss-categories {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding-bottom: 12px;
-  flex-shrink: 0;
-}
-.ss-cat-btn {
-  flex-shrink: 0;
-  padding: 12px 22px;
-  border: none;
-  border-radius: 30px;
+.ss-search-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-height: 60vh;
+  overflow-y: auto;
   background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  z-index: 15;
+}
+.ss-search-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+  text-align: left;
+}
+.ss-search-row:disabled { opacity: 0.5; }
+.ss-search-row:active:not(:disabled) { background: #f1f5f9; }
+.ss-search-row-img {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.ss-search-row-img img { width: 100%; height: 100%; object-fit: cover; }
+.ss-search-row-img i { font-size: 1.4rem; color: #cbd5e1; }
+.ss-search-row-info { flex: 1; min-width: 0; }
+.ss-search-row-name {
   font-size: 1rem;
-  font-weight: 600;
-  color: #475569;
+  font-weight: 700;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ss-cat-btn.active { background: #0ea5e9; color: #fff; }
+.ss-search-row-sku { font-size: 0.82rem; color: #94a3b8; margin-top: 2px; }
+.ss-search-row-out { color: #ef4444; font-weight: 600; }
+.ss-search-row-price {
+  flex-shrink: 0;
+  font-weight: 800;
+  color: #0ea5e9;
+  font-size: 1.05rem;
+}
+.ss-search-row-empty {
+  padding: 24px;
+  text-align: center;
+  color: #94a3b8;
+}
 
 .ss-loading, .ss-empty {
   margin: auto;
   font-size: 1.2rem;
   color: #94a3b8;
+  text-align: center;
 }
-
-.ss-product-grid {
-  flex: 1;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 14px;
-  align-content: start;
+.ss-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
+.ss-empty-icon { font-size: 2.4rem; color: #cbd5e1; }
 .ss-product-tile {
   background: #fff;
   border: none;
@@ -520,13 +776,120 @@ onUnmounted(() => {
 .ss-product-price { margin-top: 4px; font-weight: 800; color: #0ea5e9; font-size: 1.05rem; }
 
 .ss-cart {
-  width: 380px;
+  width: 560px;
   flex-shrink: 0;
   background: #fff;
   display: flex;
   flex-direction: column;
   box-shadow: -2px 0 10px rgba(0, 0, 0, 0.05);
 }
+
+/* ══════════ Сайдбар групп горячих товаров ══════════ */
+.ss-hot-sidebar {
+  width: 92px;
+  flex-shrink: 0;
+  background: #0f172a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 8px;
+  overflow-y: auto;
+  position: relative;
+  z-index: 20;
+}
+.ss-hot-sidebar-icon {
+  color: #f97316;
+  font-size: 1.4rem;
+  margin-bottom: 6px;
+}
+.ss-hot-tab {
+  width: 100%;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  border-radius: 12px;
+  padding: 10px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+}
+.ss-hot-tab i { font-size: 1.3rem; color: #f97316; }
+.ss-hot-tab span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.15;
+}
+.ss-hot-tab.active { background: #f97316; color: #fff; }
+.ss-hot-tab.active i { color: #fff; }
+
+/* ══════════ Модалка горячей группы (90% экрана) ══════════ */
+.ss-hot-modal-backdrop {
+  position: fixed;
+  inset: 0 0 0 92px;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 30;
+}
+.ss-hot-modal {
+  position: fixed;
+  inset: 5% 5% 5% calc(92px + 5%);
+  background: #f8fafc;
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 31;
+}
+.ss-hot-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 28px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.ss-hot-modal-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.ss-hot-modal-header h3 i { color: #f97316; }
+.ss-hot-modal-close {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #fff;
+  font-size: 1.1rem;
+}
+.ss-hot-modal-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.18s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 .ss-cart-title {
   padding: 20px 20px 12px;
   font-size: 1.2rem;
@@ -668,6 +1031,21 @@ onUnmounted(() => {
   font-size: 1.05rem;
 }
 .ss-back-btn--primary { background: #0ea5e9; color: #fff; border: none; }
+.ss-back-btn--primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+.ss-pairing-input {
+  width: 100%;
+  padding: 18px;
+  margin-bottom: 16px;
+  border: 2px solid #e2e8f0;
+  border-radius: 14px;
+  font-size: 2rem;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: 0.3em;
+}
+.ss-pairing-input:focus { outline: 3px solid #38bdf8; border-color: transparent; }
+.ss-pairing-error { color: #ef4444; font-weight: 600; margin-bottom: 16px; }
 
 .ss-success-icon { font-size: 4rem; color: #22c55e; margin-bottom: 10px; }
 .ss-success-order { color: #64748b; margin-bottom: 6px; }
@@ -676,5 +1054,15 @@ onUnmounted(() => {
 @media (max-width: 900px) {
   .ss-body { flex-direction: column; }
   .ss-cart { width: 100%; max-height: 45vh; }
+  .ss-hot-sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .ss-hot-sidebar-icon { margin: 0 4px 0 0; }
+  .ss-hot-tab { width: auto; flex-direction: row; white-space: nowrap; padding: 8px 14px; }
+  .ss-hot-modal-backdrop { inset: 0; }
+  .ss-hot-modal { inset: 4%; }
 }
 </style>

@@ -175,7 +175,11 @@ export const useApi = () => {
         delete headers["Content-Type"];
       }
 
-      if (token) {
+      // Явно переданный Authorization (например, device-токен кассы
+      // самообслуживания, см. useSelfService.ts) не должен затираться обычным
+      // auth_token залогиненного сотрудника — иначе self-service ловит 401
+      // всякий раз, когда в этом же браузере где-то рядом открыта админка.
+      if (token && !headers.Authorization) {
         headers.Authorization = `Bearer ${token}`;
       }
 
@@ -230,8 +234,14 @@ export const useApi = () => {
       }
 
       if (error.status === 401) {
-        
-        if (import.meta.client) {
+        // /self-service/* — гостевой device-токен киоска, не auth_token
+        // покупателя/сотрудника. 401 там означает "касса не привязана/отозвана"
+        // и обрабатывается на самой странице self-service (экран пейринга),
+        // а не разлогином — иначе один и тот же localStorage на этом браузере
+        // выкидывал бы залогиненного админа/кассира из его сессии всякий раз,
+        // когда где-то рядом открыта self-service со старым/отозванным токеном.
+        const isSelfServiceEndpoint = endpoint.startsWith("/self-service");
+        if (import.meta.client && !isSelfServiceEndpoint) {
           localStorage.removeItem("auth_token");
           localStorage.removeItem("user");
           navigateTo("/auth/login");

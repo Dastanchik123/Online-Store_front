@@ -1,5 +1,11 @@
 <script setup>
 const emit = defineEmits(["char", "backspace", "space", "enter", "close"]);
+defineProps({
+  // Касса кассира закрывает клавиатуру вручную (крестиком) — на кассе
+  // самообслуживания клавиатура жёстко привязана к фокусу поля, отдельная
+  // кнопка закрытия там не нужна и только путает гостя.
+  showClose: { type: Boolean, default: true },
+});
 
 const isShift = ref(false);
 const lang = ref("ru");
@@ -55,14 +61,10 @@ const toggleLang = () => {
     <div class="d-flex justify-content-between align-items-center mb-2 px-1">
       <span class="x-small fw-bold text-muted text-uppercase">Экранная клавиатура</span>
       <div class="d-flex align-items-center gap-2">
-        <button
-          class="btn btn-sm btn-light rounded-pill px-3 fw-bold"
-          style="min-width: 56px"
-          @click="toggleLang"
-        >
-          {{ lang === "ru" ? "РУС" : "ENG" }}
+        <button class="btn btn-close-kbd" @click="emit('backspace')">
+          <i class="bi bi-backspace"></i>
         </button>
-        <button class="btn btn-close-kbd" @click="emit('close')">
+        <button v-if="showClose" class="btn btn-close-kbd" @click="emit('close')">
           <i class="bi bi-x-lg"></i>
         </button>
       </div>
@@ -90,8 +92,8 @@ const toggleLang = () => {
       <button class="btn btn-kbd-key kbd-space" @click="emit('space')">
         Пробел
       </button>
-      <button class="btn btn-kbd-key kbd-wide" @click="emit('backspace')">
-        <i class="bi bi-backspace"></i>
+      <button class="btn btn-kbd-key kbd-wide fw-bold" @click="toggleLang">
+        {{ lang === "ru" ? "РУС" : "ENG" }}
       </button>
       <button class="btn btn-kbd-key kbd-wide btn-primary text-white" @click="emit('enter')">
         Enter

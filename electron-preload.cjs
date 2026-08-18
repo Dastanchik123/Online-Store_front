@@ -35,4 +35,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Settings
   getTerminalId: () => ipcRenderer.invoke('get-terminal-id'),
   setTerminalId: (id) => ipcRenderer.invoke('set-terminal-id', id),
+
+  // Self-service terminal id — отдельный ключ настроек от кассы кассира
+  // (terminal_id выше), чтобы не пересекались, если один и тот же Electron
+  // когда-нибудь используют и для кассира, и для self-service
+  getSelfServiceTerminalId: () => ipcRenderer.invoke('get-self-service-terminal-id'),
+  setSelfServiceTerminalId: (id) => ipcRenderer.invoke('set-self-service-terminal-id', id),
+
+  // Device-токен киоска (пейринг с бэкендом) — см. self-service/index.vue
+  getSelfServiceDeviceToken: () => ipcRenderer.invoke('get-self-service-device-token'),
+  setSelfServiceDeviceToken: (token) => ipcRenderer.invoke('set-self-service-device-token', token),
 });
