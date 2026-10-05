@@ -4,40 +4,45 @@ const { getPost } = useBlog();
 const config = useRuntimeConfig();
 const { setSeo, setBreadcrumbs } = useSeo();
 
-const post = ref(null);
-const loading = ref(true);
+// useAsyncData вместо onMounted: без этого статья, title, meta и JSON-LD
+// Article не попадают в SSR/prerendered HTML — соцсети (Telegram, WhatsApp)
+// не выполняют JS и увидели бы пустую страницу при расшаривании ссылки.
+const { data: post, pending: loading } = await useAsyncData(
+  () => `blog-post-${route.params.slug}`,
+  () => getPost(route.params.slug).catch(() => null),
+  { watch: [() => route.params.slug] },
+);
 
-onMounted(async () => {
-  try {
-    post.value = await getPost(route.params.slug);
+if (!post.value) {
+  throw createError({
+    statusCode: 404,
+    statusMessage: "Статья не найдена",
+    fatal: true,
+  });
+}
 
-    
-    if (post.value) {
-      setSeo({
-        title: post.value.title,
-        description:
-          post.value.excerpt || post.value.content?.substring(0, 160),
-        keywords: `блог, ${post.value.title}, новости`,
-        image: post.value.image_url,
-        type: "article",
-        author: post.value.author?.name,
-        publishedTime: post.value.created_at,
-        modifiedTime: post.value.updated_at,
-      });
+const applyPostSeo = (p) => {
+  if (!p) return;
+  setSeo({
+    title: p.title,
+    description: p.excerpt || p.content?.substring(0, 160),
+    keywords: `блог, ${p.title}, новости`,
+    image: p.image_url,
+    type: "article",
+    author: p.author?.name,
+    publishedTime: p.created_at,
+    modifiedTime: p.updated_at,
+  });
 
-      
-      setBreadcrumbs([
-        { name: "Главная", url: "/" },
-        { name: "Блог", url: "/blog" },
-        { name: post.value.title, url: `/blog/${post.value.slug}` },
-      ]);
-    }
-  } catch (e) {
-    console.error(e);
-  } finally {
-    loading.value = false;
-  }
-});
+  setBreadcrumbs([
+    { name: "Главная", url: "/" },
+    { name: "Блог", url: "/blog" },
+    { name: p.title, url: `/blog/${p.slug}` },
+  ]);
+};
+
+applyPostSeo(post.value);
+watch(post, applyPostSeo);
 </script>
 
 <template>

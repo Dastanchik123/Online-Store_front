@@ -593,10 +593,10 @@ onMounted(() => {
                               >
                                 <td>
                                   <div class="fw-bold">
-                                    {{ item.product?.name }}
+                                    {{ item.product_name || item.product?.name || "Товар удален" }}
                                   </div>
                                   <div class="text-muted tiny">
-                                    SKU: {{ item.product?.sku }}
+                                    SKU: {{ item.product_sku || item.product?.sku || "N/A" }}
                                   </div>
                                 </td>
                                 <td class="text-center">{{ item.quantity }}</td>
@@ -855,10 +855,10 @@ onMounted(() => {
               >
                 <td>
                   <div class="fw-bold small">
-                    {{ item.product?.name || "Товар удален" }}
+                    {{ item.product_name || item.product?.name || "Товар удален" }}
                   </div>
                   <div class="text-muted" style="font-size: 0.7rem">
-                    SKU: {{ item.product?.sku || "N/A" }}
+                    SKU: {{ item.product_sku || item.product?.sku || "N/A" }}
                   </div>
                 </td>
                 <td class="text-center small">{{ item.quantity }}</td>

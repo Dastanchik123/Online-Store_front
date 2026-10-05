@@ -9,7 +9,8 @@ const route = useRoute();
 const router = useRouter();
 const uiStore = useUiStore();
 const productsStore = useProductsStore();
-const { getProduct, updateProduct, getCategories, generateSku, generateAiDescription } = useProducts();
+const { getProduct, updateProduct, getCategories, generateSku, generateWeightedBarcode, generateAiDescription } = useProducts();
+const { printLabel, makeBarcodeSvg } = usePrinter();
 const { getImageUrl } = useImageUrl();
 const id = route.params.id;
 
@@ -38,10 +39,24 @@ const form = ref({
   package_size: null,
   package_price: null,
   package_purchase_price: null,
+  is_weighted: false,
+  min_weight: null,
+  max_weight: null,
   attributes: {},
 });
 
 const UNIT_OPTIONS = ["шт", "уп", "кг", "г", "л", "м", "м²", "м³", "пара", "компл", "рулон", "мешок", "бухта"];
+
+// Весовой товар обычно продаётся по весу в кг — подсказка по умолчанию,
+// но не переопределяем, если админ уже выбрал что-то осознанно.
+watch(
+  () => form.value.is_weighted,
+  (enabled) => {
+    if (enabled && (!form.value.unit || form.value.unit === "шт")) {
+      form.value.unit = "кг";
+    }
+  }
+);
 
 const sellByPackage = ref(false);
 watch(sellByPackage, (enabled) => {
@@ -115,6 +130,53 @@ const handleGenerateSku = async () => {
   } catch (error) {
     console.error("Error generating SKU", error);
   }
+};
+
+// Штрихкод весового товара кодирует реальный id товара — доступен только
+// после сохранения (у нового, ещё не созданного товара id нет).
+const weightedBarcodeModalOpen = ref(false);
+const weightedBarcodeWeight = ref("");
+const weightedBarcodeCode = ref("");
+const weightedBarcodeSvg = ref("");
+const isGeneratingWeightedBarcode = ref(false);
+
+const openWeightedBarcodeModal = () => {
+  weightedBarcodeWeight.value = "";
+  weightedBarcodeCode.value = "";
+  weightedBarcodeSvg.value = "";
+  weightedBarcodeModalOpen.value = true;
+};
+
+const closeWeightedBarcodeModal = () => {
+  weightedBarcodeModalOpen.value = false;
+};
+
+const handleGenerateWeightedBarcode = async () => {
+  const weightKg = parseFloat(String(weightedBarcodeWeight.value).replace(",", "."));
+  if (!weightKg || weightKg <= 0) {
+    uiStore.error("Введите вес больше нуля");
+    return;
+  }
+
+  isGeneratingWeightedBarcode.value = true;
+  try {
+    const res = await generateWeightedBarcode(id, weightKg);
+    weightedBarcodeCode.value = res.code;
+    weightedBarcodeSvg.value = makeBarcodeSvg(res.code, 40);
+  } catch (error) {
+    uiStore.error(error?.data?.message || "Не удалось сгенерировать штрихкод");
+  } finally {
+    isGeneratingWeightedBarcode.value = false;
+  }
+};
+
+const handlePrintWeightedBarcode = async () => {
+  if (!weightedBarcodeCode.value) return;
+  const weightKg = parseFloat(String(weightedBarcodeWeight.value).replace(",", "."));
+  await printLabel(form.value, {
+    type: "barcode",
+    override: { barcodeValue: weightedBarcodeCode.value, weightKg },
+  });
 };
 
 const addAttribute = () => {
@@ -534,6 +596,69 @@ onMounted(async () => {
           </div>
 
           <div class="mb-4">
+            <div class="form-check mb-2">
+              <input
+                id="isWeighted"
+                v-model="form.is_weighted"
+                type="checkbox"
+                class="form-check-input"
+              />
+              <label class="form-check-label" for="isWeighted">
+                Весовой товар (вес считывается из штрихкода на упаковке при
+                сканировании на кассе)
+              </label>
+            </div>
+            <div v-if="form.is_weighted" class="row g-3 align-items-end">
+              <div class="col-md-4">
+                <label class="form-label">Минимальный вес ({{ form.unit }})</label>
+                <input
+                  v-model.number="form.min_weight"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  class="form-control"
+                  :class="{ 'is-invalid': errors.min_weight }"
+                  placeholder="Напр. 0.1"
+                />
+                <div v-if="errors.min_weight" class="text-danger small">
+                  {{ errors.min_weight[0] }}
+                </div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Максимальный вес ({{ form.unit }})</label>
+                <input
+                  v-model.number="form.max_weight"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  class="form-control"
+                  :class="{ 'is-invalid': errors.max_weight }"
+                  placeholder="Напр. 5"
+                />
+                <div v-if="errors.max_weight" class="text-danger small">
+                  {{ errors.max_weight[0] }}
+                </div>
+              </div>
+              <div class="col-md-4">
+                <button
+                  type="button"
+                  class="btn btn-outline-primary w-100"
+                  @click="openWeightedBarcodeModal"
+                >
+                  <i class="bi bi-upc-scan me-1"></i>Сгенерировать штрихкод
+                </button>
+              </div>
+              <div class="col-12">
+                <div class="form-text text-muted" style="font-size: 0.75rem">
+                  Цена за {{ form.unit }} берётся из поля "Цена продажи" выше.
+                  Штрихкод генерируется отдельно на каждый вес упаковки — не
+                  один постоянный код на товар.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-4">
             <label class="form-label">Краткое описание</label>
             <textarea
               v-model="form.short_description"
@@ -701,6 +826,63 @@ onMounted(async () => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div v-if="weightedBarcodeModalOpen" class="modal-backdrop fade show"></div>
+    <div
+      v-if="weightedBarcodeModalOpen"
+      class="modal fade show d-block"
+      tabindex="-1"
+      @click.self="closeWeightedBarcodeModal"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 rounded-4 shadow-lg">
+          <div class="modal-header border-0 p-4">
+            <h5 class="modal-title fw-bold">
+              <i class="bi bi-upc-scan me-2"></i>Штрихкод весового товара
+            </h5>
+            <button type="button" class="btn-close" @click="closeWeightedBarcodeModal"></button>
+          </div>
+          <div class="modal-body p-4 pt-0">
+            <label class="form-label">Вес упаковки ({{ form.unit }})</label>
+            <div class="input-group mb-3">
+              <input
+                v-model="weightedBarcodeWeight"
+                type="text"
+                inputmode="decimal"
+                class="form-control"
+                placeholder="Напр. 1.250"
+                @keyup.enter="handleGenerateWeightedBarcode"
+              />
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="isGeneratingWeightedBarcode"
+                @click="handleGenerateWeightedBarcode"
+              >
+                {{ isGeneratingWeightedBarcode ? "..." : "Сгенерировать" }}
+              </button>
+            </div>
+
+            <div v-if="weightedBarcodeCode" class="text-center">
+              <div class="p-2 bg-white border rounded" v-html="weightedBarcodeSvg"></div>
+              <div class="small text-muted mt-1">{{ weightedBarcodeCode }}</div>
+            </div>
+          </div>
+          <div class="modal-footer border-0 p-4 pt-0">
+            <button class="btn btn-light rounded-pill px-4" @click="closeWeightedBarcodeModal">
+              Закрыть
+            </button>
+            <button
+              class="btn btn-primary rounded-pill px-4"
+              :disabled="!weightedBarcodeCode"
+              @click="handlePrintWeightedBarcode"
+            >
+              <i class="bi bi-printer me-1"></i>Печать
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

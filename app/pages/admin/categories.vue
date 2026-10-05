@@ -176,7 +176,7 @@ const handleDelete = async (id) => {
     uiStore.success("Категория удалена");
   } catch (error) {
     console.error(error);
-    uiStore.error("Ошибка при удалении");
+    uiStore.error(error?.data?.message || "Ошибка при удалении");
   }
 };
 

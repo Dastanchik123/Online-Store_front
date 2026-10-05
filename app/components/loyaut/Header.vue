@@ -133,35 +133,13 @@
 
       
       <div class="d-flex align-items-center gap-2 d-lg-none">
-        <NuxtLink
-          v-if="authStore.isAuthenticated"
-          to="/tsd"
-          class="mobile-icon-btn"
-        >
-          <i class="bi bi-upc-scan fs-5"></i>
-        </NuxtLink>
+        <!-- Корзина, скан ("+") и гамбургер переехали в BottomNav.vue (вкладка
+             "Ещё" открывает этот же isMobileMenuOpen) — здесь оставлен только
+             быстрый доступ к избранному, у которого нет своей вкладки внизу. -->
         <NuxtLink to="/wishlist" class="mobile-icon-btn position-relative">
           <i class="bi bi-heart fs-5"></i>
           <span v-if="wishlist.items.value.length > 0" class="mobile-badge">{{ wishlist.items.value.length }}</span>
         </NuxtLink>
-        <NuxtLink to="/cart" class="mobile-icon-btn position-relative">
-          <i class="bi bi-cart fs-5"></i>
-          <span
-            v-if="cartStore.itemsCount > 0"
-            class="mobile-badge"
-            :class="{ 'badge-bounce': isBadgeAnimating }"
-          >
-            {{ cartStore.itemsCount }}
-          </span>
-        </NuxtLink>
-
-        <button
-          class="mobile-menu-toggle"
-          @click="isMobileMenuOpen = !isMobileMenuOpen"
-          aria-label="Меню"
-        >
-          <i class="bi" :class="isMobileMenuOpen ? 'bi-x-lg' : 'bi-list'"></i>
-        </button>
       </div>
 
       
@@ -343,7 +321,7 @@ const { fetchPublicSettings, settings } = useSettings();
 
 const isBadgeAnimating = ref(false);
 const isScrolled = ref(false);
-const isMobileMenuOpen = ref(false);
+const { isOpen: isMobileMenuOpen } = useMobileMenu();
 
 
 const handleScroll = () => {
@@ -513,15 +491,6 @@ const handleLogoutMobil = async () => {
   box-shadow: 0 6px 20px rgba(56, 189, 248, 0.4);
 }
 
-
-.mobile-menu-toggle {
-  background: none;
-  border: none;
-  color: #ffffff;
-  font-size: 1.75rem;
-  padding: 0;
-  cursor: pointer;
-}
 
 .mobile-icon-btn {
   color: #ffffff;

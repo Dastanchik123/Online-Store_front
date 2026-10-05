@@ -37,9 +37,13 @@ export const usePermissions = () => {
   };
 
   const deleteRole = async (roleId: number) => {
-    return await api.apiFetch(`/roles/${roleId}`, {
-      method: "DELETE",
-    });
+    try {
+      return await api.apiFetch(`/roles/${roleId}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   return {

@@ -108,6 +108,14 @@ const handleGlobalKeyDown = async (e) => {
     return;
   }
 
+  if (weightModalProduct.value) {
+    if (key === "Escape") {
+      e.preventDefault();
+      closeWeightModal();
+    }
+    return;
+  }
+
   if (key === "-" && !["INPUT", "TEXTAREA"].includes(e.target.tagName)) {
     e.preventDefault();
     openCancelModal();
@@ -543,7 +551,40 @@ const handleVkbdEnter = () => {
   if (typeof document !== "undefined") document.activeElement?.blur();
 };
 
+// Весовой товар нельзя добавить кликом/Enter с quantity=1 — вес обычно
+// приходит из штрихкода упаковки; если кассир добавляет вручную (нет
+// весов с принтером под рукой), запрашиваем вес явной модалкой.
+const weightModalProduct = ref(null);
+const weightModalValue = ref("");
+const weightModalInputEl = ref(null);
+
+const openWeightModal = (product) => {
+  weightModalProduct.value = product;
+  weightModalValue.value = "";
+  nextTick(() => weightModalInputEl.value?.focus());
+};
+
+const closeWeightModal = () => {
+  weightModalProduct.value = null;
+  weightModalValue.value = "";
+};
+
+const confirmWeightModal = () => {
+  const weightKg = parseFloat(String(weightModalValue.value).replace(",", "."));
+  if (!weightKg || weightKg <= 0) {
+    ui.addToast("Введите вес больше нуля", "error");
+    return;
+  }
+  addWeightedToCart(weightModalProduct.value, Math.round(weightKg * 1000) / 1000, null);
+  closeWeightModal();
+};
+
 const addToCart = (product) => {
+  if (product.is_weighted) {
+    openWeightModal(product);
+    return;
+  }
+
   // Если у товара настроена упаковка — по умолчанию продаём именно ею
   // (безопаснее для админа/кассира: не нужно каждый раз переключать).
   const defaultIsPackage = !!product.package_unit;
@@ -637,12 +678,63 @@ const redeemCheckoutToken = async (token) => {
   }
 };
 
+// Весовой товар: вес закодирован в самом штрихкоде — суммируем в одну
+// строку корзины по product_id (второй кусок того же сыра на другой вес
+// не должен создавать вторую строку), цена всегда берётся из каталога
+// (product.price/sale_price), а не как-то производится из штрихкода.
+const addWeightedToCart = (product, weightKg, rawBarcode) => {
+  const existing = cart.value.find((item) => item.product_id === product.id && item.is_weighted);
+  const unitPrice = product.sale_price || product.price;
+
+  if (existing) {
+    existing.quantity = Math.round((existing.quantity + weightKg) * 1000) / 1000;
+    existing.barcode = rawBarcode;
+  } else {
+    cart.value.push({
+      id: crypto.randomUUID(),
+      product_id: product.id,
+      uuid: product.uuid,
+      name: product.name,
+      price: unitPrice,
+      unit_price: unitPrice,
+      purchase_price: product.purchase_price,
+      quantity: weightKg,
+      is_package: false,
+      is_weighted: true,
+      unit: product.unit || "кг",
+      sku: product.sku,
+      barcode: rawBarcode,
+      image_url: product.image_url,
+      stock_quantity: product.stock_quantity,
+    });
+  }
+
+  activeGroup.value = null;
+};
+
 const processBarcode = async (code) => {
   const trimmed = code.trim();
   if (!trimmed) return;
 
   if (trimmed.length >= CHECKOUT_TOKEN_MIN_LENGTH) {
     await redeemCheckoutToken(trimmed);
+    return;
+  }
+
+  const weightedPrefix = settings.value?.weighted_barcode_prefix || "21";
+  const weightedDigits = Number(settings.value?.weighted_barcode_weight_digits) || 5;
+  if (isWeightedBarcode(trimmed, weightedPrefix, weightedDigits)) {
+    const parsed = parseWeightedBarcode(trimmed, weightedPrefix, weightedDigits);
+    if (!parsed) {
+      ui.addToast("Некорректный весовой штрихкод", "error");
+      return;
+    }
+    const product = cachedProducts.value.find((p) => p.id === parsed.productId && p.is_weighted);
+    if (!product) {
+      ui.addToast("Весовой товар не найден", "error");
+      return;
+    }
+    addWeightedToCart(product, parsed.weightKg, trimmed);
     return;
   }
 
@@ -2128,6 +2220,51 @@ watch(couponDiscount, (newDiscount) => {
               @click="submitCancelIdentifier"
             >
               Отменить
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="weightModalProduct" class="modal-backdrop fade show"></div>
+    <div
+      v-if="weightModalProduct"
+      class="modal fade show d-block"
+      tabindex="-1"
+      @click.self="closeWeightModal"
+    >
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 rounded-4 shadow-lg">
+          <div class="modal-header border-0 p-4">
+            <h5 class="modal-title fw-bold">
+              <i class="bi bi-basket2 me-2"></i>Вес товара
+            </h5>
+            <button type="button" class="btn-close" @click="closeWeightModal"></button>
+          </div>
+          <div class="modal-body p-4 pt-0">
+            <p class="text-muted small mb-3">
+              {{ weightModalProduct?.name }} — введите вес вручную (нет весов со
+              сканером под рукой). Штрихкод с упаковки добавит вес автоматически.
+            </p>
+            <div class="input-group input-group-lg">
+              <input
+                ref="weightModalInputEl"
+                v-model="weightModalValue"
+                type="text"
+                inputmode="decimal"
+                class="form-control rounded-start-4 text-center"
+                placeholder="0.000"
+                @keyup.enter="confirmWeightModal"
+              />
+              <span class="input-group-text rounded-end-4">{{ weightModalProduct?.unit || "кг" }}</span>
+            </div>
+          </div>
+          <div class="modal-footer border-0 p-4 pt-0">
+            <button class="btn btn-light rounded-pill px-4" @click="closeWeightModal">
+              Отмена (Esc)
+            </button>
+            <button class="btn btn-primary rounded-pill px-4" @click="confirmWeightModal">
+              Добавить
             </button>
           </div>
         </div>

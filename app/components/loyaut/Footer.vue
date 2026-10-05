@@ -321,6 +321,39 @@ const { settings } = useSettings();
   .footer-widget-heading h3 {
     margin-bottom: 20px;
   }
+
+  /* Десктопный layout, просто сжатый в одну колонку, на мобильном выглядит
+     тесно и криво прижатым к левому краю — центрируем блоки, чтобы получить
+     собранный, а не "ужатый десктоп", мобильный футер. */
+  .footer-cta .single-cta {
+    justify-content: center;
+    text-align: left;
+  }
+
+  .footer-widget {
+    text-align: center;
+  }
+
+  .footer-logo .logo {
+    justify-content: center;
+  }
+
+  .footer-social-icon .social-links {
+    justify-content: center;
+  }
+
+  .footer-widget-heading h3::after {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .footer-links-list {
+    justify-items: center;
+  }
+
+  .logo-text {
+    font-size: 1.6rem;
+  }
 }
 .logo-img {
   height: 30px;

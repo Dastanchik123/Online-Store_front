@@ -8,6 +8,8 @@ definePageMeta({
 const { queue, clearQueue } = usePrintQueue();
 const { printers, activePrinter, fetchPrinters, printLabelBatch } = usePrinter();
 const { settings, fetchPublicSettings } = useSettings();
+const { resolveDefaultTemplateId, setDefaultTemplateId, setPrinterTemplateId, getRibbonWidthMm } =
+  useLabelTemplateDefaults();
 const uiStore = useUiStore();
 
 // Список шаблонов приходит из редактора этикеток (вкладка "Редактор этикеток"
@@ -41,18 +43,41 @@ const defaultTemplateId = computed(() => {
   return availableTemplates.value.find((t) => t.role === "barcode")?.id || availableTemplates.value[0]?.id || "";
 });
 const selectedTemplateId = ref("");
+const selectedPrinter = ref("");
+// Приоритет подстановки: формат, привязанный к выбранному принтеру →
+// общий дефолт по терминалу (настраиваются в Настройки → Принтеры) →
+// старая ролевая эвристика выше (defaultTemplateId) как последний fallback.
+const applyDefaultTemplate = async () => {
+  if (!availableTemplates.value.length) return;
+  const resolved = await resolveDefaultTemplateId(selectedPrinter.value, availableTemplates.value);
+  selectedTemplateId.value = resolved || defaultTemplateId.value;
+};
 watch(
   availableTemplates,
   (list) => {
     if (list.length && !list.some((t) => t.id === selectedTemplateId.value)) {
-      selectedTemplateId.value = defaultTemplateId.value;
+      applyDefaultTemplate();
     }
   },
   { immediate: true },
 );
+// Смена принтера — подставляем формат, привязанный именно к нему (разные
+// кассы могут стоять с разной шириной ленты), даже если до этого на экране
+// был выбран другой формат вручную.
+watch(selectedPrinter, applyDefaultTemplate);
 const selectedTemplate = computed(
   () => availableTemplates.value.find((t) => t.id === selectedTemplateId.value) || null,
 );
+const rememberAsDefault = async () => {
+  if (!selectedTemplateId.value) return;
+  if (selectedPrinter.value) {
+    await setPrinterTemplateId(selectedPrinter.value, selectedTemplateId.value);
+    uiStore.addToast(`Формат по умолчанию для принтера «${selectedPrinter.value}» сохранён`, "success");
+  } else {
+    await setDefaultTemplateId(selectedTemplateId.value);
+    uiStore.addToast("Формат по умолчанию сохранён", "success");
+  }
+};
 
 const showProductPicker = ref(false);
 const pickerItems = computed(() =>
@@ -91,7 +116,6 @@ watch(paperMode, (val) => {
   if (import.meta.client) localStorage.setItem("label_paper_mode", val);
 });
 
-const selectedPrinter = ref("");
 const isPrinting = ref(false);
 
 const totalLabels = computed(() =>
@@ -113,6 +137,15 @@ const print = async () => {
   if (!selectedTemplate.value) {
     uiStore.addToast("Выберите шаблон этикетки — создайте его в редакторе этикеток", "warning");
     return;
+  }
+  if (selectedPrinter.value) {
+    const ribbonWidthMm = await getRibbonWidthMm(selectedPrinter.value);
+    if (ribbonWidthMm && selectedTemplate.value.width > ribbonWidthMm + 0.5) {
+      uiStore.addToast(
+        `Шаблон шире ленты принтера (${selectedTemplate.value.width}мм > ${ribbonWidthMm}мм) — разметка может уехать. Ширину ленты можно поменять в Настройки → Принтеры.`,
+        "warning",
+      );
+    }
   }
   isPrinting.value = true;
   try {
@@ -226,7 +259,19 @@ const print = async () => {
           <h6 class="fw-bold mb-3 border-bottom pb-2">Параметры печати</h6>
 
           <div class="mb-3">
-            <label class="form-label small fw-bold">Шаблон</label>
+            <label class="form-label small fw-bold d-flex justify-content-between align-items-center">
+              <span>Шаблон</span>
+              <button
+                v-if="selectedTemplateId"
+                type="button"
+                class="btn btn-sm btn-link p-0"
+                style="font-size: 0.75rem;"
+                title="Запомнить этот формат как формат по умолчанию"
+                @click="rememberAsDefault"
+              >
+                <i class="bi bi-pin-angle me-1"></i>Сделать форматом по умолчанию
+              </button>
+            </label>
             <select
               v-model="selectedTemplateId"
               class="form-select rounded-3"

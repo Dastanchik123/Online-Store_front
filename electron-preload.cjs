@@ -36,6 +36,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getTerminalId: () => ipcRenderer.invoke('get-terminal-id'),
   setTerminalId: (id) => ipcRenderer.invoke('set-terminal-id', id),
 
+  // Формат этикетки по умолчанию + привязка форматов/ширины ленты к принтерам
+  // (локально на терминале, см. src-electron/labelTemplateSync.cjs)
+  getLabelDefaultTemplateId: () => ipcRenderer.invoke('get-label-default-template-id'),
+  setLabelDefaultTemplateId: (id) => ipcRenderer.invoke('set-label-default-template-id', id),
+  getLabelPrinterConfig: () => ipcRenderer.invoke('get-label-printer-config'),
+  setLabelPrinterConfig: (config) => ipcRenderer.invoke('set-label-printer-config', config),
+
   // Self-service terminal id — отдельный ключ настроек от кассы кассира
   // (terminal_id выше), чтобы не пересекались, если один и тот же Electron
   // когда-нибудь используют и для кассира, и для self-service

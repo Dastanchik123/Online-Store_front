@@ -21,9 +21,13 @@ export const useBanners = () => {
   };
 
   const deleteBanner = async (id: number) => {
-    return await api.apiFetch(`/banners-admin/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      return await api.apiFetch(`/banners-admin/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   const reorderBanners = async (orders: { id: number; order: number }[]) => {

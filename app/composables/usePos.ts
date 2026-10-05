@@ -36,7 +36,9 @@ export const usePos = () => {
           quantity: i.quantity,
           is_package: !!i.is_package,
           price: i.price,
-          total: i.price * i.quantity
+          total: i.price * i.quantity,
+          barcode: i.barcode ?? null,
+          unit: i.unit ?? null,
         })),
         user_uuid: data.user_uuid || data.user_id,
         staff_uuid: data.staff_uuid,

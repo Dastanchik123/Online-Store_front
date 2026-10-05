@@ -1,5 +1,13 @@
 <script setup>
 const { getAllSettings, updateSettings, uploadFile } = useSettings();
+const { printers: printerList, fetchPrinters: fetchPrinterList } = usePrinter();
+const {
+  getPrinterConfig,
+  setPrinterTemplateId,
+  setPrinterRibbonWidth,
+  getDefaultTemplateId,
+  setDefaultTemplateId,
+} = useLabelTemplateDefaults();
 const ui = useUiStore();
 
 definePageMeta({
@@ -20,6 +28,7 @@ const tabs = [
   { key: "payment", label: "Оплата", icon: "bi-credit-card" },
   { key: "pos", label: "Касса и чек", icon: "bi-display" },
   { key: "label-editor", label: "Редактор этикетки/ценника", icon: "bi-easel3" },
+  { key: "printers", label: "Принтеры", icon: "bi-printer" },
 ];
 const activeTab = ref("general");
 
@@ -219,7 +228,45 @@ const getImageUrl = (url) => {
   return `${baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
 };
 
+// Вкладка "Принтеры" — локальные настройки терминала (формат по умолчанию
+// для принтера + ширина его ленты), не идут через updateSettings()/Laravel —
+// каждый терминал может быть подключён к принтеру другой ширины.
+const isElectronSettings = computed(() => typeof window !== "undefined" && !!window.electronAPI);
+const printerConfig = ref({});
+const globalDefaultTemplateId = ref("");
+const availableTemplatesForPrinters = computed(() => {
+  try {
+    const parsed = JSON.parse(sett.value.label_templates_all || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+});
+
+const loadPrinterSettings = async () => {
+  if (isElectronSettings.value) await fetchPrinterList();
+  printerConfig.value = await getPrinterConfig();
+  globalDefaultTemplateId.value = await getDefaultTemplateId();
+};
+
+const onGlobalDefaultChange = async () => {
+  await setDefaultTemplateId(globalDefaultTemplateId.value);
+  ui.addToast("Формат по умолчанию сохранён", "success");
+};
+
+const onPrinterTemplateChange = async (printerName, templateId) => {
+  await setPrinterTemplateId(printerName, templateId);
+  printerConfig.value = await getPrinterConfig();
+  ui.addToast(`Формат для «${printerName}» сохранён`, "success");
+};
+
+const onPrinterRibbonChange = async (printerName, value) => {
+  await setPrinterRibbonWidth(printerName, Number(value) || null);
+  printerConfig.value = await getPrinterConfig();
+};
+
 onMounted(fetchSettings);
+onMounted(loadPrinterSettings);
 </script>
 
 <template>
@@ -590,6 +637,80 @@ onMounted(fetchSettings);
           class="label-editor-frame"
           @load="onLabelEditorFrameLoad"
         ></iframe>
+      </div>
+
+      <div v-show="activeTab === 'printers'" class="card border-0 shadow-sm rounded-4 p-4" style="max-width: 760px;">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <h6 class="fw-bold mb-1">Принтеры этикеток</h6>
+            <p class="text-muted small mb-0">
+              Локальные настройки этого терминала — какой формат этикетки подставлять по
+              умолчанию и ширина ленты для каждого принтера (чтобы предупреждать, если
+              выбранный шаблон шире). Сохраняются сразу, отдельно от общей кнопки
+              «Сохранить изменения» выше.
+            </p>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill text-nowrap" @click="loadPrinterSettings">
+            <i class="bi bi-arrow-clockwise me-1"></i>Обновить
+          </button>
+        </div>
+
+        <div class="mb-4">
+          <label class="form-label small fw-bold">Формат по умолчанию (общий)</label>
+          <select v-model="globalDefaultTemplateId" class="form-select rounded-3" @change="onGlobalDefaultChange">
+            <option value="">— не задан —</option>
+            <option v-for="t in availableTemplatesForPrinters" :key="t.id" :value="t.id">
+              {{ t.name }} · {{ t.width }}×{{ t.height }} мм
+            </option>
+          </select>
+          <small class="text-muted d-block mt-1">
+            Используется на экране печати, если для подключённого принтера формат не указан отдельно ниже.
+          </small>
+        </div>
+
+        <div v-if="!isElectronSettings" class="text-muted small">
+          Список принтеров и привязка формата к конкретному принтеру доступны только в Electron-приложении кассы.
+        </div>
+        <div v-else-if="printerList.length === 0" class="text-muted small">
+          Принтеры не найдены. Нажмите «Обновить».
+        </div>
+        <table v-else class="table align-middle mb-0">
+          <thead class="bg-light">
+            <tr style="font-size: 0.7rem; color: #64748b; text-transform: uppercase;">
+              <th>Принтер</th>
+              <th width="240">Формат по умолчанию</th>
+              <th width="160">Ширина ленты, мм</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in printerList" :key="p">
+              <td class="small font-monospace">{{ p }}</td>
+              <td>
+                <select
+                  class="form-select form-select-sm rounded-3"
+                  :value="printerConfig[p]?.templateId || ''"
+                  @change="onPrinterTemplateChange(p, $event.target.value)"
+                >
+                  <option value="">— как общий дефолт —</option>
+                  <option v-for="t in availableTemplatesForPrinters" :key="t.id" :value="t.id">
+                    {{ t.name }} · {{ t.width }}×{{ t.height }} мм
+                  </option>
+                </select>
+              </td>
+              <td>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  class="form-control form-control-sm rounded-3"
+                  :value="printerConfig[p]?.ribbonWidthMm || ''"
+                  placeholder="напр. 58"
+                  @change="onPrinterRibbonChange(p, $event.target.value)"
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>

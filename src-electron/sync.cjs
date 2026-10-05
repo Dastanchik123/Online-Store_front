@@ -59,8 +59,9 @@ async function syncCloudToLocal() {
         uuid, server_id, category_uuid, name, sku, barcode,
         price, sale_price, purchase_price, stock_quantity, image,
         is_active, in_stock, is_hot, hot_order, hot_group, sales_count, updated_at,
-        unit, package_unit, package_size, package_price
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        unit, package_unit, package_size, package_price,
+        is_weighted, min_weight, max_weight
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(uuid) DO UPDATE SET
         server_id=excluded.server_id, category_uuid=excluded.category_uuid,
         name=excluded.name, sku=excluded.sku, barcode=excluded.barcode,
@@ -70,7 +71,8 @@ async function syncCloudToLocal() {
         is_hot=excluded.is_hot, hot_order=excluded.hot_order, hot_group=excluded.hot_group,
         sales_count=excluded.sales_count, updated_at=excluded.updated_at,
         unit=excluded.unit, package_unit=excluded.package_unit,
-        package_size=excluded.package_size, package_price=excluded.package_price
+        package_size=excluded.package_size, package_price=excluded.package_price,
+        is_weighted=excluded.is_weighted, min_weight=excluded.min_weight, max_weight=excluded.max_weight
     `);
     for (const p of (products || [])) {
       stmtProd.run(
@@ -85,7 +87,8 @@ async function syncCloudToLocal() {
         p.is_hot ? 1 : 0, p.hot_order ?? null, p.hot_group ?? null,
         p.sales_count ?? 0,
         p.updated_at,
-        p.unit ?? 'шт', p.package_unit ?? null, p.package_size ?? null, p.package_price ?? null
+        p.unit ?? 'шт', p.package_unit ?? null, p.package_size ?? null, p.package_price ?? null,
+        p.is_weighted ? 1 : 0, p.min_weight ?? null, p.max_weight ?? null
       );
     }
 

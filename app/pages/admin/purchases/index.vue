@@ -702,12 +702,19 @@ const handleDelete = async (id) => {
     uiStore.success("Запись удалена");
     loadData();
   } catch (error) {
-    uiStore.error("Ошибка при удалении");
+    uiStore.error(error?.data?.message || "Ошибка при удалении");
   }
 };
 
 const formatPrice = (price) => {
   return parseFloat(price).toLocaleString("ru-RU") + " сом";
+};
+
+const goToSupplierReturn = (purchase) => {
+  navigateTo({
+    path: "/admin/supplier-returns",
+    query: { purchase_id: purchase.id, supplier_id: purchase.supplier_id },
+  });
 };
 
 onMounted(async () => {
@@ -932,6 +939,14 @@ onUnmounted(() => {
                       title="Правка"
                     >
                       <i class="bi bi-pencil-fill text-primary"></i>
+                    </button>
+                    <button
+                      v-if="authStore.hasPermission('supplier_returns.manage')"
+                      class="btn btn-sm btn-light rounded-pill border shadow-sm"
+                      @click="goToSupplierReturn(p)"
+                      title="Вернуть поставщику"
+                    >
+                      <i class="bi bi-arrow-return-left text-warning"></i>
                     </button>
                     <button
                       v-if="authStore.hasPermission('purchases.delete')"

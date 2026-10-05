@@ -3,25 +3,18 @@ const { getPosts } = useBlog();
 const config = useRuntimeConfig();
 const { setSeo } = useSeo();
 
-const loading = ref(true);
-const posts = ref([]);
 const page = ref(1);
-const lastPage = ref(1);
 
-const fetchPosts = async () => {
-  loading.value = true;
-  try {
-    const res = await getPosts({ page: page.value });
-    posts.value = res.data;
-    lastPage.value = res.last_page;
-  } catch (e) {
-    console.error(e);
-  } finally {
-    loading.value = false;
-  }
-};
+// useAsyncData вместо onMounted: без этого список статей в SSR/prerendered
+// HTML пуст, а поисковый робот не видит ни одной ссылки на /blog/{slug}
+const { data, pending: loading } = await useAsyncData(
+  () => `blog-list-${page.value}`,
+  () => getPosts({ page: page.value }),
+  { watch: [page] },
+);
 
-onMounted(fetchPosts);
+const posts = computed(() => data.value?.data || []);
+const lastPage = computed(() => data.value?.last_page || 1);
 
 setSeo({
   title: "Блог",
@@ -103,10 +96,7 @@ setSeo({
           <li class="page-item" :class="{ disabled: page === 1 }">
             <button
               class="page-link"
-              @click="
-                page--;
-                fetchPosts();
-              "
+              @click="page--"
             >
               <i class="bi bi-chevron-left"></i>
             </button>
@@ -119,10 +109,7 @@ setSeo({
           >
             <button
               class="page-link"
-              @click="
-                page = p;
-                fetchPosts();
-              "
+              @click="page = p"
             >
               {{ p }}
             </button>
@@ -130,10 +117,7 @@ setSeo({
           <li class="page-item" :class="{ disabled: page === lastPage }">
             <button
               class="page-link"
-              @click="
-                page++;
-                fetchPosts();
-              "
+              @click="page++"
             >
               <i class="bi bi-chevron-right"></i>
             </button>

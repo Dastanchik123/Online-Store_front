@@ -90,7 +90,7 @@ const remove = async (id) => {
     ui.addToast("Купон удален", "success");
     fetchCoupons();
   } catch (e) {
-    ui.addToast("Ошибка удаления", "error");
+    ui.addToast(e?.data?.message || "Ошибка удаления", "error");
   }
 };
 

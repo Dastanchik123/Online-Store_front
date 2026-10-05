@@ -66,7 +66,11 @@ const submitNewRole = async () => {
 
 const removeRole = async (role) => {
   if (role.is_system) return;
-  if (!confirm(`Удалить роль «${role.label}»?`)) return;
+  const confirmed = await ui.showConfirm(
+    "Удаление роли",
+    `Удалить роль «${role.label}»?`,
+  );
+  if (!confirmed) return;
   try {
     await deleteRole(role.id);
     ui.addToast("Роль удалена", "success");
@@ -169,7 +173,12 @@ const availablePermissions = [
   {
     id: "debts.view",
     label: "Долги клиентов",
-    desc: "Просмотр и управление долгами покупателей.",
+    desc: "Просмотр долгов покупателей и приём оплат по ним.",
+  },
+  {
+    id: "debts.manage",
+    label: "Удаление долгов",
+    desc: "Удаление долгов и платежей по долгам покупателей.",
   },
   {
     id: "marketing.manage",

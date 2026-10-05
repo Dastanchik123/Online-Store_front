@@ -87,6 +87,9 @@ function initDb() {
   ensureColumn(db, 'products', 'package_unit', 'TEXT');
   ensureColumn(db, 'products', 'package_size', 'DECIMAL(12,3)');
   ensureColumn(db, 'products', 'package_price', 'DECIMAL(15,2)');
+  ensureColumn(db, 'products', 'is_weighted', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'products', 'min_weight', 'DECIMAL(12,3)');
+  ensureColumn(db, 'products', 'max_weight', 'DECIMAL(12,3)');
   db.prepare('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS idx_products_server_id ON products(server_id)').run();
 
@@ -141,6 +144,7 @@ function initDb() {
   ensureColumn(db, 'order_items', 'product_sku', 'TEXT');
   ensureColumn(db, 'order_items', 'total', 'DECIMAL(15,2)');
   ensureColumn(db, 'order_items', 'is_package', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'order_items', 'unit', 'TEXT');
 
   // Заказы, пришедшие с сервера, храним ещё и целиком (json) —
   // так ответы GET /orders неотличимы от серверных (relations и т.д.)

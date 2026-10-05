@@ -274,7 +274,7 @@ onMounted(async () => {
               </td>
               <td class="text-center py-1 text-nowrap" data-label="Остаток">
                 <div class="small fw-bold" :class="parseFloat(p.stock_quantity) <= 5 ? 'text-danger' : 'text-dark'">
-                  {{ p.stock_quantity }} <span class="fw-normal text-muted" style="font-size: 0.7rem;">шт.</span>
+                  {{ formatQty(p.stock_quantity) }} <span class="fw-normal text-muted" style="font-size: 0.7rem;">шт.</span>
                 </div>
               </td>
               <td class="text-end pe-4 py-1 mobile-actions" data-label="Действия">

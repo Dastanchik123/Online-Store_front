@@ -30,7 +30,7 @@ const fetchBanners = async () => {
   try {
     banners.value = await getBanners();
   } catch (e) {
-    ui.addToast("Ошибка загрузки баннеров", "danger");
+    ui.addToast("Ошибка загрузки баннеров", "error");
   } finally {
     loading.value = false;
   }
@@ -117,7 +117,7 @@ const remove = async (id) => {
     ui.addToast("Баннер удален", "success");
     fetchBanners();
   } catch (e) {
-    ui.addToast("Ошибка удаления", "danger");
+    ui.addToast(e?.data?.message || "Ошибка удаления", "error");
   }
 };
 

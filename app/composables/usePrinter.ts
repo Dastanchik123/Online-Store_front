@@ -1,5 +1,6 @@
 import { useUiStore } from "~/stores/ui";
 import { useSettings } from "./useSettings";
+import { isThermalPrinterSupported, useThermalPrinter } from "./useThermalPrinter";
 import JsBarcode from "jsbarcode";
 
 interface ElectronPrinter {
@@ -16,6 +17,10 @@ declare global {
     electronAPI?: {
       getPrinters: () => Promise<ElectronPrinter[]>;
       printHTML: (data: { html: string; printerName?: string; pageWidthMm?: number; pageHeightMm?: number }) => void;
+      getLabelDefaultTemplateId?: () => Promise<string>;
+      setLabelDefaultTemplateId?: (id: string) => Promise<void>;
+      getLabelPrinterConfig?: () => Promise<Record<string, { templateId?: string; ribbonWidthMm?: number }>>;
+      setLabelPrinterConfig?: (config: Record<string, { templateId?: string; ribbonWidthMm?: number }>) => Promise<void>;
     };
   }
 }
@@ -83,18 +88,27 @@ const parseRichTemplate = (json: string | undefined | null): RichLabelTemplate |
 
 // Реальные товары не имеют полей oldPrice/barcode/article/country из
 // редактора — приводим к его формату (sku служит и артикулом, и штрихкодом).
-const adaptProductForRichLabel = (product: any) => {
+// Для весового товара override.barcodeValue/weightKg подменяют штрихкод и
+// цену на конкретную упаковку (динамический код, а не статичный sku).
+const adaptProductForRichLabel = (
+  product: any,
+  override: { barcodeValue?: string; weightKg?: number } = {}
+) => {
   const regularPrice = Number(product?.price || 0);
   const salePrice = Number(product?.sale_price || 0);
   const hasSale = salePrice > 0 && salePrice < regularPrice;
+  const unitPrice = hasSale ? salePrice : regularPrice;
+  const weightKg = override.weightKg || 0;
+  const price = weightKg ? Math.round(weightKg * unitPrice * 100) / 100 : unitPrice;
   return {
     name: product?.name || "",
-    price: hasSale ? salePrice : regularPrice,
-    oldPrice: hasSale ? regularPrice : 0,
-    barcode: product?.sku || "",
+    price,
+    oldPrice: weightKg ? 0 : hasSale ? regularPrice : 0,
+    barcode: override.barcodeValue || product?.sku || "",
     article: product?.sku || "",
     unit: product?.unit || "",
-    unitPrice: 0,
+    unitPrice: weightKg ? unitPrice : 0,
+    weight: weightKg,
     country: "",
   };
 };
@@ -162,6 +176,11 @@ const buildRichElementContentHTML = (el: RichLabelElement, product: any, setting
     }
     case "country":
       return escapeHtml((el.props?.prefix || "") + (product.country || ""));
+    case "weight": {
+      const w = Number(product.weight) || 0;
+      if (!w) return "";
+      return escapeHtml((el.props?.prefix || "") + formatRichNumber(w) + " " + (product.unit || "кг"));
+    }
     case "custom_text":
       return escapeHtml(el.props?.text || "");
     default:
@@ -360,13 +379,13 @@ const wrapRichLabelPagesGrid = (
 // и под рулонный принтер).
 const buildRichLabelHtml = (
   richTpl: RichLabelTemplate & { role?: string },
-  items: Array<{ product: any; qty: number }>,
+  items: Array<{ product: any; qty: number; override?: { barcodeValue?: string; weightKg?: number } }>,
   settings: any,
   paperMode: "a4" | "roll80" = "a4"
 ) => {
   const instances: string[] = [];
-  items.forEach(({ product, qty }) => {
-    const body = renderRichLabelBody(richTpl, adaptProductForRichLabel(product), settings);
+  items.forEach(({ product, qty, override }) => {
+    const body = renderRichLabelBody(richTpl, adaptProductForRichLabel(product, override), settings);
     for (let i = 0; i < Math.max(1, qty); i++) instances.push(body);
   });
 
@@ -399,6 +418,7 @@ const escapeHtml = (value: unknown): string =>
 export const usePrinter = () => {
   const uiStore = useUiStore();
   const { settings } = useSettings();
+  const thermalPrinter = useThermalPrinter();
 
   const initPrinter = async () => {
     if (typeof window !== "undefined" && window.electronAPI) {
@@ -408,6 +428,31 @@ export const usePrinter = () => {
       console.warn("Electron API not found. Printing will use browser default.");
       isConnected.value = false;
     }
+  };
+
+  // Единая точка отправки готового HTML на печать: Electron (десктоп-касса) —
+  // прямая печать без диалога; Android с настроенным Bluetooth/USB
+  // термопринтером (см. useThermalPrinter) — печать растром через нативный
+  // плагин; иначе — обычный window.print() в браузере/WebView.
+  const printHtmlUniversal = async (
+    html: string,
+    opts: { printerName?: string; pageWidthMm?: number; pageHeightMm?: number } = {}
+  ) => {
+    if (typeof window === "undefined") return;
+    if (isThermalPrinterSupported() && thermalPrinter.config.value) {
+      await thermalPrinter.printHtml(html);
+      return;
+    }
+    if (window.electronAPI) {
+      window.electronAPI.printHTML({
+        html,
+        printerName: opts.printerName || activePrinter.value,
+        pageWidthMm: opts.pageWidthMm,
+        pageHeightMm: opts.pageHeightMm,
+      });
+      return;
+    }
+    printViaBrowser(html);
   };
 
   const fetchPrinters = async () => {
@@ -695,11 +740,7 @@ export const usePrinter = () => {
   // загружены на странице (с учётом текущих фильтров), поход на бэкенд не нужен.
   const printProductsReport = (products: any[]) => {
     const html = generateProductsReportHtml(products, settings.value);
-    if (typeof window !== "undefined" && window.electronAPI) {
-      window.electronAPI.printHTML({ html, printerName: activePrinter.value });
-    } else {
-      printViaBrowser(html);
-    }
+    printHtmlUniversal(html);
   };
 
   const generateReceiptHtml = (order: any, settings: any = {}) => {
@@ -905,22 +946,37 @@ export const usePrinter = () => {
   };
 
   // Один "лист" компактной этикетки со штрихкодом (без обёртки документа).
-  const generateBarcodeLabelBody = (product: any, tpl: typeof DEFAULT_BARCODE_TEMPLATE, settings: any = {}) => {
+  // override — для весового товара: явный динамический код (не sku) и вес,
+  // от которого пересчитывается итоговая цена этикетки.
+  const generateBarcodeLabelBody = (
+    product: any,
+    tpl: typeof DEFAULT_BARCODE_TEMPLATE,
+    settings: any = {},
+    override: { barcodeValue?: string; weightKg?: number } = {}
+  ) => {
     const name = escapeHtml(product?.name || "Товар");
-    const sku = escapeHtml(product?.sku || "");
+    const barcodeValue = override.barcodeValue || product?.sku || "";
+    const code = escapeHtml(barcodeValue);
+    const currency = escapeHtml(settings?.currency_symbol !== undefined ? settings.currency_symbol : "сом");
 
     const regularPrice = Number(product?.price || 0);
     const salePrice = Number(product?.sale_price || 0);
-    const price = salePrice > 0 && salePrice < regularPrice ? salePrice : regularPrice;
-    const barcodeSvg = makeBarcodeSvg(sku, 22);
+    const unitPrice = salePrice > 0 && salePrice < regularPrice ? salePrice : regularPrice;
+    const weightKg = override.weightKg || 0;
+    const price = weightKg ? Math.round(weightKg * unitPrice * 100) / 100 : unitPrice;
+    const barcodeSvg = makeBarcodeSvg(barcodeValue, 22);
+    const weightLine = weightKg
+      ? `<div class="lbl-weight">${formatRichNumber(weightKg)} ${escapeHtml(product?.unit || "кг")} × ${formatRichNumber(unitPrice)} ${currency}</div>`
+      : "";
 
     return `
       <div class="lbl-page">
         <div class="lbl-name">${name}</div>
+        ${weightLine}
         <div class="lbl-barcode">${barcodeSvg}</div>
         <div class="lbl-bottom">
-          <span class="lbl-sku">${sku}</span>
-          <span class="lbl-price">${Math.round(price).toLocaleString("ru-RU")} ${escapeHtml(settings?.currency_symbol !== undefined ? settings.currency_symbol : "сом")}</span>
+          <span class="lbl-sku">${code}</span>
+          <span class="lbl-price">${weightKg ? price.toFixed(2) : Math.round(price).toLocaleString("ru-RU")} ${currency}</span>
         </div>
       </div>
     `;
@@ -948,6 +1004,7 @@ export const usePrinter = () => {
           font-size: 9px; font-weight: 700; line-height: 1.1;
           max-height: 2.2em; overflow: hidden;
         }
+        .lbl-weight { font-size: 8px; font-weight: 600; margin: 0.5mm 0; }
         .lbl-barcode svg { display: block; width: 100%; height: 10mm; }
         .lbl-bottom { display: flex; justify-content: space-between; align-items: baseline; }
         .lbl-sku { font-size: 8px; }
@@ -963,16 +1020,17 @@ export const usePrinter = () => {
   const generateBarcodeLabelHtml = (
     product: any,
     qty = 1,
-    template: typeof DEFAULT_BARCODE_TEMPLATE | null = null
+    template: typeof DEFAULT_BARCODE_TEMPLATE | null = null,
+    override: { barcodeValue?: string; weightKg?: number } = {}
   ) => {
     if (!template) {
       const richTpl = parseRichTemplate(settings.value?.label_active_template_barcode);
       if (richTpl) {
-        return buildRichLabelHtml(richTpl, [{ product, qty }], settings.value).html;
+        return buildRichLabelHtml(richTpl, [{ product, qty, override }], settings.value).html;
       }
     }
     const tpl = template ? { ...DEFAULT_BARCODE_TEMPLATE, ...template } : parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE);
-    const body = generateBarcodeLabelBody(product, tpl, settings.value);
+    const body = generateBarcodeLabelBody(product, tpl, settings.value, override);
     const pages = Array.from({ length: Math.max(1, qty) }, () => body).join("");
     return wrapBarcodeLabelPages(pages, tpl);
   };
@@ -1018,16 +1076,7 @@ export const usePrinter = () => {
         pageHeightMm = tpl.height_mm;
       }
 
-      if (typeof window !== "undefined" && window.electronAPI) {
-        window.electronAPI.printHTML({
-          html: htmlContent,
-          printerName: printerName || activePrinter.value,
-          pageWidthMm,
-          pageHeightMm,
-        });
-      } else {
-        printViaBrowser(htmlContent);
-      }
+      await printHtmlUniversal(htmlContent, { printerName, pageWidthMm, pageHeightMm });
     } catch (e: any) {
       console.error("Printing failing:", e);
       uiStore.addToast("Ошибка печати этикеток: " + e.message, "error");
@@ -1107,14 +1156,7 @@ export const usePrinter = () => {
         htmlContent = await response.text();
       }
 
-      if (typeof window !== "undefined" && window.electronAPI) {
-        window.electronAPI.printHTML({
-          html: htmlContent,
-          printerName: activePrinter.value
-        });
-      } else {
-        printViaBrowser(htmlContent);
-      }
+      await printHtmlUniversal(htmlContent);
     } catch (e: any) {
       console.error("Printing failing:", e);
       uiStore.addToast("Ошибка печати: " + e.message, "error");
@@ -1126,13 +1168,18 @@ export const usePrinter = () => {
   // window.print() всё равно даёт напечатать только один документ за раз.
   const printLabel = async (
     product: any,
-    opts: { type?: "price_tag" | "barcode"; qty?: number; printerName?: string } = {}
+    opts: {
+      type?: "price_tag" | "barcode";
+      qty?: number;
+      printerName?: string;
+      override?: { barcodeValue?: string; weightKg?: number };
+    } = {}
   ) => {
-    const { type = "price_tag", qty = 1, printerName } = opts;
+    const { type = "price_tag", qty = 1, printerName, override } = opts;
     try {
       const htmlContent =
         type === "barcode"
-          ? generateBarcodeLabelHtml(product, qty)
+          ? generateBarcodeLabelHtml(product, qty, null, override)
           : generatePriceTagHtml(product, settings.value, qty);
 
       const richKey = type === "barcode" ? "label_active_template_barcode" : "label_active_template_price_tag";
@@ -1143,16 +1190,11 @@ export const usePrinter = () => {
           ? parseTemplate(settings.value?.label_template_barcode, DEFAULT_BARCODE_TEMPLATE)
           : parseTemplate(settings.value?.label_template_price_tag, DEFAULT_PRICE_TAG_TEMPLATE);
 
-      if (typeof window !== "undefined" && window.electronAPI) {
-        window.electronAPI.printHTML({
-          html: htmlContent,
-          printerName: printerName || activePrinter.value,
-          pageWidthMm: tplForSize.width_mm,
-          pageHeightMm: tplForSize.height_mm,
-        });
-      } else {
-        printViaBrowser(htmlContent);
-      }
+      await printHtmlUniversal(htmlContent, {
+        printerName,
+        pageWidthMm: tplForSize.width_mm,
+        pageHeightMm: tplForSize.height_mm,
+      });
     } catch (e: any) {
       console.error("Printing failing:", e);
       uiStore.addToast("Ошибка печати этикетки: " + e.message, "error");
@@ -1171,15 +1213,8 @@ export const usePrinter = () => {
       </div>
     `;
 
-    if (typeof window !== "undefined" && window.electronAPI) {
-      window.electronAPI.printHTML({
-        html: testHtml,
-        printerName: activePrinter.value
-      });
-      uiStore.addToast("Тестовая страница отправлена", "success");
-    } else {
-      printViaBrowser(testHtml);
-    }
+    await printHtmlUniversal(testHtml);
+    uiStore.addToast("Тестовая страница отправлена", "success");
   };
 
   return {
@@ -1197,6 +1232,7 @@ export const usePrinter = () => {
     generateInvoiceHtml,
     generatePriceTagHtml,
     generateBarcodeLabelHtml,
+    makeBarcodeSvg,
     generateProductsReportHtml,
     printProductsReport,
   };

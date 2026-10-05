@@ -158,7 +158,8 @@ onUnmounted(() => {
           v-if="
             authStore.hasPermission('purchases.manage') ||
             authStore.hasPermission('inventory.manage') ||
-            authStore.hasPermission('suppliers.manage')
+            authStore.hasPermission('suppliers.manage') ||
+            authStore.hasPermission('supplier_returns.manage')
           "
         >
           <div class="section-title">СКЛАД</div>
@@ -173,6 +174,12 @@ onUnmounted(() => {
             v-if="authStore.hasPermission('purchases.manage')"
             @click="closeSidebar"
             ><i class="bi bi-truck me-2"></i>Закупки (Приём)</NuxtLink
+          >
+          <NuxtLink
+            to="/admin/supplier-returns"
+            v-if="authStore.hasPermission('supplier_returns.manage')"
+            @click="closeSidebar"
+            ><i class="bi bi-arrow-return-left me-2"></i>Возврат поставщику</NuxtLink
           >
           <NuxtLink
             to="/admin/inventory"

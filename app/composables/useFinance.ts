@@ -20,9 +20,13 @@ export const useFinance = () => {
   };
 
   const deleteTransaction = async (id: number | string) => {
-    return await apiFetch(`/finances/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      return await apiFetch(`/finances/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   const expenseCategories = [
@@ -37,9 +41,19 @@ export const useFinance = () => {
     { value: "other", label: "Прочее" },
   ];
 
+  // Системные категории (создаются автоматически, не выбираются вручную в форме)
+  const systemCategoryLabels: Record<string, string> = {
+    purchase: "Закупка товара",
+    purchase_payment: "Доплата по закупке",
+    sale: "Продажа товаров",
+    debt_payment: "Погашение долга",
+  };
+
   const getCategoryLabel = (category: string) => {
     return (
-      expenseCategories.find((c) => c.value === category)?.label || category
+      expenseCategories.find((c) => c.value === category)?.label ||
+      systemCategoryLabels[category] ||
+      category
     );
   };
 

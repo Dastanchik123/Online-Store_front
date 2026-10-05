@@ -35,9 +35,13 @@ export const useAccounting = () => {
   };
 
   const deletePurchase = async (id: number | string) => {
-    return await api.apiFetch(`/purchases/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      return await api.apiFetch(`/purchases/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   
@@ -64,9 +68,13 @@ export const useAccounting = () => {
   };
 
   const deleteAdjustment = async (id: number | string) => {
-    return await api.apiFetch(`/inventory/adjustments/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      return await api.apiFetch(`/inventory/adjustments/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   
@@ -88,15 +96,23 @@ export const useAccounting = () => {
   };
 
   const deleteDebtPayment = async (id: number | string) => {
-    return await api.apiFetch(`/accounting/debts/payments/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      return await api.apiFetch(`/accounting/debts/payments/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   const deleteDebt = async (id: number | string) => {
-    return await api.apiFetch(`/accounting/debts/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      return await api.apiFetch(`/accounting/debts/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   
@@ -108,13 +124,62 @@ export const useAccounting = () => {
     return await api.apiFetch("/analytics/dashboard", { params });
   };
 
-  
+
   const getReturns = async (params = {}) => {
     return await api.apiFetch("/returns", { params });
   };
 
   const getReturnsSummary = async (params = {}) => {
     return await api.apiFetch("/returns/summary", { params });
+  };
+
+
+  const getReturnableItems = async (purchaseId: number | string) => {
+    return await api.apiFetch(`/purchases/${purchaseId}/returnable-items`);
+  };
+
+  const getSupplierReturns = async (params = {}) => {
+    return await api.apiFetch("/supplier-returns", { params });
+  };
+
+  const getSupplierReturn = async (id: number | string) => {
+    return await api.apiFetch(`/supplier-returns/${id}`);
+  };
+
+  const createSupplierReturn = async (data: any) => {
+    return await api.apiFetch("/supplier-returns", {
+      method: "POST",
+      body: data,
+    });
+  };
+
+  const updateSupplierReturn = async (id: number | string, data: any) => {
+    return await api.apiFetch(`/supplier-returns/${id}`, {
+      method: "PUT",
+      body: data,
+    });
+  };
+
+  const deleteSupplierReturn = async (id: number | string) => {
+    try {
+      return await api.apiFetch(`/supplier-returns/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const confirmSupplierReturn = async (id: number | string) => {
+    return await api.apiFetch(`/supplier-returns/${id}/confirm`, {
+      method: "POST",
+    });
+  };
+
+  const cancelSupplierReturn = async (id: number | string) => {
+    return await api.apiFetch(`/supplier-returns/${id}/cancel`, {
+      method: "POST",
+    });
   };
 
   
@@ -141,9 +206,13 @@ export const useAccounting = () => {
   };
 
   const deleteSupplier = async (id: number | string) => {
-    return await api.apiFetch(`/suppliers/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      return await api.apiFetch(`/suppliers/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   const downloadPurchaseInvoice = async (id: number | string) => {
@@ -223,5 +292,13 @@ export const useAccounting = () => {
     downloadDebtsExcel,
     getReturns,
     getReturnsSummary,
+    getReturnableItems,
+    getSupplierReturns,
+    getSupplierReturn,
+    createSupplierReturn,
+    updateSupplierReturn,
+    deleteSupplierReturn,
+    confirmSupplierReturn,
+    cancelSupplierReturn,
   };
 };

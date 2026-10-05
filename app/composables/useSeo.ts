@@ -14,12 +14,15 @@ export const useSeo = () => {
   }) => {
     const route = useRoute();
     const baseUrl =
-      config.public.siteUrl || "https://online-store-back.onrender.com";
+      config.public.siteUrl || "https://online-store-back.fly.dev";
 
     const defaultTitle = "KurulushStore - Интернет-магазин";
     const defaultDescription =
       "Лучший интернет-магазин с широким ассортиментом товаров по выгодным ценам. Быстрая доставка, гарантия качества.";
-    const defaultImage = `${baseUrl}/og-image.jpg`;
+    // TODO: полноценный OG-баннер 1200x630 не подготовлен дизайном — до тех
+    // пор используем favicon.png (реально существует в public/), чтобы
+    // превью в мессенджерах/соцсетях не оставалось совсем без картинки.
+    const defaultImage = `${baseUrl}/favicon.png`;
 
     const title = options.title
       ? `${options.title} | KurulushStore`
@@ -28,7 +31,13 @@ export const useSeo = () => {
     const keywords =
       options.keywords || "интернет-магазин, купить онлайн, доставка";
     const image = options.image || defaultImage;
-    const url = options.url || `${baseUrl}${route.path}`;
+    // options.url иногда приходит относительным (например, catalog/index.vue
+    // передаёт "/catalog?category_id=5") — canonical/og:url обязаны быть
+    // абсолютными, иначе это невалидный canonical для поисковика.
+    const resolvedPath = options.url || route.path;
+    const url = resolvedPath.startsWith("http")
+      ? resolvedPath
+      : `${baseUrl}${resolvedPath}`;
     const type = options.type || "website";
 
     useHead({
@@ -79,12 +88,11 @@ export const useSeo = () => {
       ],
       link: [
         { rel: "canonical", href: url },
-        { rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
-        {
-          rel: "apple-touch-icon",
-          sizes: "180x180",
-          href: "/apple-touch-icon.png",
-        },
+        // /favicon.ico и /apple-touch-icon.png не существуют в public/ —
+        // ссылались на несуществующие файлы (404). Реально есть только
+        // favicon.png, используем его для обеих ссылок.
+        { rel: "icon", type: "image/png", href: "/favicon.png" },
+        { rel: "apple-touch-icon", href: "/favicon.png" },
       ],
       script: [
         {
@@ -115,7 +123,7 @@ export const useSeo = () => {
   const setProductSeo = (product: any) => {
     const config = useRuntimeConfig();
     const baseUrl =
-      config.public.siteUrl || "https://online-store-back.onrender.com";
+      config.public.siteUrl || "https://online-store-back.fly.dev";
 
     const price = product.sale_price || product.price;
     const availability = product.stock_quantity > 0 ? "InStock" : "OutOfStock";
@@ -177,7 +185,7 @@ export const useSeo = () => {
   const setBreadcrumbs = (items: Array<{ name: string; url: string }>) => {
     const config = useRuntimeConfig();
     const baseUrl =
-      config.public.siteUrl || "https://online-store-back.onrender.com";
+      config.public.siteUrl || "https://online-store-back.fly.dev";
 
     useHead({
       script: [

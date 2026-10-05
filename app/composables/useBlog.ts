@@ -29,9 +29,13 @@ export const useBlog = () => {
   };
 
   const deletePost = async (id: number) => {
-    return await api.apiFetch(`/blog-admin/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      return await api.apiFetch(`/blog-admin/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   return {

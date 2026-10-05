@@ -209,6 +209,17 @@ export const useProducts = () => {
     }
   };
 
+  const generateWeightedBarcode = async (id: number | string, weightKg: number) => {
+    try {
+      return await api.apiFetch(`/products/${id}/weighted-barcode`, {
+        method: "POST",
+        body: { weight_kg: weightKg },
+      });
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const generateAiDescription = async (name: string, categoryId?: string | number) => {
     try {
       return await api.apiFetch("/products/ai-description", {
@@ -233,6 +244,7 @@ export const useProducts = () => {
     deleteCategory,
     downloadProductsExcel,
     generateSku,
+    generateWeightedBarcode,
     generateAiDescription,
     downloadProductBarcode: async (id: number | string) => {
       return await api.printFile(`/reports/products/${id}/barcode`);

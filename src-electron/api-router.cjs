@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────
 const { randomUUID } = require('crypto');
 const { getSetting, setSetting, getStoreSetting } = require('./database.cjs');
+const { parseWeightedBarcode } = require('./weightedBarcode.cjs');
 
 // Результат: { handled: true, status, data } или { handled: false }
 const NOT_HANDLED = { handled: false };
@@ -37,6 +38,9 @@ function shapeProduct(p) {
     package_unit: p.package_unit,
     package_size: p.package_size,
     package_price: p.package_price,
+    is_weighted: !!p.is_weighted,
+    min_weight: p.min_weight,
+    max_weight: p.max_weight,
     in_stock: !!p.in_stock,
     is_active: !!p.is_active,
     is_hot: !!p.is_hot,
@@ -150,6 +154,31 @@ function posCreateSale(db, body, ctx) {
     resolved.push({ item, product });
   }
 
+  // Весовой товар: цена/вес с фронта не доверяются — сами декодируем
+  // штрихкод (product_id + вес) и подставляем актуальную каталожную цену,
+  // игнорируя item.price. Зеркало PosController::store (Laravel).
+  const weightedPrefix = getStoreSetting(db, 'weighted_barcode_prefix', '21');
+  const weightedDigits = Number(getStoreSetting(db, 'weighted_barcode_weight_digits', '5')) || 5;
+  for (const { item, product } of resolved) {
+    if (!product.is_weighted || !item.barcode) continue;
+
+    const parsed = parseWeightedBarcode(item.barcode, weightedPrefix, weightedDigits);
+    if (!parsed) {
+      return fail(`Некорректный весовой штрихкод для товара '${product.name}'`, 422);
+    }
+    if (parsed.productId !== product.server_id) {
+      return fail(`Штрихкод не соответствует товару '${product.name}'`, 422);
+    }
+    if (product.min_weight != null && parsed.weightKg < Number(product.min_weight)) {
+      return fail(`Вес товара '${product.name}' меньше допустимого минимума (${product.min_weight} ${product.unit})`, 422);
+    }
+    if (product.max_weight != null && parsed.weightKg > Number(product.max_weight)) {
+      return fail(`Вес товара '${product.name}' превышает допустимый максимум (${product.max_weight} ${product.unit})`, 422);
+    }
+
+    item.price = Number(product.sale_price ?? product.price);
+  }
+
   // Валидации из настроек магазина (кэш с сервера)
   const allowPriceChange = getStoreSetting(db, 'pos_allow_price_change', '1');
   for (const { item, product } of resolved) {
@@ -236,8 +265,8 @@ function posCreateSale(db, body, ctx) {
     );
 
     const stmtItem = db.prepare(`
-      INSERT INTO order_items (uuid, order_uuid, product_uuid, product_name, product_sku, quantity, is_package, price_at_sale, total)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO order_items (uuid, order_uuid, product_uuid, product_name, product_sku, quantity, is_package, price_at_sale, total, unit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const shapedItems = [];
     for (const { item, product } of resolved) {
@@ -247,7 +276,8 @@ function posCreateSale(db, body, ctx) {
         ? Number(item.quantity) * Number(product.package_size)
         : Number(item.quantity);
       const lineTotal = Number(item.price) * Number(item.quantity);
-      stmtItem.run(itemUuid, orderUuid, product.uuid, product.name, product.sku, item.quantity, isPackageItem ? 1 : 0, item.price, lineTotal);
+      const unit = product.unit || 'шт';
+      stmtItem.run(itemUuid, orderUuid, product.uuid, product.name, product.sku, item.quantity, isPackageItem ? 1 : 0, item.price, lineTotal, unit);
       db.prepare(`
         UPDATE products
         SET stock_quantity = stock_quantity - ?,
@@ -265,6 +295,8 @@ function posCreateSale(db, body, ctx) {
         sku: product.sku,
         quantity: item.quantity,
         is_package: isPackageItem,
+        unit,
+        barcode: item.barcode || null,
         price: item.price,
         total: lineTotal,
         product: shapeProduct(db.prepare('SELECT * FROM products WHERE uuid = ?').get(product.uuid)),
@@ -295,6 +327,8 @@ function posCreateSale(db, body, ctx) {
         sku: i.sku,
         quantity: i.quantity,
         is_package: i.is_package,
+        unit: i.unit,
+        barcode: i.barcode,
         price: i.price,
       })),
     }));

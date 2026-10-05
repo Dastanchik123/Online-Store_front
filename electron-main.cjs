@@ -13,6 +13,7 @@ const path = require('path');
 const { initDb, getSetting, setSetting } = require('./src-electron/database.cjs');
 const { handleLocalApi } = require('./src-electron/api-router.cjs');
 const sync = require('./src-electron/sync.cjs');
+const { syncLabelTemplates } = require('./src-electron/labelTemplateSync.cjs');
 const { randomUUID } = require('crypto');
 
 let db;
@@ -174,6 +175,20 @@ ipcMain.handle('auth-save-session', async (event, { token, user, apiBase, wsHost
   } catch (e) {
     console.error('[Auth] initial pull failed:', e.message);
   }
+
+  // Синк встроенных форматов этикеток в settings.label_templates_all —
+  // POST /settings на бэке требует role==='admin', поэтому делаем это только
+  // когда вошёл администратор; для кассиров — no-op (см. labelTemplateSync.cjs)
+  try {
+    const syncResult = await syncLabelTemplates({
+      token,
+      apiBase: getSetting(db, 'api_base') || 'http://localhost:8000/api',
+      role: user?.role,
+    });
+    console.log('[LabelTemplates] sync result:', syncResult);
+  } catch (e) {
+    console.error('[LabelTemplates] sync failed:', e.message);
+  }
   return { success: true };
 });
 
@@ -222,6 +237,21 @@ ipcMain.handle('db-save-order', async (event, orderData) => {
 
 ipcMain.handle('get-terminal-id', () => getSetting(db, 'terminal_id') || 'k1');
 ipcMain.handle('set-terminal-id', (event, id) => setSetting(db, 'terminal_id', id));
+
+// Дефолтный формат этикетки и привязка форматов к конкретным принтерам —
+// чисто локальные настройки терминала (разные кассы могут стоять с разной
+// шириной ленты), поэтому в SQLite settings, а не в синкающиеся Laravel-настройки.
+ipcMain.handle('get-label-default-template-id', () => getSetting(db, 'label_default_template_id') || '');
+ipcMain.handle('set-label-default-template-id', (event, id) => setSetting(db, 'label_default_template_id', id || ''));
+
+ipcMain.handle('get-label-printer-config', () => {
+  try {
+    return JSON.parse(getSetting(db, 'label_printer_config') || '{}');
+  } catch (e) {
+    return {};
+  }
+});
+ipcMain.handle('set-label-printer-config', (event, config) => setSetting(db, 'label_printer_config', JSON.stringify(config || {})));
 
 ipcMain.handle('get-self-service-terminal-id', () => getSetting(db, 'self_service_terminal_id') || 'SS1');
 ipcMain.handle('set-self-service-terminal-id', (event, id) => setSetting(db, 'self_service_terminal_id', id));

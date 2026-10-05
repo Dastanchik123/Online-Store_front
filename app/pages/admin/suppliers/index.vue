@@ -187,7 +187,7 @@ const handleDelete = async (id) => {
     uiStore.success("Удалено");
     loadSuppliers();
   } catch (error) {
-    uiStore.error("Ошибка при удалении");
+    uiStore.error(error?.data?.message || "Ошибка при удалении");
   }
 };
 
@@ -298,6 +298,14 @@ onMounted(loadSuppliers);
               </td>
               <td data-label="Наш долг">
                 <div
+                  v-if="parseFloat(supplier.debt_to_supplier || 0) < 0"
+                  class="fw-bold text-success"
+                  title="Образовалось после возврата товара поставщику"
+                >
+                  Поставщик должен: {{ formatPrice(Math.abs(supplier.debt_to_supplier)) }}
+                </div>
+                <div
+                  v-else
                   class="fw-bold"
                   :class="
                     parseFloat(supplier.debt_to_supplier || 0) > 0

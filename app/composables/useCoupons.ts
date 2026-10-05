@@ -27,9 +27,13 @@ export const useCoupons = () => {
   };
 
   const deleteCoupon = async (id: number) => {
-    return await api.apiFetch(`/coupons/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      return await api.apiFetch(`/coupons/${id}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw error;
+    }
   };
 
   return {

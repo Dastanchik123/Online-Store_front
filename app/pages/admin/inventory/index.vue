@@ -376,7 +376,7 @@ onMounted(async () => {
                       >SKU: {{ p.sku || "N/A" }}</span
                     >
                     <span class="badge bg-light text-primary rounded-pill"
-                      >Остаток: {{ p.stock_quantity }}</span
+                      >Остаток: {{ formatQty(p.stock_quantity) }}</span
                     >
                   </div>
                 </div>
@@ -398,7 +398,7 @@ onMounted(async () => {
                 <div class="d-flex justify-content-between mb-2">
                   <span class="text-muted small">Доступно сейчас:</span>
                   <span class="fw-bold text-primary"
-                    >{{ selectedProduct.stock_quantity }} шт.</span
+                    >{{ formatQty(selectedProduct.stock_quantity) }} шт.</span
                   >
                 </div>
                 <label class="form-label small text-muted fw-bold"

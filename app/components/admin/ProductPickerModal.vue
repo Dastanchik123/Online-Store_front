@@ -176,7 +176,7 @@ const pickProduct = (product) => {
                       class="badge"
                       :class="p.stock_quantity < 5 ? 'bg-danger-subtle text-danger' : 'bg-success-subtle text-success'"
                     >
-                      {{ p.stock_quantity }}
+                      {{ formatQty(p.stock_quantity) }}
                     </span>
                   </td>
                   <td class="text-center">

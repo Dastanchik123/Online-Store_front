@@ -8,65 +8,78 @@ const uiStore = useUiStore();
 const { setProductSeo, setBreadcrumbs } = useSeo();
 const { settings, fetchPublicSettings } = useSettings();
 
-const product = ref(null);
-const relatedProducts = ref([]);
-const pending = ref(false);
 const isAdding = ref(false);
-const error = ref(null);
+const relatedProducts = ref([]);
 
-const title = computed(() =>
-  product.value ? product.value.name : "Страница товара",
+// useAsyncData вместо onMounted: без этого товар грузится только в браузере
+// и в SSR/prerendered HTML попадает пустая страница — ни title, ни meta,
+// ни JSON-LD, ни самого товара поисковый робот не увидит.
+// watch по id — иначе переход между товарами по "Похожим товарам" не
+// перезагрузит данные: <script setup> отрабатывает один раз при маунте,
+// компонент между /product/:id не пересоздаётся.
+const {
+  data: product,
+  pending,
+  error,
+} = await useAsyncData(
+  () => `product-${route.params.id}`,
+  () => getProduct(route.params.id).catch(() => null),
+  { watch: [() => route.params.id] },
 );
 
-const loadProduct = async () => {
-  if (!route.params.id) return;
+if (!product.value) {
+  throw createError({
+    statusCode: 404,
+    statusMessage: "Товар не найден",
+    fatal: true,
+  });
+}
 
-  pending.value = true;
-  error.value = null;
+const applyProductSeo = (p) => {
+  if (!p) return;
+  setProductSeo(p);
+  setBreadcrumbs([
+    { name: "Главная", url: "/" },
+    { name: "Каталог", url: "/catalog" },
+    ...(p.category
+      ? [
+          {
+            name: p.category.name,
+            url: `/catalog?category_id=${p.category.id}`,
+          },
+        ]
+      : []),
+    { name: p.name, url: `/product/${p.id}` },
+  ]);
+};
 
+const loadRelated = async (p) => {
+  relatedProducts.value = [];
+  if (!p?.category) return;
   try {
-    product.value = await getProduct(route.params.id);
+    const related = await getProducts({
+      category_id: p.category.id,
+      per_page: 15,
+    });
 
-    if (product.value) {
-      setProductSeo(product.value);
+    // Логика подбора: исключаем текущий товар и выбираем 4 случайных
+    const otherProducts = related.data.filter((item) => item.id !== p.id);
 
-      // Загрузка похожих товаров
-      if (product.value.category) {
-        const related = await getProducts({
-          category_id: product.value.category.id,
-          per_page: 15,
-        });
-        
-        // Логика подбора: исключаем текущий товар и выбираем 4 случайных
-        const otherProducts = related.data.filter(
-          (p) => p.id !== product.value.id
-        );
-        
-        relatedProducts.value = otherProducts
-          .sort(() => Math.random() - 0.5)
-          .slice(0, 4);
-      }
-
-      setBreadcrumbs([
-        { name: "Главная", url: "/" },
-        { name: "Каталог", url: "/catalog" },
-        ...(product.value.category
-          ? [
-              {
-                name: product.value.category.name,
-                url: `/catalog?category=${product.value.category.id}`,
-              },
-            ]
-          : []),
-        { name: product.value.name, url: `/product/${product.value.id}` },
-      ]);
-    }
-  } catch (err) {
-    error.value = err.data?.message || "Ошибка загрузки товара";
-  } finally {
-    pending.value = false;
+    relatedProducts.value = otherProducts
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 4);
+  } catch (e) {
+    // похожие товары необязательны для страницы — сбой не должен её ронять
   }
 };
+
+applyProductSeo(product.value);
+await loadRelated(product.value);
+
+watch(product, (newProduct) => {
+  applyProductSeo(newProduct);
+  loadRelated(newProduct);
+});
 
 const { getImageUrl } = useImageUrl();
 
@@ -181,7 +194,6 @@ const handleBuyNow = async () => {
 };
 
 onMounted(() => {
-  loadProduct();
   fetchPublicSettings();
 });
 
@@ -197,10 +209,6 @@ const whatsappLink = computed(() => {
 </script>
 
 <template>
-  <Head>
-    <Title>{{ title }}</Title>
-  </Head>
-
   <section class="product-page">
     <div v-if="pending" class="loading-skeleton">
       <ProductSkeleton />

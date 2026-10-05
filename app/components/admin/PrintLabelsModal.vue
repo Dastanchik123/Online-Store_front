@@ -7,6 +7,7 @@ const emit = defineEmits(["update:show"]);
 
 const { printers, activePrinter, fetchPrinters, printLabelBatch } = usePrinter();
 const { settings, fetchPublicSettings } = useSettings();
+const { resolveDefaultTemplateId, getRibbonWidthMm } = useLabelTemplateDefaults();
 const uiStore = useUiStore();
 
 const isElectron = computed(
@@ -60,7 +61,8 @@ watch(
     if (isElectron.value) await fetchPrinters();
     if (!Object.keys(settings.value || {}).length) await fetchPublicSettings();
     if (availableTemplates.value.length && !selectedTemplateId.value) {
-      selectedTemplateId.value = availableTemplates.value[0].id;
+      const resolved = await resolveDefaultTemplateId(selectedPrinter.value, availableTemplates.value);
+      selectedTemplateId.value = resolved || availableTemplates.value[0].id;
     }
   },
 );
@@ -72,6 +74,15 @@ const print = async () => {
   if (!selectedTemplate.value) {
     uiStore.addToast("Выберите шаблон этикетки — создайте его в редакторе этикеток", "warning");
     return;
+  }
+  if (selectedPrinter.value) {
+    const ribbonWidthMm = await getRibbonWidthMm(selectedPrinter.value);
+    if (ribbonWidthMm && selectedTemplate.value.width > ribbonWidthMm + 0.5) {
+      uiStore.addToast(
+        `Шаблон шире ленты принтера (${selectedTemplate.value.width}мм > ${ribbonWidthMm}мм) — разметка может уехать.`,
+        "warning",
+      );
+    }
   }
   isPrinting.value = true;
   try {

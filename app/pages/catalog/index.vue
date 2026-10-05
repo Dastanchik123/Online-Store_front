@@ -4,82 +4,92 @@ const route = useRoute();
 const router = useRouter();
 const { setSeo, setBreadcrumbs } = useSeo();
 
-const title = "Каталог товаров";
-
-const filters = ref({
-  category_id: route.query.category_id
-    ? Number(route.query.category_id)
-    : undefined,
-  search: route.query.search || "",
-  min_price: route.query.min_price ? Number(route.query.min_price) : undefined,
-  max_price: route.query.max_price ? Number(route.query.max_price) : undefined,
-  in_stock: route.query.in_stock === "true" ? true : undefined,
-  sort_by: route.query.sort_by || "created_at",
-  sort_order: route.query.sort_order || "desc",
+const buildFiltersFromQuery = (query) => ({
+  category_id: query.category_id ? Number(query.category_id) : undefined,
+  search: query.search || "",
+  min_price: query.min_price ? Number(query.min_price) : undefined,
+  max_price: query.max_price ? Number(query.max_price) : undefined,
+  in_stock: query.in_stock === "true" ? true : undefined,
+  sort_by: query.sort_by || "created_at",
+  sort_order: query.sort_order || "desc",
   per_page: 84,
-  page: route.query.page ? Number(route.query.page) : 1,
+  page: query.page ? Number(query.page) : 1,
 });
 
-const products = ref(null);
-const categories = ref([]);
-const loading = ref(false);
-const error = ref(null);
+// filters — мутируемый черновик для полей формы (v-model), route.query —
+// источник истины. Пока не нажали "Применить"/не сработал debounce, черновик
+// живёт своей жизнью; при переходе по ссылке/кнопкам браузера синхронизируем
+// его из URL прямо в фетчере ниже (единая точка, без гонки двух watch'ей).
+const filters = ref(buildFiltersFromQuery(route.query));
+
 const viewMode = ref("grid");
 const isCategoriesOpen = ref(true);
 
-const loadData = async () => {
-  loading.value = true;
-  error.value = null;
-
-  try {
+// useAsyncData вместо onMounted: каталог и карточки категорий должны попасть
+// в SSR/prerendered HTML, иначе поисковый робот видит пустую страницу без
+// товаров и ссылок на них.
+const {
+  data,
+  pending: loading,
+  error,
+} = await useAsyncData(
+  () => `catalog-${route.fullPath}`,
+  async () => {
+    filters.value = buildFiltersFromQuery(route.query);
     const [productsData, categoriesData] = await Promise.all([
       getProducts(filters.value),
       getCategories({ is_active: true }),
     ]);
+    return { products: productsData, categories: categoriesData };
+  },
+  { watch: [() => route.fullPath] },
+);
 
-    products.value = productsData;
-    categories.value = categoriesData;
+const products = computed(() => data.value?.products || null);
+const categories = computed(() => data.value?.categories || []);
 
-    updateSeo();
-  } catch (err) {
-    error.value = err.data?.message || "Ошибка загрузки данных";
-  } finally {
-    loading.value = false;
-  }
-};
+const activeCategory = computed(() =>
+  filters.value.category_id
+    ? categories.value.find((c) => c.id === filters.value.category_id)
+    : null,
+);
+
+// H1 должен отражать реальное содержимое страницы (см. setSeo title ниже),
+// а не всегда одну и ту же надпись "Каталог товаров"
+const title = computed(() => activeCategory.value?.name || "Каталог товаров");
 
 // Динамические title/description: если выбрана категория — используем её
 // название и count товаров, иначе — общее описание каталога
 const updateSeo = () => {
-  const activeCategory = filters.value.category_id
-    ? categories.value.find((c) => c.id === filters.value.category_id)
-    : null;
-
-  const seoTitle = activeCategory
-    ? activeCategory.name
-    : "Каталог товаров";
+  const seoTitle = activeCategory.value ? activeCategory.value.name : "Каталог товаров";
   const total = products.value?.total;
 
   setSeo({
     title: seoTitle,
-    description: activeCategory
-      ? `Купить ${activeCategory.name} в интернет-магазине KurulushStore${
+    description: activeCategory.value
+      ? `Купить ${activeCategory.value.name} в интернет-магазине KurulushStore${
           total ? ` — ${total} товаров в наличии` : ""
         }. Быстрая доставка, гарантия качества.`
       : `Каталог товаров интернет-магазина KurulushStore${
           total ? ` — ${total} товаров` : ""
         }. Широкий ассортимент, выгодные цены, быстрая доставка.`,
-    keywords: activeCategory
-      ? `${activeCategory.name}, купить ${activeCategory.name}, каталог`
+    keywords: activeCategory.value
+      ? `${activeCategory.value.name}, купить ${activeCategory.value.name}, каталог`
       : "каталог товаров, интернет-магазин, купить онлайн",
-    url: `/catalog${route.fullPath.includes("?") ? route.fullPath.slice(route.fullPath.indexOf("?")) : ""}`,
+    // Canonical — только на "чистый" /catalog или /catalog?category_id=.
+    // sort_by/min_price/max_price/in_stock/search/page — технические
+    // фильтры без уникального контента; без этого каждая комбинация
+    // сортировки/цены индексировалась бы как отдельная страница-дубль.
+    url: activeCategory.value
+      ? `/catalog?category_id=${activeCategory.value.id}`
+      : "/catalog",
   });
 
   setBreadcrumbs([
     { name: "Главная", url: "/" },
     { name: "Каталог", url: "/catalog" },
-    ...(activeCategory
-      ? [{ name: activeCategory.name, url: `/catalog?category_id=${activeCategory.id}` }]
+    ...(activeCategory.value
+      ? [{ name: activeCategory.value.name, url: `/catalog?category_id=${activeCategory.value.id}` }]
       : []),
   ]);
 };
@@ -139,31 +149,8 @@ const getProductImage = (product) => {
   return "https://via.placeholder.com/300x300/0f172a/38bdf8?text=Товар";
 };
 
-watch(
-  () => route.query,
-  (newQuery) => {
-    filters.value.category_id = newQuery.category_id
-      ? Number(newQuery.category_id)
-      : undefined;
-    filters.value.search = newQuery.search || "";
-    filters.value.min_price = newQuery.min_price
-      ? Number(newQuery.min_price)
-      : undefined;
-    filters.value.max_price = newQuery.max_price
-      ? Number(newQuery.max_price)
-      : undefined;
-    filters.value.in_stock = newQuery.in_stock === "true" ? true : undefined;
-    filters.value.sort_by = newQuery.sort_by || "created_at";
-    filters.value.sort_order = newQuery.sort_order || "desc";
-    filters.value.page = newQuery.page ? Number(newQuery.page) : 1;
-    loadData();
-  },
-  { immediate: true },
-);
-
-onMounted(() => {
-  loadData();
-});
+updateSeo();
+watch(data, updateSeo);
 
 const visiblePages = computed(() => {
   if (!products.value) return [];

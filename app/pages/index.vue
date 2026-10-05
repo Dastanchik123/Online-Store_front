@@ -11,7 +11,6 @@ const { setSeo } = useSeo();
 const { getImageUrl } = useImageUrl();
 
 const productsStore = useProductsStore();
-const title = "Главная страница";
 
 const searchQuery = ref('');
 const showMoreLoading = ref(false);
@@ -63,17 +62,16 @@ setSeo({
   type: "website",
 });
 
-const loading = ref(false);
-// Пока true — на странице показан полноэкранный лоадер, чтобы название
-// магазина, первый баннер и категории не "мигали" недогруженными.
-const initialLoading = ref(true);
-const banners = ref([]);
-const recentPosts = ref([]);
-
-
-const categories = computed(() => productsStore.categories);
-const loadData = async () => {
-  loading.value = true;
+// useAsyncData вместо onMounted: баннеры/категории/товары должны попасть в
+// SSR/prerendered HTML, иначе главная страница отдаётся поисковому роботу
+// пустой. Store-мутации (fetchProducts/fetchCategories) гидратируются через
+// @pinia/nuxt как обычно; banners/recentPosts — обычные локальные refs, их
+// возвращаем из фетчера явно, чтобы Nuxt восстановил их из SSR-payload на
+// клиенте (сам фетчер на клиенте повторно не выполняется).
+const {
+  data: homeData,
+  pending: loading,
+} = await useAsyncData("home-page-data", async () => {
   try {
     const [bannerRes, postRes] = await Promise.all([
       getBanners(),
@@ -82,16 +80,20 @@ const loadData = async () => {
       productsStore.fetchCategories(true),
       fetchPublicSettings(),
     ]);
-    banners.value = bannerRes;
-    recentPosts.value = postRes.data || postRes;
+    return {
+      banners: bannerRes,
+      recentPosts: postRes.data || postRes,
+    };
   } catch (error) {
     console.error("Error loading data:", error);
     uiStore.error("Ошибка при загрузке данных");
-  } finally {
-    loading.value = false;
-    initialLoading.value = false;
+    return { banners: [], recentPosts: [] };
   }
-};
+});
+
+const banners = computed(() => homeData.value?.banners || []);
+const recentPosts = computed(() => homeData.value?.recentPosts || []);
+const categories = computed(() => productsStore.categories);
 
 
 const formatPrice = (price) => {
@@ -138,10 +140,6 @@ const handleAddToCart = async (productId) => {
   }
 };
 
-onMounted(() => {
-  loadData();
-});
-
 useHead({
   style: [
     {
@@ -163,15 +161,11 @@ useHead({
 </script>
 
 <template>
-  <Head>
-    <Title>{{ title }}</Title>
-  </Head>
-
   <div class="home-page">
 
     <!-- Полноэкранный лоадер: скрывает страницу, пока не загрузятся название магазина, баннер, категории и товары -->
     <Transition name="app-loader-fade">
-      <div v-if="initialLoading" class="app-loader-overlay">
+      <div v-if="loading" class="app-loader-overlay">
         <div class="app-loader-content">
           <svg class="crane-loader" viewBox="0 0 150 110" xmlns="http://www.w3.org/2000/svg">
             <!-- Кирпичи на земле -->

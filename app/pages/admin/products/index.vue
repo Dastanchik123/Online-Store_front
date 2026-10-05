@@ -431,7 +431,7 @@ const handleDelete = async (id) => {
     uiStore.success("Товар успешно удален");
   } catch (error) {
     console.error("Error deleting product:", error);
-    uiStore.error("Ошибка при удалении товара");
+    uiStore.error(error?.data?.message || "Ошибка при удалении товара");
   }
 };
 
@@ -657,7 +657,7 @@ onUnmounted(() => {
               </td>
               <td class="py-1">
                 <div class="stock-badge py-0 px-2" :class="stockClass(product)" style="font-size: 0.7rem;">
-                  <span class="count">{{ product.stock_quantity }}</span>
+                  <span class="count">{{ formatQty(product.stock_quantity) }}</span>
                   <span class="unit ms-1">{{ product.unit || "шт" }}.</span>
                 </div>
               </td>

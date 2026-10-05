@@ -8,24 +8,87 @@ const isLaravelTarget = process.env.NUXT_TARGET === "laravel";
 const isCapacitorTarget = process.env.NUXT_TARGET === "capacitor";
 const isStaticTarget = isLaravelTarget || isCapacitorTarget;
 
-// TODO: реальный публичный домен витрины интернет-магазина. В проекте сейчас
-// встречаются два разных значения (public/robots.txt указывал на
-// kurulus-store.vercel.app, useSeo.ts — на онлайн-домен fly/onrender) —
-// поставь сюда фактический прод-домен и переопредели через .env при
-// необходимости (NUXT_PUBLIC_SITE_URL). SEO-модули (sitemap/robots) и
-// useSeo.ts используют это значение как единый источник истины.
-const SITE_URL = process.env.NUXT_PUBLIC_SITE_URL || "https://kurulus-store.vercel.app";
+// Фактический прод-домен витрины: build:laravel копируется в
+// Online-Store_back/public и деплоится как online-store-back.fly.dev
+// (кастомного домена нет — см. `flyctl certs list`). Переопредели через
+// .env при смене домена (NUXT_PUBLIC_SITE_URL). SEO-модули (sitemap/robots)
+// и useSeo.ts используют это значение как единый источник истины.
+const SITE_URL = process.env.NUXT_PUBLIC_SITE_URL || "https://online-store-back.fly.dev";
 
-// SEO (sitemap/robots) нужен только для публичной SSR/статической витрины
-// на Vercel/fly, а не для Electron POS-кассы и Capacitor-приложения —
-// эти таргеты не индексируются и разделы cashier/admin/self-service им и
-// так недоступны публично.
-const isSeoTarget = !isStaticTarget;
+// build:laravel намеренно ставит NUXT_PUBLIC_API_BASE=/api — относительный
+// путь для same-origin браузерных запросов в рантайме (см. комментарий выше
+// про isLaravelTarget). Но на этапе генерации (sitemap urls(), prerender
+// routes) код выполняется в чистом Node без browser origin — относительный
+// путь для fetch() там не резолвится (и раньше это тихо роняло сборочные
+// запросы в try/catch, sitemap собирался пустым). Для сборочных запросов
+// всегда нужен абсолютный адрес API.
+const BUILD_API_BASE = process.env.NUXT_PUBLIC_API_BASE?.startsWith("http")
+  ? process.env.NUXT_PUBLIC_API_BASE
+  : "https://online-store-back.fly.dev/api";
+
+// SEO (sitemap/robots) нужен для публичной витрины — и SSR/vercel-таргета,
+// и статической laravel-сборки (это и есть реальный прод, см. SITE_URL
+// выше). Не нужен только Capacitor-приложению: это packaged APK кассы
+// самообслуживания, никогда не индексируется и разделы cashier/admin ему
+// и так недоступны публично.
+const isSeoTarget = !isCapacitorTarget;
+
+// Пока API-хост не даёт единый список слагов на лету, конкретный список
+// динамических маршрутов для prerender строим из тех же данных, что и
+// sitemap (см. fetchDynamicRoutes ниже) — единый источник истины.
+const fetchDynamicRoutes = async (apiBase: string): Promise<string[]> => {
+  const routes: string[] = [];
+
+  const fetchJson = async (endpoint: string) => {
+    const res = await fetch(`${apiBase}${endpoint}`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${endpoint}`);
+    return res.json();
+  };
+
+  try {
+    // В каталоге 1000+ активных товаров — prerender всех при throttle:api
+    // 60 запросов/мин на бэкенде (см. Online-Store_back/routes/api.php)
+    // растягивает сборку на 30-45+ минут и грузит прод-API на каждый деплой.
+    // Ограничиваемся ~300 недавно обновлёнными: они получают полноценный
+    // SSR/SEO при разумном времени сборки, остальные остаются
+    // клиентски рендерящимися как и раньше (не хуже статус-кво). Sitemap
+    // (см. ниже) по-прежнему перечисляет все товары.
+    const PRERENDER_PRODUCTS_LIMIT = 300;
+    const products: any = await fetchJson(
+      `/products?is_active=true&per_page=${PRERENDER_PRODUCTS_LIMIT}&fields=list&sort_by=updated_at&sort_order=desc`,
+    );
+    const productList = Array.isArray(products) ? products : products?.data || [];
+    for (const product of productList) {
+      routes.push(`/product/${product.slug || product.id}`);
+    }
+  } catch (e) {
+    console.warn("[prerender] Не удалось загрузить товары из API:", e);
+  }
+
+  try {
+    const posts: any = await fetchJson("/blog?per_page=200");
+    const postList = Array.isArray(posts) ? posts : posts?.data || [];
+    for (const post of postList) {
+      routes.push(`/blog/${post.slug || post.id}`);
+    }
+  } catch (e) {
+    console.warn("[prerender] Не удалось загрузить статьи блога из API:", e);
+  }
+
+  return routes;
+};
 
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   devtools: { enabled: true },
-  ssr: !isStaticTarget,
+  // Полноценный SSR/SSG нужен и статической laravel-сборке (реальный прод) —
+  // без него useSeo.ts/useHead вообще не попадают в отдаваемый HTML, страница
+  // это пустой <div id="__nuxt">. Выключен только для Capacitor: там это
+  // упакованное приложение, контент всегда подгружается по сети на устройстве,
+  // а полный prerender каталога раздул бы APK на сотни статических страниц.
+  ssr: !isCapacitorTarget,
   modules: [
     "@pinia/nuxt",
     ...(isSeoTarget ? ["@nuxtjs/sitemap", "@nuxtjs/robots"] : []),
@@ -50,6 +113,18 @@ export default defineNuxtConfig({
     "/cashier/**": { ssr: false },
     "/purchaser/**": { ssr: false },
     "/profile/**": { ssr: false },
+    // build:laravel рантайм-apiBase относительный ("/api", same-origin в
+    // браузере после деплоя в Laravel/public) — но во время генерации
+    // (SSR-фетчи страниц: product/[id].vue, catalog/index.vue и т.д.)
+    // относительный путь резолвится в этот же локальный Nitro-процесс, где
+    // /api ничем не обслуживается (пустые server/api/*.ts — see below),
+    // и запрос тихо проваливался в 404 для КАЖДОГО товара при prerender.
+    // Проксируем /api/** на реальный бэкенд только на время сборки —
+    // в финальном статическом выводе Nitro не остаётся, это не влияет на
+    // рантайм в браузере.
+    ...(isLaravelTarget
+      ? { "/api/**": { proxy: `${BUILD_API_BASE}/**` } }
+      : {}),
   },
 
   runtimeConfig: {
@@ -67,7 +142,7 @@ export default defineNuxtConfig({
       wsKey: "05ae0397a6d6ec07bcd3919d",
       wsTLS: true,
       // Домен самой витрины (для canonical/og:url в useSeo.ts) — НЕ домен
-      // API. См. TODO у SITE_URL выше.
+      // API. См. комментарий у SITE_URL выше.
       siteUrl: SITE_URL,
     },
   },
@@ -87,6 +162,7 @@ export default defineNuxtConfig({
 
   app: {
     head: {
+      htmlAttrs: { lang: "ru" },
       link: [
         {
           rel: "stylesheet",
@@ -116,7 +192,49 @@ export default defineNuxtConfig({
         changeOrigin: true,
       },
     },
+    // Laravel держит общий throttle:api — 60 запросов/мин с одного IP (см.
+    // Online-Store_back/routes/api.php). Сотни товаров с параллельным
+    // prerender быстро упираются в 429 и роняют сборку. Замедляем обход —
+    // дольше, но надёжно, без изменения лимитов бэкенда.
+    // crawlLinks:false — иначе Nitro сам обходит ссылки "Похожие товары"/
+    // карточки каталога и незаметно расширяет ~300 отобранных товаров на
+    // весь каталог (на 1001 товаре так и вышло — 761 вместо ~300, сборка
+    // растянулась намного дольше расчётного). Список страниц — только
+    // explicit routes ниже, детерминированно.
+    ...(isLaravelTarget
+      ? {
+          prerender: {
+            concurrency: 1,
+            interval: 2000,
+            crawlLinks: false,
+            failOnError: false,
+          },
+        }
+      : {}),
   },
+
+  // `nuxt generate` для laravel-таргета обходит ссылки с "/", но crawlLinks
+  // выключен (см. выше) — явно перечисляем всё, что должно попасть в
+  // статическую сборку: статические страницы + реальные /product/* и
+  // /blog/* маршруты, чтобы каждый получил свой SSR'нутый HTML с
+  // title/meta/JSON-LD. Категории (/catalog?category_id=) сюда намеренно
+  // не идут: статический хостинг не различает query-string при отдаче
+  // файла, отдельная prerender-копия на каждую категорию физически
+  // невозможна на этой раздаче — там SEO остаётся клиентским (useSeo.ts
+  // после гидратации).
+  ...(isLaravelTarget
+    ? {
+        hooks: {
+          async "nitro:config"(nitroConfig: any) {
+            const staticRoutes = ["/", "/catalog", "/about", "/contacts", "/blog"];
+            const dynamicRoutes = await fetchDynamicRoutes(BUILD_API_BASE);
+            nitroConfig.prerender ||= {};
+            nitroConfig.prerender.routes ||= [];
+            nitroConfig.prerender.routes.push(...staticRoutes, ...dynamicRoutes);
+          },
+        },
+      }
+    : {}),
 
   // ─── SEO: sitemap.xml + robots.txt (только публичная витрина, см. isSeoTarget) ───
   ...(isSeoTarget
@@ -141,9 +259,10 @@ export default defineNuxtConfig({
             // структуры страниц — статичного сканера роутов недостаточно,
             // поэтому дергаем тот же API, что и остальной фронт (см. useApi.ts),
             // и генерируем sitemap-записи из реальных данных.
-            const apiBase =
-              process.env.NUXT_PUBLIC_API_BASE ||
-              "https://online-store-back.fly.dev/api";
+            // BUILD_API_BASE (не NUXT_PUBLIC_API_BASE напрямую) — см.
+            // комментарий у его объявления: в build:laravel рантайм-apiBase
+            // относительный ("/api"), а здесь Node без browser origin.
+            const apiBase = BUILD_API_BASE;
 
             const urls: Array<{
               loc: string;
@@ -162,13 +281,37 @@ export default defineNuxtConfig({
               return res.json();
             };
 
+            // В отличие от prerender (см. fetchDynamicRoutes — намеренно
+            // ограничен ~300 товарами ради времени сборки), sitemap.xml —
+            // это просто список URL, без рендера каждой страницы, поэтому
+            // здесь листаем через все страницы API, а не берём одну порцию
+            // per_page=200 (в каталоге 1000+ активных товаров, часть
+            // раньше не попадала в sitemap вообще).
+            const fetchAllPages = async (
+              endpointBase: string,
+              extraParams: string,
+            ) => {
+              const items: any[] = [];
+              let page = 1;
+              // 20×1000 = 200k товаров с запасом — защита от бесконечного
+              // цикла, если API вернёт некорректный last_page
+              for (; page <= 20; page++) {
+                const res: any = await fetchJson(
+                  `${endpointBase}?${extraParams}&per_page=1000&page=${page}`,
+                );
+                const list = Array.isArray(res) ? res : res?.data || [];
+                items.push(...list);
+                const lastPage = res?.last_page || 1;
+                if (page >= lastPage || list.length === 0) break;
+              }
+              return items;
+            };
+
             try {
-              const products: any = await fetchJson(
-                "/products?is_active=true&per_page=200&fields=list",
+              const productList = await fetchAllPages(
+                "/products",
+                "is_active=true&fields=list",
               );
-              const productList = Array.isArray(products)
-                ? products
-                : products?.data || [];
               for (const product of productList) {
                 urls.push({
                   loc: `/product/${product.slug || product.id}`,

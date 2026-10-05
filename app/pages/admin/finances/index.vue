@@ -28,6 +28,7 @@ const editId = ref<number | null>(null);
 const filters = ref({
   type: "expense",
   category: "",
+  payment_method: "",
   user_id: "",
   date_from: "",
   date_to: "",
@@ -127,7 +128,7 @@ const handleDelete = async (id: number | string) => {
     uiStore.success("Запись удалена");
     fetchTransactions();
   } catch (error) {
-    uiStore.error("Ошибка при удалении");
+    uiStore.error(error?.data?.message || "Ошибка при удалении");
   }
 };
 
@@ -205,8 +206,8 @@ watch(filters, fetchTransactions, { deep: true });
 
     
     <div class="card border-0 shadow-sm rounded-4 p-4 mb-4">
-      <div class="row g-3 align-items-end">
-        <div class="col-md-3">
+      <div class="d-flex flex-nowrap gap-2 align-items-end">
+        <div class="flex-fill" style="min-width: 0">
           <label class="form-label small fw-bold text-muted text-uppercase"
             >Тип</label
           >
@@ -219,7 +220,7 @@ watch(filters, fetchTransactions, { deep: true });
             <option value="income">Прочие доходы</option>
           </select>
         </div>
-        <div class="col-md-3">
+        <div class="flex-fill" style="min-width: 0">
           <label class="form-label small fw-bold text-muted text-uppercase"
             >Категория</label
           >
@@ -237,7 +238,20 @@ watch(filters, fetchTransactions, { deep: true });
             </option>
           </select>
         </div>
-        <div class="col-md-2">
+        <div class="flex-fill" style="min-width: 0">
+          <label class="form-label small fw-bold text-muted text-uppercase"
+            >Способ оплаты</label
+          >
+          <select
+            v-model="filters.payment_method"
+            class="form-select border-0 bg-light rounded-3"
+          >
+            <option value="">Все</option>
+            <option value="cash">Наличные</option>
+            <option value="bank">Безнал</option>
+          </select>
+        </div>
+        <div class="flex-fill" style="min-width: 0">
           <label class="form-label small fw-bold text-muted text-uppercase"
             >Сотрудник</label
           >
@@ -255,7 +269,7 @@ watch(filters, fetchTransactions, { deep: true });
             </option>
           </select>
         </div>
-        <div class="col-md-2">
+        <div class="flex-fill" style="min-width: 0">
           <label class="form-label small fw-bold text-muted text-uppercase"
             >От</label
           >
@@ -265,7 +279,7 @@ watch(filters, fetchTransactions, { deep: true });
             class="form-control border-0 bg-light rounded-3"
           />
         </div>
-        <div class="col-md-2">
+        <div class="flex-fill" style="min-width: 0">
           <label class="form-label small fw-bold text-muted text-uppercase"
             >До</label
           >
@@ -275,13 +289,14 @@ watch(filters, fetchTransactions, { deep: true });
             class="form-control border-0 bg-light rounded-3"
           />
         </div>
-        <div class="col-md-2">
+        <div class="flex-shrink-0">
           <button
-            class="btn btn-light w-100 rounded-3 text-truncate"
+            class="btn btn-light rounded-3 text-truncate"
             @click="
               filters = {
                 type: 'expense',
                 category: '',
+                payment_method: '',
                 user_id: '',
                 date_from: '',
                 date_to: '',

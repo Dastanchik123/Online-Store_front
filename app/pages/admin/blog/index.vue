@@ -18,7 +18,7 @@ const fetchPosts = async () => {
     const res = await getPosts();
     posts.value = res.data;
   } catch (e) {
-    ui.addToast("Ошибка загрузки статей", "danger");
+    ui.addToast("Ошибка загрузки статей", "error");
   } finally {
     loading.value = false;
   }
@@ -35,7 +35,7 @@ const remove = async (id) => {
     ui.addToast("Статья удалена", "success");
     fetchPosts();
   } catch (e) {
-    ui.addToast("Ошибка удаления", "danger");
+    ui.addToast(e?.data?.message || "Ошибка удаления", "error");
   }
 };
 

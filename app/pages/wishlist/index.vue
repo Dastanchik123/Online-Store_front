@@ -52,10 +52,10 @@ const removeFromWishlist = async (id) => {
             style="padding-top: 100%"
           >
             <img
-              v-if="item.product.image_url"
+              v-if="item.product?.image_url"
               :src="item.product.image_url"
               class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover img-loading"
-              :alt="item.product.name"
+              :alt="item.product?.name"
               @load="(e) => e.target.classList.add('is-loaded')"
               @error="(e) => e.target.classList.add('is-loaded', 'is-broken')"
             />
@@ -73,12 +73,13 @@ const removeFromWishlist = async (id) => {
             </button>
           </div>
           <div class="card-body p-3">
-            <h6 class="fw-bold text-truncate mb-1">{{ item.product.name }}</h6>
+            <h6 class="fw-bold text-truncate mb-1">{{ item.product?.name || "Товар удалён" }}</h6>
             <div class="d-flex justify-content-between align-items-center mt-2">
               <div class="fw-bold text-primary">
-                {{ item.product.formatted_price }}
+                {{ item.product?.formatted_price || "—" }}
               </div>
               <NuxtLink
+                v-if="item.product?.id"
                 :to="`/product/${item.product.id}`"
                 class="btn btn-primary btn-sm rounded-pill px-3"
                 >Купить</NuxtLink

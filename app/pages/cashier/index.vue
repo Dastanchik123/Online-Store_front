@@ -18,6 +18,46 @@ const {
   generateReceiptHtml,
   generateInvoiceHtml,
 } = usePrinter();
+const {
+  config: thermalConfig,
+  status: thermalStatus,
+  bluetoothDevices,
+  usbDevices,
+  scanning: thermalScanning,
+  isSupported: isThermalSupported,
+  scanDevices: scanThermalDevices,
+  selectBluetoothDevice,
+  selectUsbDevice,
+  forget: forgetThermalPrinter,
+} = useThermalPrinter();
+const thermalConnType = ref("bluetooth");
+const thermalWidthMm = ref(58);
+
+const scanThermalDevicesSafe = async () => {
+  try {
+    await scanThermalDevices();
+  } catch (e) {
+    ui.addToast("Не удалось получить список устройств: " + e.message, "error");
+  }
+};
+
+const connectThermalBt = async (device) => {
+  try {
+    await selectBluetoothDevice(device, thermalWidthMm.value === 80 ? 576 : 384);
+    ui.addToast(`Подключено: ${device.name}`, "success");
+  } catch (e) {
+    ui.addToast("Не удалось подключиться: " + e.message, "error");
+  }
+};
+
+const connectThermalUsb = async (device) => {
+  try {
+    await selectUsbDevice(device, thermalWidthMm.value === 80 ? 576 : 384);
+    ui.addToast(`Подключено: ${device.name}`, "success");
+  } catch (e) {
+    ui.addToast("Не удалось подключиться: " + e.message, "error");
+  }
+};
 const ui = useUiStore();
 
 const printTemplate = ref("thermal");
@@ -343,7 +383,122 @@ onMounted(async () => {
             ></button>
           </div>
           <div class="modal-body p-4 pt-0">
-            <div class="mb-3">
+            <div class="mb-3" v-if="isThermalSupported()">
+              <div
+                class="d-flex justify-content-between align-items-center mb-2"
+              >
+                <label class="form-label fw-bold mb-0">Чековый принтер (Bluetooth / USB)</label>
+                <span :class="thermalConfig ? 'text-success' : 'text-info'" class="small fw-bold">
+                  {{ thermalConfig ? `Подключен: ${thermalConfig.name}` : "Не настроен" }}
+                </span>
+              </div>
+
+              <div class="d-flex gap-2 mb-2">
+                <div class="btn-group btn-group-sm">
+                  <button
+                    type="button"
+                    class="btn"
+                    :class="thermalConnType === 'bluetooth' ? 'btn-primary' : 'btn-outline-primary'"
+                    @click="thermalConnType = 'bluetooth'"
+                  >
+                    Bluetooth
+                  </button>
+                  <button
+                    type="button"
+                    class="btn"
+                    :class="thermalConnType === 'usb' ? 'btn-primary' : 'btn-outline-primary'"
+                    @click="thermalConnType = 'usb'"
+                  >
+                    USB
+                  </button>
+                </div>
+                <select v-model.number="thermalWidthMm" class="form-select form-select-sm w-auto">
+                  <option :value="58">Лента 58мм</option>
+                  <option :value="80">Лента 80мм</option>
+                </select>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary ms-auto"
+                  :disabled="thermalScanning"
+                  @click="scanThermalDevicesSafe"
+                >
+                  <i class="bi bi-arrow-repeat me-1"></i>
+                  {{ thermalScanning ? "Поиск..." : "Обновить список" }}
+                </button>
+              </div>
+
+              <div v-if="thermalConnType === 'bluetooth'" class="list-group mb-2" style="max-height: 160px; overflow-y: auto;">
+                <div v-if="!bluetoothDevices.length" class="text-muted small px-1">
+                  Список пуст. Сначала сопряжите принтер в настройках Bluetooth телефона, затем нажмите «Обновить список».
+                </div>
+                <button
+                  v-for="d in bluetoothDevices"
+                  :key="d.address"
+                  type="button"
+                  class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-1"
+                  @click="connectThermalBt(d)"
+                >
+                  {{ d.name }}
+                  <small class="text-muted">{{ d.address }}</small>
+                </button>
+              </div>
+              <div v-else class="list-group mb-2" style="max-height: 160px; overflow-y: auto;">
+                <div v-if="!usbDevices.length" class="text-muted small px-1">
+                  USB-принтер не найден. Подключите его кабелем и нажмите «Обновить список».
+                </div>
+                <button
+                  v-for="d in usbDevices"
+                  :key="d.deviceId"
+                  type="button"
+                  class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-1"
+                  @click="connectThermalUsb(d)"
+                >
+                  {{ d.name }}
+                  <small class="text-muted">{{ d.vendorId }}:{{ d.productId }}</small>
+                </button>
+              </div>
+
+              <button
+                v-if="thermalConfig"
+                type="button"
+                class="btn btn-sm btn-outline-danger"
+                @click="forgetThermalPrinter"
+              >
+                Отключить и забыть принтер
+              </button>
+
+              <div class="mt-4">
+                <label class="form-label fw-bold">Шаблон печати</label>
+                <div class="d-flex gap-3">
+                  <div class="form-check">
+                    <input
+                      class="form-check-input"
+                      type="radio"
+                      name="tpl"
+                      id="tpl1thermal"
+                      value="thermal"
+                      :checked="printTemplate === 'thermal'"
+                      @change="setTemplate('thermal')"
+                    />
+                    <label class="form-check-label" for="tpl1thermal">Чек (80мм)</label>
+                  </div>
+                  <div class="form-check">
+                    <input
+                      class="form-check-input"
+                      type="radio"
+                      name="tpl"
+                      id="tpl2thermal"
+                      value="full"
+                      :checked="printTemplate === 'full'"
+                      @change="setTemplate('full')"
+                    />
+                    <label class="form-check-label" for="tpl2thermal">Накладная (A4)</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-3" v-else>
               <div
                 class="d-flex justify-content-between align-items-center mb-2"
               >
@@ -422,7 +577,7 @@ onMounted(async () => {
               type="button"
               class="btn btn-outline-info rounded-pill px-3 fw-bold"
               @click="testPrint"
-              :disabled="!isConnected || !activePrinter"
+              :disabled="isThermalSupported() ? !thermalConfig : (!isConnected || !activePrinter)"
             >
               <i class="bi bi-play-circle me-1"></i> Тест печати
             </button>
@@ -749,6 +904,7 @@ onMounted(async () => {
       </div>
     </div>
   </div>
+  <UiToastContainer />
 </template>
 
 <style scoped>
