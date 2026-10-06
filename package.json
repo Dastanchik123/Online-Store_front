@@ -9,7 +9,7 @@
   "scripts": {
     "build": "nuxt build",
     "build:laravel": "NUXT_TARGET=laravel NUXT_PUBLIC_API_BASE=/api nuxt generate && rm -rf ../Online-Store_back/public/_nuxt ../Online-Store_back/public/product ../Online-Store_back/public/blog && cp -r .output/public/. ../Online-Store_back/public/",
-    "build:capacitor": "NUXT_TARGET=capacitor NUXT_PUBLIC_API_BASE=https://online-store-back.fly.dev/api nuxt generate",
+    "build:capacitor": "NUXT_TARGET=capacitor NUXT_PUBLIC_API_BASE=https://kurulush-store-back.fly.dev/api nuxt generate",
     "cap:sync": "npx cap sync android",
     "cap:open": "npx cap open android",
     "dev": "nuxt dev --host",
@@ -18,6 +18,7 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "electron": "electron electron-main.cjs --no-sandbox",
+    "electron:local": "electron electron-main.cjs --no-sandbox --local",
     "electron:self-service": "electron electron-main.cjs --no-sandbox --self-service",
     "kiosk": "google-chrome --kiosk --kiosk-printing --disable-print-preview http://localhost:3000/cashier",
     "kiosk:self-service": "google-chrome --kiosk --kiosk-printing --disable-print-preview http://localhost:3000/self-service",

@@ -386,15 +386,20 @@ const fetchProducts = async () => {
   if (params.category_id === "") delete params.category_id;
   if (!params.search) delete params.search;
 
-  // Лоадер — только если показать пока нечего. Если в localStorage есть
-  // кеш, таблица рисуется из него мгновенно, а свежие данные приходят
-  // фоном через onRefresh и тихо подменяют список.
+  // Лоадер — только если показать пока нечего (повторные фильтры/поиск
+  // по уже отрисованному списку лоадер не показывают).
   isLoading.value = products.value.data.length === 0;
 
+  // noCache: эта страница — рабочий инструмент админа по ценам/остаткам,
+  // ему нельзя мгновенно рисовать устаревший снимок из localStorage SWR-кэша
+  // (see useApi.ts) — после правки товара и возврата в список старое
+  // название/цена могли зависать в кэше бессрочно, если фоновый
+  // revalidate-запрos по какой-то причине не проходил (ошибка там
+  // молча проглатывается). Полный каталог и так не бьёт по серверу:
+  // ответ /products закэширован на бэке версионным ApiCache (см.
+  // ProductController::index).
   try {
-    const data = await getProducts(params, {
-      onRefresh: (fresh) => applyProductsData(fresh, params.per_page, true),
-    });
+    const data = await getProducts(params, { noCache: true });
     applyProductsData(data, params.per_page);
   } catch (error) {
     console.error("Error fetching products:", error);

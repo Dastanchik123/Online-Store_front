@@ -9,11 +9,11 @@ const isCapacitorTarget = process.env.NUXT_TARGET === "capacitor";
 const isStaticTarget = isLaravelTarget || isCapacitorTarget;
 
 // Фактический прод-домен витрины: build:laravel копируется в
-// Online-Store_back/public и деплоится как online-store-back.fly.dev
+// Online-Store_back/public и деплоится как kurulush-store-back.fly.dev
 // (кастомного домена нет — см. `flyctl certs list`). Переопредели через
 // .env при смене домена (NUXT_PUBLIC_SITE_URL). SEO-модули (sitemap/robots)
 // и useSeo.ts используют это значение как единый источник истины.
-const SITE_URL = process.env.NUXT_PUBLIC_SITE_URL || "https://online-store-back.fly.dev";
+const SITE_URL = process.env.NUXT_PUBLIC_SITE_URL || "https://kurulush-store-back.fly.dev";
 
 // build:laravel намеренно ставит NUXT_PUBLIC_API_BASE=/api — относительный
 // путь для same-origin браузерных запросов в рантайме (см. комментарий выше
@@ -24,7 +24,7 @@ const SITE_URL = process.env.NUXT_PUBLIC_SITE_URL || "https://online-store-back.
 // всегда нужен абсолютный адрес API.
 const BUILD_API_BASE = process.env.NUXT_PUBLIC_API_BASE?.startsWith("http")
   ? process.env.NUXT_PUBLIC_API_BASE
-  : "https://online-store-back.fly.dev/api";
+  : "https://kurulush-store-back.fly.dev/api";
 
 // SEO (sitemap/robots) нужен для публичной витрины — и SSR/vercel-таргета,
 // и статической laravel-сборки (это и есть реальный прод, см. SITE_URL
@@ -136,8 +136,8 @@ export default defineNuxtConfig({
     //   NUXT_PUBLIC_WS_KEY=local-app-key
     //   NUXT_PUBLIC_WS_TLS=false
     public: {
-      apiBase: "https://online-store-back.fly.dev/api",
-      wsHost: "online-store-soketi.fly.dev",
+      apiBase: "https://kurulush-store-back.fly.dev/api",
+      wsHost: "kurulush-store-soketi.fly.dev",
       wsPort: 443,
       wsKey: "05ae0397a6d6ec07bcd3919d",
       wsTLS: true,
@@ -188,7 +188,7 @@ export default defineNuxtConfig({
     preset: isStaticTarget ? "static" : "vercel",
     devProxy: {
       "/api": {
-        target: "https://online-store-back.fly.dev/api",
+        target: "https://kurulush-store-back.fly.dev/api",
         changeOrigin: true,
       },
     },

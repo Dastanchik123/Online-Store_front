@@ -3,7 +3,7 @@
   "appName": "Kurulush Store",
   "webDir": ".output/public",
   "server": {
-    "url": "https://online-store-back.fly.dev",
+    "url": "https://kurulush-store-back.fly.dev",
     "cleartext": false
   }
 }

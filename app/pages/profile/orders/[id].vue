@@ -1,12 +1,13 @@
 <script setup>
 const route = useRoute();
-const { getOrder, cancelOrder, downloadOrderInvoice } = useOrders();
+const { getOrder, cancelOrder, downloadOrderInvoice, generatePaymentQr } =
+  useOrders();
 const { createPayment, getPayments } = usePayments();
 const { settings, fetchPublicSettings } = useSettings();
 const uiStore = useUiStore();
 
 definePageMeta({
-  
+
 });
 
 const order = ref(null);
@@ -15,22 +16,152 @@ const loading = ref(false);
 const error = ref(null);
 const paymentLoading = ref(false);
 
-const mbankQrImage = computed(
-  () => settings.value?.payment_mbank_qr_image || ""
+// ───── Динамический QR оплаты (GoPay) для payment_method === 'mbank' ─────
+const qrDataUrl = ref("");
+const qrExpiresAt = ref(null);
+const qrExpired = ref(false);
+const qrRegenerating = ref(false);
+const qrCountdown = ref("");
+let qrPollTimer = null;
+let qrCountdownTimer = null;
+
+const latestMbankPayment = computed(() => {
+  const list = payments.value || [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].payment_method === "mbank") return list[i];
+  }
+  return null;
+});
+
+const showMbankQr = computed(
+  () =>
+    order.value?.payment_method === "mbank" &&
+    order.value?.payment_status !== "paid" &&
+    order.value?.status !== "cancelled"
 );
 
-
-const getImageUrl = (url) => {
-  if (!url) return "";
-  if (url.startsWith("http")) return url;
-  const config = useRuntimeConfig();
-  const baseUrl = config.public.apiBase.replace(/\/api$/, "");
-  let path = url;
-  if (!path.startsWith("/storage") && !path.startsWith("storage")) {
-    path = "storage/" + (path.startsWith("/") ? path.substring(1) : path);
+const stopQrCountdown = () => {
+  if (qrCountdownTimer) {
+    clearInterval(qrCountdownTimer);
+    qrCountdownTimer = null;
   }
-  return `${baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
 };
+
+const startQrCountdown = () => {
+  stopQrCountdown();
+  qrCountdownTimer = setInterval(() => {
+    if (!qrExpiresAt.value) {
+      qrCountdown.value = "";
+      return;
+    }
+    const diff = qrExpiresAt.value.getTime() - Date.now();
+    if (diff <= 0) {
+      qrExpired.value = true;
+      qrCountdown.value = "00:00";
+      stopQrCountdown();
+      return;
+    }
+    const m = Math.floor(diff / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    qrCountdown.value = `${String(m).padStart(2, "0")}:${String(s).padStart(
+      2,
+      "0"
+    )}`;
+  }, 1000);
+};
+
+const applyMbankPayment = async (payment) => {
+  if (!payment) {
+    qrDataUrl.value = "";
+    qrExpiresAt.value = null;
+    qrExpired.value = false;
+    stopQrCountdown();
+    return;
+  }
+
+  let details = {};
+  try {
+    details = JSON.parse(payment.payment_details || "{}");
+  } catch (e) {
+    details = {};
+  }
+
+  const expiresAt = details.expires_at ? new Date(details.expires_at) : null;
+  qrExpiresAt.value = expiresAt;
+
+  if (payment.status === "failed" || (expiresAt && Date.now() > expiresAt.getTime())) {
+    qrExpired.value = true;
+    qrDataUrl.value = "";
+    stopQrCountdown();
+    return;
+  }
+
+  qrExpired.value = false;
+
+  if (details.qr_value) {
+    const QRCode = (await import("qrcode")).default;
+    qrDataUrl.value = await QRCode.toDataURL(details.qr_value, {
+      width: 220,
+      margin: 1,
+    });
+  }
+
+  startQrCountdown();
+};
+
+const stopQrPolling = () => {
+  if (qrPollTimer) {
+    clearInterval(qrPollTimer);
+    qrPollTimer = null;
+  }
+};
+
+const startQrPolling = () => {
+  stopQrPolling();
+  qrPollTimer = setInterval(async () => {
+    if (!order.value || !showMbankQr.value) {
+      stopQrPolling();
+      return;
+    }
+    try {
+      order.value = await getOrder(route.params.id);
+      const paymentsData = await getPayments({ order_id: order.value.id });
+      payments.value = paymentsData.data || paymentsData || [];
+      if (order.value.payment_status === "paid" || order.value.status === "cancelled") {
+        stopQrPolling();
+      }
+    } catch (err) {
+      // сеть моргнула — попробуем на следующем тике
+    }
+  }, 3000);
+};
+
+const regenerateQr = async () => {
+  if (!order.value) return;
+  qrRegenerating.value = true;
+  try {
+    const res = await generatePaymentQr(order.value.id);
+    order.value = res.order || order.value;
+    const paymentsData = await getPayments({ order_id: order.value.id });
+    payments.value = paymentsData.data || paymentsData || [];
+    startQrPolling();
+  } catch (err) {
+    uiStore.error(err.data?.message || "Не удалось создать QR для оплаты");
+  } finally {
+    qrRegenerating.value = false;
+  }
+};
+
+watch(
+  latestMbankPayment,
+  (payment) => {
+    if (showMbankQr.value) {
+      applyMbankPayment(payment);
+    }
+  },
+  { immediate: true }
+);
+
 
 
 const loadOrder = async () => {
@@ -46,8 +177,12 @@ const loadOrder = async () => {
         const paymentsData = await getPayments({ order_id: order.value.id });
         payments.value = paymentsData.data || paymentsData || [];
       } catch (err) {
-        
+
         console.error("Error loading payments:", err);
+      }
+
+      if (showMbankQr.value) {
+        startQrPolling();
       }
     }
   } catch (err) {
@@ -158,6 +293,11 @@ const translatePaymentMethod = (method) => {
 onMounted(() => {
   loadOrder();
   fetchPublicSettings();
+});
+
+onUnmounted(() => {
+  stopQrPolling();
+  stopQrCountdown();
 });
 </script>
 
@@ -345,40 +485,67 @@ onMounted(() => {
                 </strong>
               </div>
 
-              
+
               <div
-                v-if="
-                  order.payment_method === 'mbank' &&
-                  order.payment_status !== 'paid' &&
-                  order.status !== 'cancelled'
-                "
+                v-if="showMbankQr"
                 class="mt-4 p-3 bg-light rounded-4 text-center border border-primary border-opacity-25"
               >
-                <h6 class="fw-bold mb-2">Оплата через MBank</h6>
-                <div v-if="mbankQrImage" class="mb-3">
+                <h6 class="fw-bold mb-2">Оплата по QR (MBank)</h6>
+
+                <template v-if="qrExpired">
+                  <div class="small text-danger mb-3">
+                    Время действия QR-кода истекло.
+                  </div>
+                  <button
+                    class="btn btn-sm btn-primary rounded-pill"
+                    :disabled="qrRegenerating"
+                    @click="regenerateQr"
+                  >
+                    <span
+                      v-if="qrRegenerating"
+                      class="spinner-border spinner-border-sm me-1"
+                    ></span>
+                    {{ qrRegenerating ? "Создание..." : "Получить новый QR" }}
+                  </button>
+                </template>
+
+                <template v-else-if="qrDataUrl">
                   <img
-                    :src="getImageUrl(mbankQrImage)"
-                    alt="MBank QR"
-                    class="img-fluid rounded-3 shadow-sm"
-                    style="max-width: 150px"
+                    :src="qrDataUrl"
+                    alt="QR для оплаты"
+                    class="img-fluid rounded-3 shadow-sm mb-2"
+                    style="max-width: 220px"
                   />
-                </div>
-                <div class="small text-muted mb-2">
-                  Отсканируйте QR или переведите по номеру:
-                </div>
-                <div class="fw-bold text-primary">
-                  {{
-                    settings?.payment_contact ||
-                    settings?.contact_phone ||
-                    "+996 XXX XXX XXX"
-                  }}
-                </div>
-                <div
-                  v-if="settings?.payment_recipient"
-                  class="x-small text-muted mt-1"
-                >
-                  Получатель: {{ settings.payment_recipient }}
-                </div>
+                  <div class="small text-muted mb-1">
+                    Отсканируйте QR в приложении банка
+                  </div>
+                  <div class="fw-bold text-primary fs-5">
+                    {{ formatPrice(order.total) }} сом
+                  </div>
+                  <div class="small text-muted mt-2">
+                    QR действует: <span class="fw-bold">{{ qrCountdown }}</span>
+                  </div>
+                  <div class="small text-muted mt-1">
+                    Статус оплаты обновится автоматически после перевода.
+                  </div>
+                </template>
+
+                <template v-else>
+                  <div class="small text-muted mb-3">
+                    QR для оплаты ещё не создан.
+                  </div>
+                  <button
+                    class="btn btn-sm btn-primary rounded-pill"
+                    :disabled="qrRegenerating"
+                    @click="regenerateQr"
+                  >
+                    <span
+                      v-if="qrRegenerating"
+                      class="spinner-border spinner-border-sm me-1"
+                    ></span>
+                    {{ qrRegenerating ? "Создание..." : "Получить QR" }}
+                  </button>
+                </template>
               </div>
 
               
@@ -444,7 +611,8 @@ onMounted(() => {
                 <button
                   v-if="
                     order.payment_status !== 'paid' &&
-                    order.payment_method !== 'cash'
+                    order.payment_method !== 'cash' &&
+                    order.payment_method !== 'mbank'
                   "
                   class="btn btn-primary w-100 mb-2"
                   :disabled="paymentLoading"

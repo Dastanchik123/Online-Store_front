@@ -231,6 +231,21 @@ export const useProducts = () => {
     }
   };
 
+  const recognizeProductPhoto = async (image: File | Blob) => {
+    try {
+      const formData = new FormData();
+      formData.append("image", image);
+
+      return await api.apiFetch("/products/recognize-photo", {
+        method: "POST",
+        body: formData,
+        headers: { "Content-Type": undefined } as any,
+      });
+    } catch (error) {
+      throw error;
+    }
+  };
+
   return {
     getProducts,
     getProduct,
@@ -246,6 +261,7 @@ export const useProducts = () => {
     generateSku,
     generateWeightedBarcode,
     generateAiDescription,
+    recognizeProductPhoto,
     downloadProductBarcode: async (id: number | string) => {
       return await api.printFile(`/reports/products/${id}/barcode`);
     },

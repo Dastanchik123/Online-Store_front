@@ -63,6 +63,16 @@ export const useOrders = () => {
     }
   };
 
+  const generatePaymentQr = async (id: number | string) => {
+    try {
+      return await api.apiFetch(`/orders/${id}/payment-qr`, {
+        method: "POST",
+      });
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const updateOrder = async (id: number | string, data: any) => {
     try {
       return await api.apiFetch(`/orders/${id}`, {
@@ -94,6 +104,7 @@ export const useOrders = () => {
     getOrder,
     createOrder,
     cancelOrder,
+    generatePaymentQr,
     updateOrder,
     downloadOrderInvoice,
     trackOrder,

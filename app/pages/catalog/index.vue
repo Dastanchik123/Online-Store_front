@@ -4,6 +4,8 @@ const route = useRoute();
 const router = useRouter();
 const { setSeo, setBreadcrumbs } = useSeo();
 
+const isPhotoSearchOpen = ref(false);
+
 const buildFiltersFromQuery = (query) => ({
   category_id: query.category_id ? Number(query.category_id) : undefined,
   search: query.search || "",
@@ -249,18 +251,28 @@ useHead({
                   <i class="bi bi-search text-primary me-2"></i>
                   <h6 class="mb-0 fw-bold">Поиск</h6>
                 </div>
-                <div class="search-input-wrapper">
-                  <input
-                    v-model="filters.search"
-                    type="text"
-                    class="form-control"
-                    placeholder="Название товара..."
-                    @keyup.enter="applyFilters"
-                  />
-                  <i
-                    class="bi bi-arrow-return-left search-icon"
-                    title="Нажмите Enter для поиска"
-                  ></i>
+                <div class="search-input-wrapper d-flex gap-2">
+                  <div class="flex-grow-1 position-relative">
+                    <input
+                      v-model="filters.search"
+                      type="text"
+                      class="form-control"
+                      placeholder="Название товара..."
+                      @keyup.enter="applyFilters"
+                    />
+                    <i
+                      class="bi bi-arrow-return-left search-icon"
+                      title="Нажмите Enter для поиска"
+                    ></i>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-outline-primary flex-shrink-0"
+                    title="Найти по фото"
+                    @click="isPhotoSearchOpen = true"
+                  >
+                    <i class="bi bi-camera"></i>
+                  </button>
                 </div>
               </div>
 
@@ -441,6 +453,11 @@ useHead({
         </main>
       </div>
     </div>
+
+    <ProductPhotoSearchModal
+      :show="isPhotoSearchOpen"
+      @close="isPhotoSearchOpen = false"
+    />
   </div>
 </template>
 

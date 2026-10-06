@@ -1,7 +1,6 @@
 <script setup>
 const { getCart } = useCart();
 const { createOrder } = useOrders();
-const { settings, fetchPublicSettings } = useSettings();
 const cartStore = useCartStore();
 
 definePageMeta({
@@ -25,16 +24,6 @@ const shippingAddress = ref({
 const showTermsModal = ref(false);
 const paymentMethod = ref("cash"); 
 const notes = ref("");
-
-
-const mbankQrImage = computed(
-  () => settings.value?.payment_mbank_qr_image || ""
-);
-
-const mbankUrl = computed(() => {
-  
-  return settings.value?.payment_mbank_url || "https://mbank.kg/";
-});
 
 
 const getImageUrl = (url) => {
@@ -152,7 +141,6 @@ const formatPrice = (price) => {
 
 onMounted(() => {
   loadData();
-  fetchPublicSettings();
 });
 </script>
 
@@ -250,9 +238,14 @@ onMounted(() => {
                   <h3 class="mb-0 fw-bold">Способ оплаты</h3>
                 </div>
 
-                <div class="col-12">
+                <div class="col-12 mb-3">
                   <div
-                    class="payment-option p-4 border rounded-4 cursor-pointer transition-all border-primary bg-primary-subtle"
+                    class="payment-option p-4 border rounded-4 cursor-pointer transition-all"
+                    :class="
+                      paymentMethod === 'cash'
+                        ? 'border-primary bg-primary-subtle'
+                        : ''
+                    "
                     @click="paymentMethod = 'cash'"
                   >
                     <div class="d-flex align-items-center">
@@ -276,7 +269,52 @@ onMounted(() => {
                   </div>
                 </div>
 
-                
+                <div class="col-12">
+                  <div
+                    class="payment-option p-4 border rounded-4 cursor-pointer transition-all"
+                    :class="
+                      paymentMethod === 'mbank'
+                        ? 'border-primary bg-primary-subtle'
+                        : ''
+                    "
+                    @click="paymentMethod = 'mbank'"
+                  >
+                    <div class="d-flex align-items-center">
+                      <div
+                        class="payment-icon bg-white p-3 rounded-3 shadow-sm me-4 text-primary"
+                      >
+                        <i class="bi bi-qr-code-scan fs-3"></i>
+                      </div>
+                      <div>
+                        <div class="fw-bold fs-5">Оплата по QR (MBank)</div>
+                        <small class="text-muted d-block opacity-75"
+                          >Банк сгенерирует QR сразу после оформления
+                          заказа.</small
+                        >
+                      </div>
+                    </div>
+
+                    <div
+                      v-if="paymentMethod === 'mbank'"
+                      class="mt-4 pt-4 border-top text-center"
+                      @click.stop
+                    >
+                      <div class="small text-muted mb-1">Сумма к оплате:</div>
+                      <div class="fw-bold text-primary fs-5">
+                        {{ formatPrice(cartStore.getFinalTotal) }} сом
+                      </div>
+                      <div
+                        class="alert alert-info border-0 rounded-3 small mt-3 mb-0"
+                      >
+                        После оформления заказа на странице заказа появится
+                        QR-код для оплаты. QR действует 5 минут — если не
+                        успеете, его можно будет сгенерировать заново.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+
 
                 <div class="d-flex align-items-center mb-4 pt-3 border-top">
                   <div class="step-badge me-3">4</div>

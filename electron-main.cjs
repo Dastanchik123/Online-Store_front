@@ -24,7 +24,12 @@ let db;
 // --self-service — тот же самый Electron-шелл (IPC, SQLite, тихая печать),
 // просто стартовое окно сразу открывает кассу самообслуживания вместо
 // обычного логина. Для необслуживаемого киоска: npm run electron:self-service
-const START_URL = process.argv.includes('--self-service')
+// --local — грузит локальный dev-фронт (npm run dev, localhost:3000) вместо
+// прод-сайта на fly.dev, для разработки/отладки Electron-специфичных вещей
+// (печать, IPC) на живых данных локального бэкенда: npm run electron:local
+const START_URL = process.argv.includes('--local')
+  ? 'http://localhost:3000'
+  : process.argv.includes('--self-service')
   ? 'https://online-store-back.fly.dev/self-service'
   : 'https://online-store-back.fly.dev';
 
