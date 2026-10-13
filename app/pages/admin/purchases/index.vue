@@ -1120,6 +1120,7 @@ onUnmounted(() => {
                       @change="toggleSelectAllItems"
                     />
                   </th>
+                  <th width="120">Штрих-код</th>
                   <th class="ps-4">Наименование</th>
                   <th width="90" class="text-center">Кол-во</th>
                   <th width="140">Цена зак.</th>
@@ -1140,6 +1141,9 @@ onUnmounted(() => {
                       class="form-check-input"
                       v-model="selectedItems[index]"
                     />
+                  </td>
+                  <td class="text-muted small font-monospace">
+                    {{ item.sku || "—" }}
                   </td>
                   <td class="ps-4">
                     <div class="fw-bold text-dark small">{{ item.name }}</div>
@@ -1245,7 +1249,7 @@ onUnmounted(() => {
                 </tr>
                 <tr v-if="form.items.length === 0">
                   <td
-                    colspan="7"
+                    colspan="8"
                     class="text-center py-5 text-muted small opacity-75"
                   >
                     <i class="bi bi-cart-plus d-block fs-1 mb-2"></i>
