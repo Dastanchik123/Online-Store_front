@@ -19,6 +19,41 @@ definePageMeta({
 
 const suppliers = ref([]);
 const loading = ref(false);
+
+// Поиск по уже загруженному списку (поставщиков немного — без запроса)
+const supplierSearch = ref("");
+const visibleSuppliers = computed(() => {
+  const q = supplierSearch.value.trim().toLowerCase();
+  if (!q) return suppliers.value;
+  return suppliers.value.filter((s) =>
+    [s.name, s.phone, s.email, s.address].some((v) => String(v || "").toLowerCase().includes(q)),
+  );
+});
+
+const supplierDebt = (s) => parseFloat(s.debt_to_supplier || 0);
+// Отрицательный долг — переплата/возврат: поставщик должен нам
+const debtText = (s) => {
+  const d = supplierDebt(s);
+  if (d < 0) return "−" + formatPrice(Math.abs(d)) + " нам";
+  return formatPrice(d);
+};
+const debtClass = (s) => {
+  const d = supplierDebt(s);
+  if (d > 0) return "text-danger";
+  if (d < 0) return "text-success";
+  return "text-muted";
+};
+const supplierTotals = computed(() =>
+  suppliers.value.reduce(
+    (acc, s) => {
+      const d = supplierDebt(s);
+      if (d > 0) acc.weOwe += d;
+      else acc.theyOwe += -d;
+      return acc;
+    },
+    { weOwe: 0, theyOwe: 0 },
+  ),
+);
 const showModal = ref(false);
 const editingSupplier = ref(null);
 const form = ref({
@@ -100,7 +135,7 @@ const handleRegisterPayment = async () => {
     showPaymentModal.value = false;
     loadSuppliers();
   } catch (error) {
-    uiStore.error(error.data?.message || "Ошибка при регистрации оплаты");
+    uiStore.error(apiErrorMessage(error, "Ошибка при регистрации оплаты"));
   }
 };
 
@@ -209,151 +244,162 @@ onMounted(loadSuppliers);
 </script>
 
 <template>
-  <div class="suppliers-page p-4">
-    
-    <div class="header-card mb-4 p-4 rounded-4 shadow-sm">
-      <div class="row align-items-center">
-        <div class="col-auto">
-          <div class="header-icon-box bg-white text-primary shadow-sm">
-            <i class="bi bi-truck-flatbed fs-4"></i>
-          </div>
+  <div class="adm-page suppliers-page p-3 p-md-4">
+    <div class="adm-head header-card rounded-4 shadow-sm p-3">
+      <div class="header-icon-box bg-white text-primary shadow-sm d-none d-sm-flex">
+        <i class="bi bi-truck-flatbed fs-5"></i>
+      </div>
+      <div class="adm-head-title">
+        <h1 class="h4 mb-0 text-white">Поставщики</h1>
+        <p class="mb-0 text-white-50 small">Контакты и взаиморасчёты</p>
+      </div>
+      <div class="adm-head-actions">
+        <button class="btn btn-add-supplier shadow-sm" @click="openModal()">
+          <i class="bi bi-plus-lg me-1"></i>Добавить поставщика
+        </button>
+      </div>
+    </div>
+
+    <div class="adm-stats">
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-primary-subtle text-primary"><i class="bi bi-people"></i></div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Поставщиков</div>
+          <div class="adm-stat-value">{{ suppliers.length }}</div>
         </div>
-        <div class="col">
-          <h1 class="h3 mb-0 fw-bold text-white">Управление поставщиками</h1>
-          <p class="mb-0 text-white-50">
-            База контактов и детали сотрудничества
-          </p>
+      </div>
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-danger-subtle text-danger"><i class="bi bi-exclamation-circle"></i></div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Мы должны</div>
+          <div class="adm-stat-value text-danger">{{ formatPrice(supplierTotals.weOwe) }}</div>
         </div>
-        <div class="col-auto">
-          <button class="btn btn-add-supplier shadow-sm" @click="openModal()">
-            <i class="bi bi-plus-lg me-2"></i>Добавить партнера
-          </button>
+      </div>
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-success-subtle text-success"><i class="bi bi-arrow-down-left-circle"></i></div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Должны нам</div>
+          <div class="adm-stat-value text-success">{{ formatPrice(supplierTotals.theyOwe) }}</div>
         </div>
       </div>
     </div>
 
-    
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
-      <div class="table-responsive-cards" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
-        <table class="table table-hover align-middle mb-0">
-          <thead class="d-none d-lg-table-header-group">
-            <tr>
-              <th class="ps-4">Наименование</th>
-              <th>Контакты</th>
-              <th>Адрес</th>
-              <th>Наш долг</th>
-              <th class="text-end pe-4">Действия</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="loading">
-              <td colspan="5" class="text-center py-5">
-                <div class="spinner-border text-primary" role="status"></div>
-                <div class="mt-2 text-muted">Загрузка данных...</div>
-              </td>
-            </tr>
-            <tr v-else-if="suppliers.length === 0">
-              <td colspan="5" class="text-center py-5">
-                <i
-                  class="bi bi-person-x fs-1 text-muted opacity-25 d-block mb-3"
-                ></i>
-                <div class="text-muted">Поставщики не найдены</div>
-              </td>
-            </tr>
-            <tr
-              v-for="supplier in suppliers"
-              :key="supplier.id"
-              class="supplier-row"
-            >
-              <td class="ps-4">
-                <div class="d-flex align-items-center">
-                  <div class="supplier-avatar me-3">
-                    {{ supplier.name ? supplier.name.charAt(0) : "?" }}
-                  </div>
-                  <div>
-                    <div class="fw-bold text-dark h6 mb-0">
-                      {{ supplier.name }}
-                    </div>
-                    <div class="text-muted small">ID: {{ supplier.id }}</div>
-                  </div>
-                </div>
-              </td>
-              <td data-label="Контакты">
-                <div class="d-flex flex-column gap-1">
-                  <span class="small d-flex align-items-center"
-                    ><i class="bi bi-telephone text-primary me-2"></i
-                    >{{ supplier.phone || "—" }}</span
-                  >
-                  <span class="small d-flex align-items-center"
-                    ><i class="bi bi-envelope text-info me-2"></i
-                    >{{ supplier.email || "—" }}</span
-                  >
-                </div>
-              </td>
-              <td class="text-muted small" data-label="Адрес">
-                <div class="text-truncate" style="max-width: 250px">
-                  <i class="bi bi-geo-alt me-1"></i
-                  >{{ supplier.address || "—" }}
-                </div>
-              </td>
-              <td data-label="Наш долг">
-                <div
-                  v-if="parseFloat(supplier.debt_to_supplier || 0) < 0"
-                  class="fw-bold text-success"
-                  title="Образовалось после возврата товара поставщику"
-                >
-                  Поставщик должен: {{ formatPrice(Math.abs(supplier.debt_to_supplier)) }}
-                </div>
-                <div
-                  v-else
-                  class="fw-bold"
-                  :class="
-                    parseFloat(supplier.debt_to_supplier || 0) > 0
-                      ? 'text-danger'
-                      : 'text-success'
-                  "
-                >
-                  {{ formatPrice(supplier.debt_to_supplier) }}
-                </div>
-              </td>
-              <td class="text-end pe-4 mobile-actions" data-label="Действия">
-                <div class="d-flex justify-content-end gap-2">
-                  <button
-                    v-if="parseFloat(supplier.debt_to_supplier || 0) > 0"
-                    class="btn btn-action-pay"
-                    @click="openPaymentModal(supplier)"
-                    title="Оплатить долг"
-                  >
-                    <i class="bi bi-cash-coin"></i>
-                  </button>
-                  <button
-                    class="btn btn-action-report"
-                    @click="openReconciliationModal(supplier)"
-                    title="Акт сверки (PDF)"
-                  >
-                    <i class="bi bi-file-earmark-pdf"></i>
-                  </button>
-                  <button
-                    class="btn btn-action-edit"
-                    @click="openModal(supplier)"
-                    title="Редактировать"
-                  >
-                    <i class="bi bi-pencil-square"></i>
-                  </button>
-                  <button
-                    v-if="authStore.hasPermission('suppliers.delete')"
-                    class="btn btn-action-delete"
-                    @click="handleDelete(supplier.id)"
-                    title="Удалить"
-                  >
-                    <i class="bi bi-trash3"></i>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="p-3 border-bottom bg-white">
+        <div class="input-group search-inline">
+          <span class="input-group-text border-0 bg-light"><i class="bi bi-search text-muted"></i></span>
+          <input
+            v-model="supplierSearch"
+            type="text"
+            class="form-control border-0 bg-light"
+            placeholder="Название, телефон или адрес…"
+          />
+        </div>
       </div>
+
+      <div v-if="loading" class="adm-empty">
+        <div class="spinner-border text-primary"></div>
+      </div>
+      <div v-else-if="visibleSuppliers.length === 0" class="adm-empty">
+        <i class="bi bi-person-x fs-1 d-block mb-2 opacity-50"></i>
+        Поставщики не найдены
+      </div>
+      <template v-else>
+        <!-- Телефон -->
+        <div class="adm-mlist d-md-none">
+          <div v-for="supplier in visibleSuppliers" :key="supplier.id" class="adm-mcard">
+            <div class="adm-mline">
+              <span class="adm-mtitle d-flex align-items-center gap-2">
+                <span class="supplier-avatar sm">{{ supplier.name ? supplier.name.charAt(0) : "?" }}</span>
+                <span class="text-truncate">{{ supplier.name }}</span>
+              </span>
+              <span class="adm-mval" :class="debtClass(supplier)">{{ debtText(supplier) }}</span>
+            </div>
+            <div class="adm-msub">
+              <a v-if="supplier.phone" :href="`tel:${supplier.phone}`" class="text-decoration-none">
+                <i class="bi bi-telephone me-1"></i>{{ supplier.phone }}
+              </a>
+              <span v-else>—</span>
+              <template v-if="supplier.address"> · {{ supplier.address }}</template>
+            </div>
+            <div class="adm-mline justify-content-end">
+              <div class="adm-mactions">
+                <button v-if="supplierDebt(supplier) > 0" class="adm-ico success" title="Оплатить долг" @click="openPaymentModal(supplier)">
+                  <i class="bi bi-cash-coin"></i>
+                </button>
+                <button class="adm-ico danger" title="Акт сверки (PDF)" @click="openReconciliationModal(supplier)">
+                  <i class="bi bi-file-earmark-pdf"></i>
+                </button>
+                <button class="adm-ico primary" title="Редактировать" @click="openModal(supplier)">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button
+                  v-if="authStore.hasPermission('suppliers.delete')"
+                  class="adm-ico danger"
+                  title="Удалить"
+                  @click="handleDelete(supplier.id)"
+                >
+                  <i class="bi bi-trash3"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Планшет и десктоп -->
+        <div class="adm-table-wrap d-none d-md-block" style="max-height: calc(100vh - 420px); min-height: 240px;">
+          <table class="adm-table">
+            <thead>
+              <tr>
+                <th class="adm-num">#</th>
+                <th>Наименование</th>
+                <th>Телефон</th>
+                <th>Email</th>
+                <th>Адрес</th>
+                <th class="text-end">Наш долг</th>
+                <th class="text-end">Действия</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(supplier, i) in visibleSuppliers" :key="supplier.id">
+                <td class="adm-num">{{ i + 1 }}</td>
+                <td class="adm-nowrap fw-bold">{{ supplier.name }}</td>
+                <td class="adm-nowrap">{{ supplier.phone || "—" }}</td>
+                <td class="adm-nowrap text-muted">{{ supplier.email || "—" }}</td>
+                <td class="adm-clip text-muted" :title="supplier.address">{{ supplier.address || "—" }}</td>
+                <td
+                  class="adm-nowrap text-end fw-bold"
+                  :class="debtClass(supplier)"
+                  :title="supplierDebt(supplier) < 0 ? 'Образовалось после возврата товара поставщику' : ''"
+                >
+                  {{ debtText(supplier) }}
+                </td>
+                <td class="adm-nowrap text-end">
+                  <div class="d-inline-flex gap-1">
+                    <button v-if="supplierDebt(supplier) > 0" class="adm-ico success" title="Оплатить долг" @click="openPaymentModal(supplier)">
+                      <i class="bi bi-cash-coin"></i>
+                    </button>
+                    <button class="adm-ico danger" title="Акт сверки (PDF)" @click="openReconciliationModal(supplier)">
+                      <i class="bi bi-file-earmark-pdf"></i>
+                    </button>
+                    <button class="adm-ico primary" title="Редактировать" @click="openModal(supplier)">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button
+                      v-if="authStore.hasPermission('suppliers.delete')"
+                      class="adm-ico danger"
+                      title="Удалить"
+                      @click="handleDelete(supplier.id)"
+                    >
+                      <i class="bi bi-trash3"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     
@@ -608,6 +654,34 @@ onMounted(loadSuppliers);
   justify-content: center;
 }
 
+.adm-head .header-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.supplier-avatar.sm {
+  width: 28px;
+  height: 28px;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  border: 0;
+  box-shadow: none;
+  flex-shrink: 0;
+}
+.search-inline .input-group-text,
+.search-inline .form-control {
+  border-radius: 0;
+}
+.search-inline .input-group-text {
+  border-radius: 0.6rem 0 0 0.6rem;
+}
+.search-inline .form-control {
+  border-radius: 0 0.6rem 0.6rem 0;
+}
+.min-w-0 {
+  min-width: 0;
+}
 .btn-add-supplier {
   background: #38bdf8;
   color: #0f172a;

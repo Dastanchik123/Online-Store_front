@@ -8,7 +8,8 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
     await authStore.initAuth();
   }
 
+  // После входа по SMS — обратно туда, куда шёл (например, к оформлению заказа)
   if (!authStore.isAuthenticated) {
-    return navigateTo("/auth/login");
+    return navigateTo({ path: "/auth/login", query: { redirect: to.fullPath } });
   }
 });

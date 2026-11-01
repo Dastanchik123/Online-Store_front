@@ -74,6 +74,20 @@ export const useSelfService = () => {
       headers: await deviceHeaders(),
     });
 
+  // Подтверждение сотрудника (PIN или бейдж) перед удалением/уменьшением
+  // товара в корзине — сервер проверяет право self_service.override и пишет журнал
+  const staffOverride = async (
+    method: "pin" | "badge",
+    credential: string,
+    action: "remove" | "decrement" | "clear",
+    cart: { product_id: number; quantity: number }[],
+  ) =>
+    apiFetch("/self-service/staff-override", {
+      method: "POST",
+      headers: await deviceHeaders(),
+      body: { method, credential, action, cart },
+    });
+
   const getPayInfo = (token: string) =>
     apiFetch(`/self-service/pay/${token}`, { noCache: true });
 
@@ -96,6 +110,7 @@ export const useSelfService = () => {
     getOrder,
     getPaymentStatus,
     cancelOrder,
+    staffOverride,
     getPayInfo,
     confirmPayment,
     pairDevice,

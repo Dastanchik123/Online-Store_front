@@ -11,7 +11,6 @@ const {
   getOrders,
   updateOrder,
   downloadOrderInvoice,
-  downloadOrderThermalReceipt,
   returnOrderItems,
 } = useOrders();
 const { printReceipt, initPrinter } = usePrinter();
@@ -106,7 +105,19 @@ const filters = ref({
   per_page: 30,
   page: 1,
   source: "online",
+  // Онлайн-заказы, ещё ждущие QR-оплаты, по умолчанию скрыты: собирать их
+  // рано, брошенные отменятся сами (orders:expire-unpaid на бэкенде)
+  show_awaiting_qr: false,
 });
+
+// Точка на кнопке доп. фильтров: выбран период, отличный от «сегодня»,
+// или включён показ заказов, ждущих QR — иначе легко забыть, что список сужен
+const advancedActive = computed(
+  () =>
+    filters.value.show_awaiting_qr ||
+    filters.value.date_from !== today ||
+    filters.value.date_to !== today,
+);
 
 // Границы дня переводим в UTC по часовому поясу БРАУЗЕРА пользователя —
 // backend просто сравнивает метки, никаких допущений о часовом поясе
@@ -201,6 +212,14 @@ const fetchOrders = async () => {
       user_id: filters.value.user_id || undefined,
       per_page: filters.value.per_page || undefined,
       page: filters.value.page,
+      show_awaiting_qr: undefined,
+      // Явный фильтр «Ожидает» (по статусу или оплате) — значит, их и ищут
+      hide_awaiting_qr:
+        filters.value.show_awaiting_qr ||
+        filters.value.status === "pending" ||
+        filters.value.payment_status === "pending"
+          ? undefined
+          : 1,
     });
 
     orders.value = data;
@@ -220,6 +239,12 @@ const changePage = (page) => {
   fetchOrders();
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
+
+// Оплата подтверждена банком и стоит «Оплачено» — менять нельзя. Если статус
+// успели снять вручную раньше, разрешено только вернуть «Оплачено»
+const isBankLocked = (order) =>
+  !!order?.paid_by_bank && order?.payment_status === "paid";
+const bankPaymentLocked = computed(() => isBankLocked(selectedOrder.value));
 
 const openOrderModal = (order) => {
   selectedOrder.value = JSON.parse(JSON.stringify(order)); 
@@ -244,7 +269,8 @@ const updateOrderStatus = async () => {
     fetchOrders();
   } catch (error) {
     console.error(error);
-    uiStore.error("Ошибка при обновлении статуса");
+    // Сервер объясняет, почему нельзя (например, оплата подтверждена банком)
+    uiStore.error(error.data?.message || "Ошибка при обновлении статуса");
   } finally {
     isUpdating.value = false;
   }
@@ -353,12 +379,17 @@ const quickSetPaymentStatus = (order, payment_status) => {
   quickUpdateOrder(order, payload);
 };
 
+// Способы, которые ставит только банк (QR GoPay) — см. Order::BANK_PAYMENT_METHODS
+const BANK_PAYMENT_METHODS = ["mbank", "qr", "mixed"];
+
 const getPaymentMethodText = (method) => {
   const texts = {
     cash: "Оплата при получении (Нал/Безнал)",
     transfer: "Перевод/MBank",
     card: "Картой",
-    mbank: "MBank (устар.)",
+    mbank: "QR (MBank)",
+    qr: "QR (GoPay)",
+    mixed: "Наличные + QR",
   };
   return texts[method] || method || "Не указан";
 };
@@ -427,126 +458,70 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="orders-page p-4 animate-fade-in">
-    
-    <div
-      class="header-card mb-4 p-4 rounded-4 shadow-sm text-white glass-header"
-    >
-      <div class="row align-items-center">
-        <div class="col-lg-3">
-          <h1 class="h3 mb-1 fw-bold">Заказы</h1>
+  <div class="orders-page p-3 p-md-4 animate-fade-in">
+    <!-- Фиолетовая шапка: заголовок + кнопки сверху, ниже сетка фильтров.
+         Сетка сама перестраивается: 5 колонок на широком экране, 3 на
+         планшете, на телефоне поиск во всю ширину и селекты по два в ряд -->
+    <div class="header-card mb-3 p-3 rounded-4 shadow-sm text-white glass-header orders-hero">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <div class="me-auto min-w-0">
+          <h1 class="h4 mb-0 fw-bold">Заказы</h1>
           <p class="mb-0 opacity-75 small">Управление продажами</p>
         </div>
-        <div class="col-lg-9">
-          <div class="row g-2 justify-content-end">
-            <div class="col-md-4">
-              <div
-                class="input-group search-pill overflow-hidden bg-white bg-opacity-10 border-0"
-              >
-                <span
-                  class="input-group-text border-0 bg-transparent text-white opacity-50 ps-3"
-                  ><i class="bi bi-search"></i
-                ></span>
-                <input
-                  v-model="filters.search"
-                  type="text"
-                  class="form-control border-0 bg-transparent text-white placeholder-white ps-2"
-                  placeholder="Поиск..."
-                  @keyup.enter="fetchOrders"
-                />
-              </div>
-            </div>
-            <div class="col-md">
-              <div
-                class="input-group search-pill overflow-hidden bg-white bg-opacity-10 border-0"
-              >
-                <span
-                  class="input-group-text border-0 bg-transparent text-white opacity-50 ps-3"
-                  ><i class="bi bi-filter"></i
-                ></span>
-                <select
-                  v-model="filters.status"
-                  @change="fetchOrders"
-                  class="form-select border-0 bg-transparent text-white luxury-select ps-2"
-                >
-                  <option value="" class="text-dark">Все статусы</option>
-                  <option value="pending" class="text-dark">⏳ Ожидает</option>
-                  <option value="processing" class="text-dark">
-                    🛠️ В обработке
-                  </option>
-                  <option value="shipped" class="text-dark">
-                    🚚 Отправлен
-                  </option>
-                  <option value="delivered" class="text-dark">
-                    ✅ Доставлен
-                  </option>
-                  <option value="cancelled" class="text-dark">
-                    ❌ Отменен
-                  </option>
-                  <option value="refunded" class="text-dark">↩️ Возврат</option>
-                </select>
-              </div>
-            </div>
-            <div class="col-md">
-              <div
-                class="input-group search-pill overflow-hidden bg-white bg-opacity-10 border-0"
-              >
-                <span
-                  class="input-group-text border-0 bg-transparent text-white opacity-50 ps-3"
-                  ><i class="bi bi-wallet2"></i
-                ></span>
-                <select
-                  v-model="filters.payment_status"
-                  @change="fetchOrders"
-                  class="form-select border-0 bg-transparent text-white luxury-select ps-2"
-                >
-                  <option value="" class="text-dark">Все оплаты</option>
-                  <option value="pending" class="text-dark">⏳ Ожидает</option>
-                  <option value="paid" class="text-dark">✅ Оплачено</option>
-                  <option value="failed" class="text-dark">❌ Ошибка</option>
-                </select>
-              </div>
-            </div>
-            <div class="col-md">
-              <div
-                class="input-group search-pill overflow-hidden bg-white bg-opacity-10 border-0"
-              >
-                <span
-                  class="input-group-text border-0 bg-transparent text-white opacity-50 ps-3"
-                  ><i class="bi bi-credit-card"></i
-                ></span>
-                <select
-                  v-model="filters.payment_method"
-                  @change="fetchOrders"
-                  class="form-select border-0 bg-transparent text-white luxury-select ps-2"
-                >
-                  <option value="" class="text-dark">Все способы</option>
-                  <option value="cash" class="text-dark">
-                    🚚 При получении
-                  </option>
-                  <option value="transfer" class="text-dark">💳 Перевод</option>
-                </select>
-              </div>
-            </div>
-            <div class="col-auto">
-              <button
-                @click="showAdvancedFilters = !showAdvancedFilters"
-                class="btn btn-white-glass rounded-circle"
-                :class="{ active: showAdvancedFilters }"
-                title="Больше фильтров"
-              >
-                <i class="bi bi-sliders"></i>
-              </button>
-            </div>
-            <div class="col-auto">
-              <button
-                @click="fetchOrders"
-                class="btn btn-white-glass rounded-circle"
-              >
-                <i class="bi bi-arrow-clockwise"></i>
-              </button>
-            </div>
-          </div>
+        <button
+          @click="showAdvancedFilters = !showAdvancedFilters"
+          class="btn btn-white-glass hero-ico"
+          :class="{ active: showAdvancedFilters || advancedActive }"
+          title="Даты и доп. фильтры"
+        >
+          <i class="bi bi-sliders"></i>
+          <span v-if="advancedActive" class="hero-dot"></span>
+        </button>
+        <button @click="fetchOrders" class="btn btn-white-glass hero-ico" title="Обновить">
+          <i class="bi bi-arrow-clockwise" :class="{ 'spin-once': isLoading }"></i>
+        </button>
+      </div>
+
+      <div class="orders-filters">
+        <div class="of-search search-pill">
+          <i class="bi bi-search"></i>
+          <input
+            v-model="filters.search"
+            type="text"
+            class="form-control"
+            placeholder="№ заказа, имя или телефон…"
+            @keyup.enter="fetchOrders"
+          />
+        </div>
+        <div class="search-pill">
+          <i class="bi bi-flag"></i>
+          <select v-model="filters.status" @change="fetchOrders" class="form-select luxury-select">
+            <option value="" class="text-dark">Все статусы</option>
+            <option value="pending" class="text-dark">⏳ Ожидает</option>
+            <option value="processing" class="text-dark">🛠️ В обработке</option>
+            <option value="shipped" class="text-dark">🚚 Отправлен</option>
+            <option value="delivered" class="text-dark">✅ Доставлен</option>
+            <option value="cancelled" class="text-dark">❌ Отменён</option>
+            <option value="refunded" class="text-dark">↩️ Возврат</option>
+          </select>
+        </div>
+        <div class="search-pill">
+          <i class="bi bi-wallet2"></i>
+          <select v-model="filters.payment_status" @change="fetchOrders" class="form-select luxury-select">
+            <option value="" class="text-dark">Все оплаты</option>
+            <option value="pending" class="text-dark">⏳ Ожидает</option>
+            <option value="paid" class="text-dark">✅ Оплачено</option>
+            <option value="failed" class="text-dark">❌ Ошибка</option>
+          </select>
+        </div>
+        <div class="search-pill of-method">
+          <i class="bi bi-credit-card"></i>
+          <select v-model="filters.payment_method" @change="fetchOrders" class="form-select luxury-select">
+            <option value="" class="text-dark">Все способы</option>
+            <option value="cash" class="text-dark">🚚 При получении</option>
+            <option value="transfer" class="text-dark">💳 Перевод</option>
+            <option value="mbank" class="text-dark">📱 QR (MBank)</option>
+          </select>
         </div>
       </div>
     </div>
@@ -554,10 +529,10 @@ onUnmounted(() => {
     
     <div
       v-if="showAdvancedFilters"
-      class="card border-0 shadow-sm rounded-4 mb-4 p-4 bg-white animate-fade-in"
+      class="card border-0 shadow-sm rounded-4 mb-3 p-3 bg-white animate-fade-in"
     >
-      <div class="row g-3">
-        <div class="col-md-6">
+      <div class="row g-2 g-md-3">
+        <div class="col-6">
           <label class="form-label small fw-bold text-muted">Дата с</label>
           <input
             v-model="filters.date_from"
@@ -566,7 +541,7 @@ onUnmounted(() => {
             @change="fetchOrders"
           />
         </div>
-        <div class="col-md-6">
+        <div class="col-6">
           <label class="form-label small fw-bold text-muted">Дата по</label>
           <input
             v-model="filters.date_to"
@@ -575,6 +550,29 @@ onUnmounted(() => {
             @change="fetchOrders"
           />
         </div>
+        <div class="col-12">
+          <div class="form-check form-switch">
+            <input
+              id="showAwaitingQr"
+              v-model="filters.show_awaiting_qr"
+              class="form-check-input"
+              type="checkbox"
+              role="switch"
+              @change="
+                filters.page = 1;
+                fetchOrders();
+              "
+            />
+            <label class="form-check-label small" for="showAwaitingQr">
+              Показывать заказы, ожидающие QR-оплаты
+            </label>
+            <div class="form-text small">
+              По умолчанию скрыты: заказ появится в списке, когда покупатель
+              оплатит. Неоплаченные отменяются автоматически, товар
+              возвращается на склад.
+            </div>
+          </div>
+        </div>
       </div>
       <div class="mt-3 d-flex justify-content-end">
         <button
@@ -582,6 +580,7 @@ onUnmounted(() => {
             filters.date_from = '';
             filters.date_to = '';
             filters.user_id = '';
+            filters.show_awaiting_qr = false;
             fetchOrders();
           "
           class="btn btn-sm btn-outline-secondary rounded-pill"
@@ -694,8 +693,9 @@ onUnmounted(() => {
                   <button
                     type="button"
                     class="btn btn-sm btn-light border rounded-pill dropdown-toggle d-flex align-items-center gap-1"
-                    :data-bs-toggle="canEditOrders ? 'dropdown' : null"
-                    :disabled="quickUpdatingId === order.id || !canEditOrders"
+                    :data-bs-toggle="canEditOrders && !isBankLocked(order) ? 'dropdown' : null"
+                    :disabled="quickUpdatingId === order.id || !canEditOrders || isBankLocked(order)"
+                    :title="isBankLocked(order) ? 'Оплачено через банк (QR GoPay) — изменить нельзя' : null"
                   >
                     <span
                       v-if="quickUpdatingId === order.id"
@@ -735,7 +735,9 @@ onUnmounted(() => {
                     class="x-small text-muted mt-1 opacity-75"
                     style="font-size: 0.65rem"
                   >
-                    <i class="bi bi-wallet2 me-1"></i>
+                    <i
+                      :class="order.paid_by_bank ? 'bi bi-bank me-1' : 'bi bi-wallet2 me-1'"
+                    ></i>
                     {{ getPaymentMethodText(order.payment_method) }}
                   </div>
                 </div>
@@ -766,7 +768,7 @@ onUnmounted(() => {
                   <i class="bi bi-file-earmark-pdf text-danger"></i>
                 </button>
                 <button
-                  @click.stop="downloadOrderThermalReceipt(order.id)"
+                  @click.stop="printReceipt(order.id, 'thermal')"
                   class="btn btn-sm btn-light rounded-circle shadow-sm p-1 px-2 border ms-1"
                   title="Печать чека (80мм)"
                 >
@@ -869,7 +871,7 @@ onUnmounted(() => {
               <select
                 v-model="selectedOrder.payment_status"
                 class="form-select border-0 shadow-sm rounded-3"
-                :disabled="!canEditOrders"
+                :disabled="!canEditOrders || bankPaymentLocked"
               >
                 <option value="pending">⏳ Ожидает</option>
                 <option value="paid">✅ Оплачено</option>
@@ -882,12 +884,41 @@ onUnmounted(() => {
               <select
                 v-model="selectedOrder.payment_method"
                 class="form-select border-0 shadow-sm rounded-3"
-                :disabled="!canEditOrders"
+                :disabled="!canEditOrders || selectedOrder.paid_by_bank"
               >
                 <option :value="null">Не указан</option>
                 <option value="cash">🚚 Оплата при получении</option>
                 <option value="transfer">🏦 Перевод / MBank</option>
+                <!-- QR ставит только банк: вручную выбрать нельзя, но
+                     показываем, чтобы у таких заказов поле не было пустым -->
+                <option
+                  v-for="m in BANK_PAYMENT_METHODS"
+                  :key="m"
+                  :value="m"
+                  disabled
+                  v-show="selectedOrder.payment_method === m"
+                >
+                  📱 {{ getPaymentMethodText(m) }}
+                </option>
               </select>
+              <div
+                v-if="bankPaymentLocked"
+                class="text-success mt-2"
+                style="font-size: 0.7rem"
+              >
+                <i class="bi bi-bank me-1"></i>
+                Оплачено через банк (QR GoPay) — изменить нельзя. Для
+                возврата денег отмените заказ.
+              </div>
+              <div
+                v-else-if="selectedOrder.paid_by_bank"
+                class="text-warning mt-2"
+                style="font-size: 0.7rem"
+              >
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                Банк подтвердил оплату, но статус снят вручную — отметьте
+                «Оплачено».
+              </div>
             </div>
           </div>
         </div>
@@ -1053,8 +1084,8 @@ onUnmounted(() => {
           <div class="d-flex gap-2">
             <button
               class="btn btn-outline-success rounded-pill px-3 fw-bold"
-              @click="downloadOrderThermalReceipt(selectedOrder.id)"
-              title="Печать чека"
+              @click="printReceipt(selectedOrder.id, 'thermal')"
+              title="Печать чека (как на кассе)"
             >
               <i class="bi bi-printer me-2"></i>Чек
             </button>
@@ -1188,6 +1219,7 @@ onUnmounted(() => {
 .orders-page {
   background-color: #f8fafc;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* Фоновая подгрузка (новый заказ по WS): строки остаются, но приглушены */
@@ -1336,10 +1368,103 @@ onUnmounted(() => {
   box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
 }
 
+/* ── Фильтры в фиолетовой шапке ── */
+.orders-filters {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 0.5rem;
+}
 .search-pill {
-  border-radius: 50px;
-  backdrop-filter: blur(4px);
-  min-height: 44px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  transition: background 0.15s, border-color 0.15s;
+}
+.search-pill:focus-within {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+.search-pill > i {
+  position: absolute;
+  left: 12px;
+  opacity: 0.65;
+  pointer-events: none;
+  font-size: 0.9rem;
+}
+.search-pill .form-control,
+.search-pill .form-select {
+  height: 100%;
+  min-width: 0;
+  padding-left: 34px;
+  border: 0;
+  background-color: transparent;
+  color: #fff;
+  box-shadow: none !important;
+  font-size: 0.85rem;
+}
+.search-pill .form-control::placeholder {
+  color: rgba(255, 255, 255, 0.65);
+}
+/* Белая стрелка у select на тёмном фоне */
+.search-pill .form-select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 12px 10px;
+}
+.hero-ico {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px !important;
+  flex-shrink: 0;
+}
+.spin-once {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.hero-ico.active {
+  background: rgba(255, 255, 255, 0.28);
+}
+.hero-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fbbf24;
+}
+.min-w-0 {
+  min-width: 0;
+}
+@media (max-width: 991.98px) {
+  .orders-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .of-search {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 575.98px) {
+  .orders-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .of-method {
+    grid-column: 1 / -1;
+  }
+  .orders-page {
+    padding: 0.75rem !important;
+  }
 }
 
 .luxury-select {
@@ -1386,7 +1511,7 @@ onUnmounted(() => {
 }
 .btn-white-glass:hover {
   background: rgba(255, 255, 255, 0.2);
-  transform: rotate(180deg);
+  color: #fff;
 }
 
 

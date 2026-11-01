@@ -118,7 +118,12 @@ const handleSubmit = async () => {
 
     cartStore.clearCart();
 
-    
+    // Заказ создан, но QR не получился (GoPay не ответил) — QR выпускается
+    // заново на странице заказа
+    if (order.payment_error) {
+      useUiStore().error(order.payment_error);
+    }
+
     await navigateTo(`/profile/orders/${order.id}`);
   } catch (err) {
     if (err.data?.errors) {
@@ -309,6 +314,9 @@ onMounted(() => {
                         После оформления заказа на странице заказа появится
                         QR-код для оплаты. QR действует 5 минут — если не
                         успеете, его можно будет сгенерировать заново.
+                        Товар бронируется за вами; неоплаченный заказ
+                        отменится автоматически (срок оплаты указан на
+                        странице заказа).
                       </div>
                     </div>
                   </div>

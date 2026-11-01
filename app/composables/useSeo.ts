@@ -14,7 +14,7 @@ export const useSeo = () => {
   }) => {
     const route = useRoute();
     const baseUrl =
-      config.public.siteUrl || "https://kurulush-store-back.fly.dev";
+      config.public.siteUrl || "https://kurulush-store.fly.dev";
 
     const defaultTitle = "KurulushStore - Интернет-магазин";
     const defaultDescription =
@@ -63,7 +63,12 @@ export const useSeo = () => {
 
         { name: "robots", content: "index, follow" },
         { name: "googlebot", content: "index, follow" },
-        { name: "viewport", content: "width=device-width, initial-scale=1" },
+        // viewport-fit=cover — как в app.head (nuxt.config.ts): иначе страницы
+        // с useSeo теряли отступы под чёлку в установленном PWA
+        {
+          name: "viewport",
+          content: "width=device-width, initial-scale=1, viewport-fit=cover",
+        },
         { "http-equiv": "Content-Type", content: "text/html; charset=utf-8" },
 
         ...(options.publishedTime
@@ -88,11 +93,15 @@ export const useSeo = () => {
       ],
       link: [
         { rel: "canonical", href: url },
-        // /favicon.ico и /apple-touch-icon.png не существуют в public/ —
-        // ссылались на несуществующие файлы (404). Реально есть только
-        // favicon.png, используем его для обеих ссылок.
+        // /favicon.ico не существует в public/ — ссылался на 404.
+        // apple-touch-icon — непрозрачная 180×180 из public/icons (iOS
+        // заливает прозрачность чёрным), см. scripts/generate-pwa-icons.mjs
         { rel: "icon", type: "image/png", href: "/favicon.png" },
-        { rel: "apple-touch-icon", href: "/favicon.png" },
+        {
+          rel: "apple-touch-icon",
+          sizes: "180x180",
+          href: "/icons/apple-touch-icon-180.png",
+        },
       ],
       script: [
         {
@@ -123,7 +132,7 @@ export const useSeo = () => {
   const setProductSeo = (product: any) => {
     const config = useRuntimeConfig();
     const baseUrl =
-      config.public.siteUrl || "https://kurulush-store-back.fly.dev";
+      config.public.siteUrl || "https://kurulush-store.fly.dev";
 
     const price = product.sale_price || product.price;
     const availability = product.stock_quantity > 0 ? "InStock" : "OutOfStock";
@@ -185,7 +194,7 @@ export const useSeo = () => {
   const setBreadcrumbs = (items: Array<{ name: string; url: string }>) => {
     const config = useRuntimeConfig();
     const baseUrl =
-      config.public.siteUrl || "https://kurulush-store-back.fly.dev";
+      config.public.siteUrl || "https://kurulush-store.fly.dev";
 
     useHead({
       script: [

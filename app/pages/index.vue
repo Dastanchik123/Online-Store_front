@@ -1,4 +1,5 @@
 <script setup>
+import { HOME_PAGE_SIZE } from "~/stores/products";
 
 const { addToCart } = useCart();
 const authStore = useAuthStore();
@@ -18,6 +19,11 @@ const currentPage = ref(1);
 const extendedProducts = ref([]);
 const hasMore = ref(true);
 
+// Ссылка баннера — только свой путь или http(s): javascript:-ссылка
+// из админки выполнялась бы у покупателя при клике (XSS)
+const safeBannerLink = (url) =>
+  url && /^(\/(?!\/)|https?:\/\/)/i.test(url) ? url : "/catalog";
+
 const handleSearch = () => {
   if (!searchQuery.value.trim()) return;
   navigateTo(`/catalog?search=${encodeURIComponent(searchQuery.value.trim())}`);
@@ -28,24 +34,34 @@ const featuredProducts = computed(() => {
   return productsStore.products.slice(0, 8);
 });
 
+// На витрине видно 8 — кнопка нужна, только если загружено больше
+const canShowMore = computed(() =>
+  hasMore.value && (extendedProducts.value.length > 0 || productsStore.products.length > 8),
+);
+
 const handleShowMore = async () => {
+  // Первая страница (40 шт.) уже загружена вместе с главной — сначала
+  // раскрываем её. Раньше сюда сразу шла страница 2 по 40, и товары
+  // с 9-го по 40-й не показывались вовсе.
+  if (extendedProducts.value.length === 0) {
+    extendedProducts.value = [...productsStore.products];
+    if (productsStore.products.length < HOME_PAGE_SIZE) hasMore.value = false;
+    return;
+  }
   showMoreLoading.value = true;
   try {
     currentPage.value++;
-    const res = await productsStore.fetchProducts({ 
-      page: currentPage.value, 
-      per_page: 40 
+    const res = await productsStore.fetchProducts({
+      sort_by: "popular",
+      page: currentPage.value,
+      per_page: HOME_PAGE_SIZE,
     });
-    
-    if (res && res.data && res.data.length < 40) {
+
+    if (!res?.data || res.data.length < HOME_PAGE_SIZE) {
       hasMore.value = false;
     }
-    
-    if (extendedProducts.value.length === 0) {
-      extendedProducts.value = [...productsStore.products.slice(0, 8), ...res.data];
-    } else {
-      extendedProducts.value = [...extendedProducts.value, ...res.data];
-    }
+
+    extendedProducts.value = [...extendedProducts.value, ...(res?.data || [])];
   } catch (e) {
     uiStore.error('Ошибка загрузки');
   } finally {
@@ -268,7 +284,7 @@ useHead({
                       {{ banner.subtitle }}
                     </p>
                     <NuxtLink
-                      :to="banner.link_url || '/catalog'"
+                      :to="safeBannerLink(banner.link_url)"
                       class="btn btn-primary rounded-pill px-4 py-2 px-md-5 py-md-3 fw-bold shadow-lg transition-all"
                     >
                       {{ banner.button_text || "СМОТРЕТЬ КАТАЛОГ" }}
@@ -416,7 +432,7 @@ useHead({
           </div>
         </div>
 
-        <div v-if="productsStore.products.length > 0 && hasMore" class="text-center mt-4">
+        <div v-if="canShowMore" class="text-center mt-4">
           <button
             class="btn-show-more"
             :disabled="showMoreLoading"
@@ -431,7 +447,7 @@ useHead({
             </span>
           </button>
         </div>
-        <div v-if="!hasMore" class="text-center mt-4">
+        <div v-else-if="productsStore.products.length > 0" class="text-center mt-4">
           <NuxtLink to="/catalog" class="btn btn-outline-primary rounded-pill px-5 py-2 fw-bold">
             Перейти в полный каталог <i class="bi bi-arrow-right ms-2"></i>
           </NuxtLink>

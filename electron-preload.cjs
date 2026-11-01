@@ -1,40 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Local API: apiFetch → SQLite (роутер в main-процессе)
-  localApi: (request) => ipcRenderer.invoke('local-api', request),
-
-  // Событие «данные обновились после синхронизации» — для обновления UI
-  onDataChanged: (callback) => {
-    const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on('data-changed', listener);
-    return () => ipcRenderer.removeListener('data-changed', listener);
-  },
-
   // Printers
   getPrinters: () => ipcRenderer.invoke('get-printers'),
   printHTML: (data) => ipcRenderer.send('print-html', data),
+  // Чек: ответ { ok, mode, fallback?, error? } — ошибки показываются кассиру
+  printReceipt: (data) => ipcRenderer.invoke('print-receipt', data),
+  getReceiptPrintConfig: () => ipcRenderer.invoke('get-receipt-print-config'),
+  setReceiptPrintConfig: (config) => ipcRenderer.invoke('set-receipt-print-config', config),
 
-  // Offline DB: Products
-  dbGetProducts: () => ipcRenderer.invoke('db-get-products'),
-  dbGetProductByBarcode: (barcode) => ipcRenderer.invoke('db-get-products-by-barcode', barcode),
-
-  // Offline DB: Orders
-  dbSaveOrder: (orderData) => ipcRenderer.invoke('db-save-order', orderData),
-
-  // Auth
-  dbLogin: (credentials) => ipcRenderer.invoke('db-login', credentials),
-  authSaveSession: (data) => ipcRenderer.invoke('auth-save-session', data),
-  authClearSession: () => ipcRenderer.invoke('auth-clear-session'),
-
-  // Sync
-  syncNow: () => ipcRenderer.invoke('sync-now'),
-  getSyncStatus: () => ipcRenderer.invoke('sync-get-status'),
-  saveWsConfig: (config) => ipcRenderer.invoke('ws-config-save', config),
-
-  // Settings
-  getTerminalId: () => ipcRenderer.invoke('get-terminal-id'),
-  setTerminalId: (id) => ipcRenderer.invoke('set-terminal-id', id),
+  // Встроенные форматы этикеток → settings.label_templates_all (только admin)
+  syncLabelTemplates: (data) => ipcRenderer.invoke('label-templates-sync', data),
 
   // Формат этикетки по умолчанию + привязка форматов/ширины ленты к принтерам
   // (локально на терминале, см. src-electron/labelTemplateSync.cjs)

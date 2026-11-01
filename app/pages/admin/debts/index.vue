@@ -9,6 +9,9 @@ const uiStore = useUiStore();
 const {
   getDebts,
   payDebt,
+  createDebtQr,
+  getDebtQrStatus,
+  cancelDebtQr,
   deleteDebt,
   deleteDebtPayment,
   downloadDebtsReport,
@@ -71,7 +74,7 @@ const handleDeleteDebt = async (debtId) => {
     uiStore.success("Запись о долге удалена");
     fetchDebts();
   } catch (error) {
-    uiStore.error("Ошибка при удалении");
+    uiStore.error(apiErrorMessage(error, "Ошибка при удалении"));
   } finally {
     isUpdating.value = false;
   }
@@ -117,10 +120,114 @@ const openPaymentModal = (debt) => {
     debtId: debt.id,
     maxAmount: debt.remaining_amount,
     amount: debt.remaining_amount,
-    method: debt.order?.payment_method || "cash",
+    method: "cash",
     debt: debt,
   };
 };
+
+// Безнал — QR GoPay: выплата записывается в долг только после
+// подтверждения банка, до этого окно показывает QR и ждёт оплату
+const DEBT_QR_POLL_MS = 3000;
+const debtQr = ref(null);
+const debtQrImage = ref("");
+const debtQrSecondsLeft = ref(0);
+let debtQrPollTimer = null;
+let debtQrCountdownTimer = null;
+
+const stopDebtQrTimers = () => {
+  clearInterval(debtQrPollTimer);
+  clearInterval(debtQrCountdownTimer);
+  debtQrPollTimer = null;
+  debtQrCountdownTimer = null;
+};
+
+const debtQrTimeLeft = computed(() => {
+  const s = Math.max(debtQrSecondsLeft.value, 0);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+});
+
+const showDebtQr = async (qr) => {
+  debtQr.value = qr;
+  debtQrImage.value = "";
+  if (qr.qr_value) {
+    const QRCode = (await import("qrcode")).default;
+    debtQrImage.value = await QRCode.toDataURL(qr.qr_value, {
+      width: 240,
+      margin: 1,
+    });
+  }
+
+  stopDebtQrTimers();
+  const expiresAt = qr.expires_at ? new Date(qr.expires_at).getTime() : 0;
+  const tick = () => {
+    debtQrSecondsLeft.value = expiresAt
+      ? Math.round((expiresAt - Date.now()) / 1000)
+      : 0;
+  };
+  tick();
+  debtQrCountdownTimer = setInterval(tick, 1000);
+  debtQrPollTimer = setInterval(() => pollDebtQr(false), DEBT_QR_POLL_MS);
+};
+
+const closeDebtQr = () => {
+  stopDebtQrTimers();
+  debtQr.value = null;
+  debtQrImage.value = "";
+};
+
+// true — QR больше не ждёт оплаты (оплачен или закрыт)
+const applyDebtQr = (qr) => {
+  if (!qr || !debtQr.value) return false;
+  if (qr.status === "completed") {
+    closeDebtQr();
+    uiStore.success(`Оплата по QR получена: ${formatPrice(qr.amount)}`);
+    if (qr.debt) {
+      paymentModal.value.debt = qr.debt;
+      paymentModal.value.maxAmount = qr.debt.remaining_amount;
+      paymentModal.value.amount = qr.debt.remaining_amount;
+    }
+    fetchDebts();
+    return true;
+  }
+  if (qr.status === "failed") {
+    closeDebtQr();
+    uiStore.error("QR закрыт без оплаты");
+    return true;
+  }
+  return false;
+};
+
+const pollDebtQr = async (askProvider) => {
+  if (!debtQr.value) return;
+  try {
+    applyDebtQr(await getDebtQrStatus(debtQr.value.id, askProvider));
+  } catch (error) {
+    if (askProvider) {
+      uiStore.error(apiErrorMessage(error, "Не удалось проверить оплату"));
+    }
+  }
+};
+
+const cancelPendingDebtQr = async () => {
+  if (!debtQr.value) return;
+  isUpdating.value = true;
+  try {
+    const qr = await cancelDebtQr(debtQr.value.id);
+    // Банк мог принять оплату перед самой отменой — тогда она проведена
+    if (!applyDebtQr(qr)) closeDebtQr();
+  } catch (error) {
+    uiStore.error(apiErrorMessage(error, "Не удалось отменить QR"));
+  } finally {
+    isUpdating.value = false;
+  }
+};
+
+const closePaymentModal = async () => {
+  if (debtQr.value) await cancelPendingDebtQr();
+  if (!debtQr.value) paymentModal.value.isOpen = false;
+};
+
+onUnmounted(stopDebtQrTimers);
 
 const submitPayment = async () => {
   if (paymentModal.value.amount <= 0) {
@@ -134,16 +241,23 @@ const submitPayment = async () => {
 
   isUpdating.value = true;
   try {
+    if (paymentModal.value.method === "qr") {
+      await showDebtQr(
+        await createDebtQr(paymentModal.value.debtId, paymentModal.value.amount),
+      );
+      return;
+    }
+
     await payDebt(paymentModal.value.debtId, {
       amount: paymentModal.value.amount,
-      payment_method: paymentModal.value.method,
+      payment_method: "cash",
     });
     uiStore.success("Оплата принята");
     paymentModal.value.isOpen = false;
     fetchDebts();
   } catch (error) {
     console.error(error);
-    uiStore.error("Ошибка при оплате");
+    uiStore.error(apiErrorMessage(error, "Ошибка при оплате"));
   } finally {
     isUpdating.value = false;
   }
@@ -164,7 +278,7 @@ const removePayment = async (paymentId) => {
     fetchDebts();
   } catch (error) {
     console.error(error);
-    uiStore.error("Ошибка при удалении платежа");
+    uiStore.error(apiErrorMessage(error, "Ошибка при удалении платежа"));
   } finally {
     isUpdating.value = false;
   }
@@ -181,6 +295,39 @@ const formatDate = (dateStr) => {
     month: "2-digit",
     year: "numeric",
   });
+};
+
+const formatDateTime = (dateStr) => {
+  if (!dateStr) return "-";
+  return new Date(dateStr).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+// Первый взнос на кассе хранится не отдельным платежом, а в paid_amount
+// долга: внесено всего минус выплаты по долгу
+const firstInstallment = (debt) => {
+  if (!debt) return 0;
+  const payments = (debt.payments || []).reduce(
+    (sum, p) => sum + Number(p.amount || 0),
+    0,
+  );
+  return Math.max(
+    Math.round((Number(debt.paid_amount || 0) - payments) * 100) / 100,
+    0,
+  );
+};
+
+const firstInstallmentMethod = (debt) => {
+  const cash = Number(debt?.order?.cash_received || 0);
+  const qr = Number(debt?.order?.transfer_received || 0);
+  if (cash > 0 && qr > 0) return "Наличные + QR-код";
+  if (qr > 0) return "QR-код";
+  return "Наличные";
 };
 
 const getStatusBadge = (status) => {
@@ -210,7 +357,7 @@ const getStatusText = (status) => {
 
 const translatePaymentMethod = (method) => {
   const map = {
-    cash: "Оплата при получении",
+    cash: "Наличные",
     card: "Картой",
     bank_transfer: "Перевод",
     mbank: "MBank",
@@ -294,6 +441,26 @@ const groupedDebts = computed(() => {
   return groups;
 });
 
+const debtTotals = computed(() =>
+  debts.value.data.reduce(
+    (acc, d) => {
+      acc.remaining += parseFloat(d.remaining_amount || 0);
+      acc.paid += parseFloat(d.paid_amount || 0);
+      return acc;
+    },
+    { remaining: 0, paid: 0 },
+  ),
+);
+
+// 1 заказ, 2 заказа, 5 заказов, 21 заказ
+const pluralOrders = (n) => {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return "заказ";
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return "заказа";
+  return "заказов";
+};
+
 onMounted(() => {
   if (route.query.status) filters.value.status = String(route.query.status);
   if (route.query.search) filters.value.search = String(route.query.search);
@@ -306,25 +473,62 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="debts-page p-4 animate-fade-in">
-    
-    <div
-      class="header-card mb-4 p-4 rounded-4 shadow-sm text-white glass-header"
-    >
-      <div class="row align-items-center">
-        <div class="col-lg-6">
-          <h1 class="h3 mb-1 fw-bold">Долги клиентов</h1>
-          <p class="mb-0 opacity-75 small">
-            Управление задолженностями по заказам
-          </p>
+  <div class="adm-page debts-page p-3 p-md-4 animate-fade-in">
+    <div class="adm-head header-card glass-header text-white rounded-4 shadow-sm p-3">
+      <div class="adm-head-title">
+        <h1 class="h4 mb-0">Долги клиентов</h1>
+        <p class="mb-0 opacity-75 small">Задолженности по заказам</p>
+      </div>
+      <div class="adm-head-actions">
+        <button
+          class="btn btn-light rounded-pill fw-bold"
+          :disabled="isExportingPdf"
+          @click="exportPdf"
+        >
+          <span v-if="isExportingPdf" class="spinner-border spinner-border-sm me-1"></span>
+          <i v-else class="bi bi-file-earmark-pdf text-danger me-1"></i>PDF
+        </button>
+        <button class="btn btn-light rounded-pill fw-bold" @click="exportExcel">
+          <i class="bi bi-file-earmark-spreadsheet text-success me-1"></i>Excel
+        </button>
+      </div>
+    </div>
+
+    <div class="adm-stats">
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-danger-subtle text-danger"><i class="bi bi-exclamation-circle"></i></div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Остаток долга</div>
+          <div class="adm-stat-value text-danger">{{ formatPrice(debtTotals.remaining) }}</div>
+        </div>
+      </div>
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-success-subtle text-success"><i class="bi bi-check2-circle"></i></div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Оплачено</div>
+          <div class="adm-stat-value text-success">{{ formatPrice(debtTotals.paid) }}</div>
+        </div>
+      </div>
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-primary-subtle text-primary"><i class="bi bi-people"></i></div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Клиентов</div>
+          <div class="adm-stat-value">{{ groupedDebts.length }}</div>
+        </div>
+      </div>
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-warning-subtle text-warning"><i class="bi bi-receipt"></i></div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Записей</div>
+          <div class="adm-stat-value">{{ debts.data.length }}</div>
         </div>
       </div>
     </div>
 
-    
-    <div class="card border-0 shadow-sm rounded-4 mb-4 p-3">
-      <div class="row g-2 align-items-center">
-        <div class="col-md-4">
+    <div class="card border-0 shadow-sm rounded-4 mb-3 p-3">
+      <div class="adm-filters">
+        <div class="adm-filter-full adm-filter-wide">
+          <label class="form-label">Поиск</label>
           <div class="input-group">
             <span class="input-group-text bg-white border-end-0">
               <i class="bi bi-search text-muted"></i>
@@ -333,360 +537,256 @@ onMounted(() => {
               v-model="filters.search"
               type="text"
               class="form-control border-start-0 ps-0"
-              placeholder="Имя клиента..."
+              placeholder="Имя или телефон клиента..."
             />
           </div>
         </div>
-        <div class="col-md-3">
-          <select
-            v-model="filters.status"
-            class="form-select rounded-3"
-            @change="fetchDebts"
-          >
+        <div class="adm-filter-full">
+          <label class="form-label">Статус</label>
+          <select v-model="filters.status" class="form-select rounded-3" @change="fetchDebts">
             <option value="active">Только должники</option>
             <option value="partial">Частично погашенные</option>
             <option value="paid">Оплаченные</option>
-            <option value="cancelled">Отмененные</option>
+            <option value="cancelled">Отменённые</option>
             <option value="all">Все статусы</option>
           </select>
         </div>
-        <div class="col-auto">
-          <div class="form-check form-switch mt-1">
-            <input
-              v-model="isGrouped"
-              class="form-check-input"
-              type="checkbox"
-              id="groupToggle"
-            />
-            <label class="form-check-label small fw-bold" for="groupToggle"
-              >Группировать</label
-            >
+        <div class="d-flex align-items-center gap-2 adm-filter-full">
+          <div class="form-check form-switch mb-0 me-auto">
+            <input v-model="isGrouped" class="form-check-input" type="checkbox" id="groupToggle" />
+            <label class="form-check-label small fw-bold" for="groupToggle">По клиентам</label>
           </div>
-        </div>
-        <div class="col-auto d-flex gap-2 ms-auto">
-          <button
-            class="btn btn-outline-danger d-flex align-items-center gap-2 rounded-3"
-            :disabled="isExportingPdf"
-            @click="exportPdf"
-          >
-            <span v-if="isExportingPdf" class="spinner-border spinner-border-sm"></span>
-            <i v-else class="bi bi-file-earmark-pdf"></i>
-            <span class="d-none d-md-inline">{{ isExportingPdf ? "Формируется…" : "PDF" }}</span>
-          </button>
-          <button
-            class="btn btn-outline-success d-flex align-items-center gap-2 rounded-3"
-            @click="exportExcel"
-          >
-            <i class="bi bi-file-earmark-spreadsheet"></i>
-            <span class="d-none d-md-inline">Excel</span>
-          </button>
-          <button
-            class="btn btn-primary rounded-circle shadow-sm"
-            @click="fetchDebts"
-          >
+          <button class="adm-ico primary" title="Обновить" style="width: 38px; height: 38px;" @click="fetchDebts">
             <i class="bi bi-arrow-clockwise"></i>
           </button>
         </div>
       </div>
     </div>
 
-    
-    <div class="card border-0 shadow-sm rounded-4">
-      <div class="table-responsive overflow-hidden" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto !important; background: #f8fafc;">
-        <table class="table table-hover align-middle mb-0 custom-table">
-          <thead
-            class="bg-light small text-muted text-uppercase d-none d-lg-table-header-group"
-          >
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+      <div v-if="debts.data.length === 0" class="adm-empty">
+        <i class="bi bi-emoji-smile fs-1 d-block mb-2 opacity-50"></i>
+        Записей не найдено
+      </div>
+
+      <!-- ── Телефон: карточки ── -->
+      <div v-else class="adm-mlist d-md-none">
+        <template v-if="isGrouped">
+          <div v-for="group in groupedDebts" :key="group.id" class="debt-group-m">
+            <div class="adm-mcard clickable" @click="toggleGroup(group.id)">
+              <div class="adm-mline">
+                <span class="adm-mtitle">
+                  <i class="bi bi-person-circle text-primary me-1"></i>{{ group.user?.name || "Гость" }}
+                </span>
+                <span class="adm-mval text-danger">{{ formatPrice(group.total_remaining) }}</span>
+              </div>
+              <div class="adm-mline">
+                <span class="adm-msub">
+                  {{ group.user?.phone || "Нет телефона" }} · {{ group.debts.length }} {{ pluralOrders(group.debts.length) }}
+                  · оплачено {{ formatPrice(group.total_paid) }}
+                </span>
+                <i class="bi bi-chevron-down accordion-arrow" :class="{ 'is-expanded': expandedGroups.has(group.id) }"></i>
+              </div>
+            </div>
+            <div v-if="expandedGroups.has(group.id)" class="debt-group-children">
+              <div v-for="debt in group.debts" :key="debt.id" class="adm-mcard">
+                <div class="adm-mline">
+                  <span class="adm-mtitle">Заказ #{{ debt.order_id }}</span>
+                  <span :class="getStatusBadge(debt.status)">{{ getStatusText(debt.status) }}</span>
+                </div>
+                <div class="adm-mline">
+                  <span class="adm-msub">
+                    Всего {{ formatPrice(debt.total_amount) }} · оплачено {{ formatPrice(debt.paid_amount) }}
+                  </span>
+                  <span class="adm-mval text-danger small">{{ formatPrice(debt.remaining_amount) }}</span>
+                </div>
+                <div class="adm-mline">
+                  <button class="btn btn-link btn-sm p-0 text-decoration-none" @click="toggleOrderDetails(debt.id)">
+                    <i class="bi" :class="expandedOrders.has(debt.id) ? 'bi-eye-slash' : 'bi-eye'"></i>
+                    {{ expandedOrders.has(debt.id) ? "Скрыть состав" : "Состав заказа" }}
+                  </button>
+                  <div class="adm-mactions">
+                    <button v-if="debt.status === 'paid'" class="adm-ico danger" title="Удалить" @click="handleDeleteDebt(debt.id)">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                    <button
+                      class="btn btn-sm rounded-pill px-3"
+                      :class="debt.status === 'paid' ? 'btn-outline-primary' : 'btn-success'"
+                      @click="openPaymentModal(debt)"
+                    >
+                      <i class="bi" :class="debt.status === 'paid' ? 'bi-clock-history' : 'bi-wallet2'"></i>
+                      {{ debt.status === "paid" ? "История" : "Оплатить" }}
+                    </button>
+                  </div>
+                </div>
+                <div v-if="expandedOrders.has(debt.id)" class="order-items-m">
+                  <div v-for="item in debt.order?.items" :key="item.id" class="adm-mline py-1">
+                    <span class="adm-msub text-dark">
+                      {{ item.product_name || item.product?.name || "Товар удалён" }}
+                      <span class="text-muted">× {{ item.quantity }}</span>
+                    </span>
+                    <span class="small fw-bold text-nowrap">{{ formatPrice(item.price * item.quantity) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+        <template v-else>
+          <div v-for="debt in debts.data" :key="debt.id" class="adm-mcard">
+            <div class="adm-mline">
+              <NuxtLink :to="`/admin/users/${debt.user_id}`" class="adm-mtitle text-decoration-none">
+                {{ debt.user?.name || "Гость" }}
+              </NuxtLink>
+              <span class="adm-mval text-danger">{{ formatPrice(debt.remaining_amount) }}</span>
+            </div>
+            <div class="adm-mline">
+              <span class="adm-msub">
+                Заказ #{{ debt.order_id }} · всего {{ formatPrice(debt.total_amount) }} · срок {{ formatDate(debt.due_date) }}
+              </span>
+              <span :class="getStatusBadge(debt.status)">{{ getStatusText(debt.status) }}</span>
+            </div>
+            <div class="adm-mline justify-content-end">
+              <div class="adm-mactions">
+                <button v-if="debt.status === 'paid'" class="adm-ico danger" title="Удалить" @click="handleDeleteDebt(debt.id)">
+                  <i class="bi bi-trash"></i>
+                </button>
+                <button
+                  class="btn btn-sm rounded-pill px-3"
+                  :class="debt.status === 'paid' ? 'btn-outline-primary' : 'btn-success'"
+                  @click="openPaymentModal(debt)"
+                >
+                  <i class="bi" :class="debt.status === 'paid' ? 'bi-clock-history' : 'bi-wallet2'"></i>
+                  {{ debt.status === "paid" ? "История" : "Оплатить" }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ── Планшет и десктоп: плотная таблица ── -->
+      <div
+        v-if="debts.data.length"
+        class="adm-table-wrap d-none d-md-block"
+        style="max-height: calc(100vh - 400px); min-height: 260px;"
+      >
+        <table class="adm-table">
+          <thead>
             <tr>
-              <th class="ps-4">Клиент</th>
+              <th>Клиент</th>
               <th>Заказ</th>
-              <th>Всего</th>
-              <th>Оплачено</th>
-              <th class="text-danger">Остаток</th>
+              <th class="text-end">Всего</th>
+              <th class="text-end">Оплачено</th>
+              <th class="text-end text-danger">Остаток</th>
               <th>Статус</th>
               <th>Срок</th>
-              <th class="text-end pe-4">Действия</th>
+              <th class="text-end">Действия</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="debts.data.length === 0">
-              <td colspan="8" class="text-center p-5 text-muted">
-                Записей не найдено
-              </td>
-            </tr>
-
             <template v-if="isGrouped">
-              <template
-                v-for="group in groupedDebts"
-                :key="group.user?.id || group.user?.name"
-              >
-                
-                <tr
-                  class="group-header fw-bold"
-                  @click="toggleGroup(group.id)"
-                  style="cursor: pointer"
-                >
-                  <td colspan="2" class="ps-4">
-                    <div class="d-flex align-items-center">
-                      <div class="client-group-icon me-3">
-                        <i class="bi bi-people-fill text-primary"></i>
-                      </div>
-                      <div>
-                        <div class="text-dark">
-                          {{ group.user?.name || "Гость" }}
-                        </div>
-                        <div class="small text-muted fw-normal">
-                          {{ group.user?.phone || "Нет телефона" }}
-                        </div>
-                      </div>
+              <template v-for="group in groupedDebts" :key="group.id">
+                <tr class="group-header" @click="toggleGroup(group.id)">
+                  <td colspan="2">
+                    <div class="d-flex align-items-center gap-2 min-w-0">
+                      <i class="bi bi-chevron-right accordion-arrow" :class="{ 'is-expanded-r': expandedGroups.has(group.id) }"></i>
+                      <i class="bi bi-person-circle text-primary"></i>
+                      <span class="fw-bold text-truncate">{{ group.user?.name || "Гость" }}</span>
+                      <span class="small text-muted text-nowrap">{{ group.user?.phone || "" }}</span>
                     </div>
                   </td>
-                  <td class="text-dark">
-                    {{ formatPrice(group.total_amount) }}
-                  </td>
-                  <td class="text-success">
-                    {{ formatPrice(group.total_paid) }}
-                  </td>
-                  <td class="text-danger fw-black fs-5">
-                    {{ formatPrice(group.total_remaining) }}
-                  </td>
-                  <td colspan="2">
-                    <span
-                      class="badge bg-light text-dark border rounded-pill px-3"
-                    >
-                      {{ group.debts.length }}
-                      {{ group.debts.length === 1 ? "заказ" : "заказа" }}
+                  <td class="text-end adm-nowrap fw-bold">{{ formatPrice(group.total_amount) }}</td>
+                  <td class="text-end adm-nowrap text-success">{{ formatPrice(group.total_paid) }}</td>
+                  <td class="text-end adm-nowrap text-danger fw-bold">{{ formatPrice(group.total_remaining) }}</td>
+                  <td colspan="3">
+                    <span class="badge bg-light text-dark border rounded-pill">
+                      {{ group.debts.length }} {{ pluralOrders(group.debts.length) }}
                     </span>
                   </td>
-                  <td class="text-end pe-4">
-                    <i
-                      class="bi bi-chevron-down accordion-arrow"
-                      :class="{
-                        'is-expanded': expandedGroups.has(
-                          group.user?.id || group.user?.name
-                        ),
-                      }"
-                    ></i>
-                  </td>
                 </tr>
-
-                
-                <template
-                  v-for="debt in group.debts"
-                  v-if="expandedGroups.has(group.user?.id || group.user?.name)"
-                  :key="debt.id"
-                >
-                  <tr class="debt-row child-row animate-fade-in">
-                    <td class="ps-5" data-label="Клиент">
-                      <div
-                        class="d-flex align-items-center opacity-75 text-primary fw-bold"
-                        @click.stop="toggleOrderDetails(debt.id)"
-                        style="cursor: pointer"
-                      >
-                        <i
-                          class="bi"
-                          :class="
-                            expandedOrders.has(debt.id)
-                              ? 'bi-eye-slash-fill'
-                              : 'bi-eye-fill'
-                          "
-                        ></i>
-                        <span class="ms-2 small">{{
-                          expandedOrders.has(debt.id)
-                            ? "Скрыть состав"
-                            : "Состав заказа"
-                        }}</span>
-                      </div>
-                    </td>
-                    <td data-label="Заказ">
-                      <span v-if="debt.order" class="text-muted"
-                        >#{{ debt.order_id }}</span
-                      >
-                    </td>
-                    <td data-label="Всего" class="fw-bold">
-                      {{ formatPrice(debt.total_amount) }}
-                    </td>
-                    <td data-label="Оплачено" class="text-success">
-                      {{ formatPrice(debt.paid_amount) }}
-                    </td>
-                    <td data-label="Остаток" class="text-danger fw-bold">
-                      {{ formatPrice(debt.remaining_amount) }}
-                    </td>
-                    <td data-label="Статус">
-                      <span :class="getStatusBadge(debt.status)">{{
-                        getStatusText(debt.status)
-                      }}</span>
-                    </td>
-                    <td
-                      data-label="Срок"
-                      class="small text-muted d-lg-table-cell"
-                    >
-                      {{ formatDate(debt.due_date) }}
-                    </td>
-                    <td class="text-end pe-4 mobile-actions">
-                      <div class="d-flex justify-content-end gap-2">
-                        <button
-                          v-if="debt.status === 'paid'"
-                          class="btn btn-sm rounded-pill btn-outline-danger shadow-sm px-2"
-                          @click.stop="handleDeleteDebt(debt.id)"
-                          title="Удалить"
-                        >
-                          <i class="bi bi-trash"></i>
+                <template v-if="expandedGroups.has(group.id)">
+                  <template v-for="debt in group.debts" :key="debt.id">
+                    <tr class="child-row">
+                      <td class="ps-4">
+                        <button class="btn btn-link btn-sm p-0 text-decoration-none" @click="toggleOrderDetails(debt.id)">
+                          <i class="bi" :class="expandedOrders.has(debt.id) ? 'bi-eye-slash' : 'bi-eye'"></i>
+                          {{ expandedOrders.has(debt.id) ? "Скрыть" : "Состав" }}
                         </button>
-                        <button
-                          class="btn btn-sm rounded-pill px-3 shadow-sm"
-                          :class="
-                            debt.status === 'paid'
-                              ? 'btn-outline-primary'
-                              : 'btn-success'
-                          "
-                          @click.stop="openPaymentModal(debt)"
-                        >
-                          <i
-                            class="bi"
-                            :class="
-                              debt.status === 'paid'
-                                ? 'bi-clock-history'
-                                : 'bi-wallet2'
-                            "
-                          ></i>
-                          {{
-                            debt.status === "paid" ? " История" : " Оплатить"
-                          }}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-
-                  
-                  <tr
-                    v-if="expandedOrders.has(debt.id)"
-                    class="items-details-row animate-fade-in"
-                  >
-                    <td colspan="8" class="p-0">
-                      <div
-                        class="bg-light p-3 border-start border-primary border-4 ms-5 me-4 my-2 rounded-3 shadow-sm"
-                      >
-                        <div
-                          class="fw-bold mb-2 small text-uppercase text-muted"
-                        >
-                          Состав заказа #{{ debt.order_id }}
+                      </td>
+                      <td class="adm-nowrap text-muted">#{{ debt.order_id }}</td>
+                      <td class="text-end adm-nowrap">{{ formatPrice(debt.total_amount) }}</td>
+                      <td class="text-end adm-nowrap text-success">{{ formatPrice(debt.paid_amount) }}</td>
+                      <td class="text-end adm-nowrap text-danger fw-bold">{{ formatPrice(debt.remaining_amount) }}</td>
+                      <td class="adm-nowrap"><span :class="getStatusBadge(debt.status)">{{ getStatusText(debt.status) }}</span></td>
+                      <td class="adm-nowrap text-muted small">{{ formatDate(debt.due_date) }}</td>
+                      <td class="adm-nowrap text-end">
+                        <div class="d-inline-flex gap-1">
+                          <button v-if="debt.status === 'paid'" class="adm-ico danger" title="Удалить" @click="handleDeleteDebt(debt.id)">
+                            <i class="bi bi-trash"></i>
+                          </button>
+                          <button
+                            class="btn btn-sm rounded-pill px-2 py-0"
+                            :class="debt.status === 'paid' ? 'btn-outline-primary' : 'btn-success'"
+                            @click="openPaymentModal(debt)"
+                          >
+                            <i class="bi" :class="debt.status === 'paid' ? 'bi-clock-history' : 'bi-wallet2'"></i>
+                            {{ debt.status === "paid" ? "История" : "Оплатить" }}
+                          </button>
                         </div>
-                        <div class="table-responsive">
-                          <table class="table table-sm table-borderless mb-0">
-                            <thead>
-                              <tr
-                                class="text-muted border-bottom"
-                                style="font-size: 0.75rem"
-                              >
-                                <th>Товар</th>
-                                <th class="text-center">Кол-во</th>
-                                <th class="text-end">Цена</th>
-                                <th class="text-end">Всего</th>
-                              </tr>
-                            </thead>
+                      </td>
+                    </tr>
+                    <tr v-if="expandedOrders.has(debt.id)" class="items-details-row">
+                      <td colspan="8" class="p-0">
+                        <div class="order-items-box">
+                          <div class="fw-bold mb-1 small text-uppercase text-muted">Состав заказа #{{ debt.order_id }}</div>
+                          <table class="table table-sm table-borderless mb-0 small">
                             <tbody>
-                              <tr
-                                v-for="item in debt.order?.items"
-                                :key="item.id"
-                                class="small border-bottom-dashed"
-                              >
+                              <tr v-for="item in debt.order?.items" :key="item.id">
                                 <td>
-                                  <div class="fw-bold">
-                                    {{ item.product_name || item.product?.name || "Товар удален" }}
-                                  </div>
-                                  <div class="text-muted tiny">
-                                    SKU: {{ item.product_sku || item.product?.sku || "N/A" }}
-                                  </div>
+                                  <span class="fw-bold">{{ item.product_name || item.product?.name || "Товар удалён" }}</span>
+                                  <span class="text-muted ms-2">{{ item.product_sku || item.product?.sku || "" }}</span>
                                 </td>
-                                <td class="text-center">{{ item.quantity }}</td>
-                                <td class="text-end">
-                                  {{ formatPrice(item.price) }}
-                                </td>
-                                <td class="text-end fw-bold">
-                                  {{ formatPrice(item.price * item.quantity) }}
-                                </td>
+                                <td class="text-center text-nowrap">{{ item.quantity }}</td>
+                                <td class="text-end text-nowrap">{{ formatPrice(item.price) }}</td>
+                                <td class="text-end text-nowrap fw-bold">{{ formatPrice(item.price * item.quantity) }}</td>
                               </tr>
                             </tbody>
                           </table>
                         </div>
-                      </div>
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
+                  </template>
                 </template>
               </template>
             </template>
 
             <template v-else>
-              
-              <tr v-for="debt in debts.data" :key="debt.id" class="debt-row">
-                <td class="ps-4" data-label="Клиент">
-                  <NuxtLink
-                    :to="`/admin/users/${debt.user_id}`"
-                    class="text-decoration-none text-dark d-flex align-items-center"
-                  >
-                    <div
-                      class="avatar-sm me-2 d-lg-none bg-primary-subtle text-primary rounded-circle d-flex align-items-center justify-content-center fw-bold"
-                    >
-                      {{ debt.user?.name?.[0] || "?" }}
-                    </div>
-                    <div>
-                      <div class="fw-bold">
-                        {{ debt.user?.name || "Гость" }}
-                      </div>
-                      <div class="small text-muted">
-                        {{ debt.user?.phone || debt.user?.email }}
-                      </div>
-                    </div>
+              <tr v-for="debt in debts.data" :key="debt.id">
+                <td class="adm-clip">
+                  <NuxtLink :to="`/admin/users/${debt.user_id}`" class="text-decoration-none text-dark">
+                    <span class="fw-bold">{{ debt.user?.name || "Гость" }}</span>
+                    <span class="small text-muted ms-2">{{ debt.user?.phone || debt.user?.email }}</span>
                   </NuxtLink>
                 </td>
-                <td data-label="Заказ">
-                  <span class="text-muted">#{{ debt.order_id }}</span>
-                </td>
-                <td data-label="Всего" class="fw-bold">
-                  {{ formatPrice(debt.total_amount) }}
-                </td>
-                <td data-label="Оплачено" class="text-success">
-                  {{ formatPrice(debt.paid_amount) }}
-                </td>
-                <td data-label="Остаток" class="text-danger fw-bold">
-                  {{ formatPrice(debt.remaining_amount) }}
-                </td>
-                <td data-label="Статус">
-                  <span :class="getStatusBadge(debt.status)">{{
-                    getStatusText(debt.status)
-                  }}</span>
-                </td>
-                <td data-label="Срок" class="small text-muted d-lg-table-cell">
-                  {{ formatDate(debt.due_date) }}
-                </td>
-                <td class="text-end pe-4 mobile-actions">
-                  <div class="d-flex justify-content-end gap-2">
-                    <button
-                      v-if="debt.status === 'paid'"
-                      class="btn btn-sm rounded-pill btn-outline-danger shadow-sm px-2"
-                      @click="handleDeleteDebt(debt.id)"
-                    >
+                <td class="adm-nowrap text-muted">#{{ debt.order_id }}</td>
+                <td class="text-end adm-nowrap fw-bold">{{ formatPrice(debt.total_amount) }}</td>
+                <td class="text-end adm-nowrap text-success">{{ formatPrice(debt.paid_amount) }}</td>
+                <td class="text-end adm-nowrap text-danger fw-bold">{{ formatPrice(debt.remaining_amount) }}</td>
+                <td class="adm-nowrap"><span :class="getStatusBadge(debt.status)">{{ getStatusText(debt.status) }}</span></td>
+                <td class="adm-nowrap text-muted small">{{ formatDate(debt.due_date) }}</td>
+                <td class="adm-nowrap text-end">
+                  <div class="d-inline-flex gap-1">
+                    <button v-if="debt.status === 'paid'" class="adm-ico danger" title="Удалить" @click="handleDeleteDebt(debt.id)">
                       <i class="bi bi-trash"></i>
                     </button>
                     <button
-                      class="btn btn-sm rounded-pill px-3 shadow-sm"
-                      :class="
-                        debt.status === 'paid'
-                          ? 'btn-outline-primary'
-                          : 'btn-success'
-                      "
+                      class="btn btn-sm rounded-pill px-2 py-0"
+                      :class="debt.status === 'paid' ? 'btn-outline-primary' : 'btn-success'"
                       @click="openPaymentModal(debt)"
                     >
-                      <i
-                        class="bi"
-                        :class="
-                          debt.status === 'paid'
-                            ? 'bi-clock-history'
-                            : 'bi-wallet2'
-                        "
-                      ></i>
-                      {{ debt.status === "paid" ? " История" : " Оплатить" }}
+                      <i class="bi" :class="debt.status === 'paid' ? 'bi-clock-history' : 'bi-wallet2'"></i>
+                      {{ debt.status === "paid" ? "История" : "Оплатить" }}
                     </button>
                   </div>
                 </td>
@@ -734,7 +834,7 @@ onMounted(() => {
     <UiBaseModal
       :show="paymentModal.isOpen"
       title="История и оплата долга"
-      @close="paymentModal.isOpen = false"
+      @close="closePaymentModal"
     >
       <div v-if="paymentModal.debt">
         <div class="row g-3">
@@ -757,8 +857,77 @@ onMounted(() => {
 
         <hr />
 
-        <div class="mb-3">
+        <!-- Ожидание оплаты по QR -->
+        <div v-if="debtQr" class="debt-qr-panel text-center p-3 mb-3 rounded-4">
+          <div class="small text-muted mb-1">Покажите QR покупателю</div>
+          <div class="fs-4 fw-bold mb-2">{{ formatPrice(debtQr.amount) }}</div>
+          <img
+            v-if="debtQrImage"
+            :src="debtQrImage"
+            alt="QR-код для оплаты долга"
+            width="240"
+            height="240"
+            class="rounded-3 bg-white p-2 border"
+          />
+          <div v-else class="py-5">
+            <span class="spinner-border text-primary"></span>
+          </div>
+          <div class="d-flex align-items-center justify-content-center gap-2 small mt-2">
+            <span class="spinner-grow spinner-grow-sm text-primary"></span>
+            <span v-if="debtQrSecondsLeft > 0"
+              >Ждём оплату · осталось {{ debtQrTimeLeft }}</span
+            >
+            <span v-else class="text-danger">Время QR истекло</span>
+          </div>
+          <div class="d-flex gap-2 justify-content-center mt-3">
+            <button
+              type="button"
+              class="btn btn-outline-primary btn-sm rounded-pill px-3"
+              :disabled="isUpdating"
+              @click="pollDebtQr(true)"
+            >
+              <i class="bi bi-arrow-repeat me-1"></i>Проверить оплату
+            </button>
+            <button
+              type="button"
+              class="btn btn-light btn-sm rounded-pill px-3"
+              :disabled="isUpdating"
+              @click="cancelPendingDebtQr"
+            >
+              Отменить QR
+            </button>
+          </div>
+        </div>
+
+        <div v-else class="mb-3">
           <label class="form-label fw-bold small">Принять оплату</label>
+          <div
+            class="btn-group w-100 mb-2"
+            role="radiogroup"
+            aria-label="Способ оплаты"
+          >
+            <input
+              id="debt-pay-cash"
+              v-model="paymentModal.method"
+              type="radio"
+              class="btn-check"
+              value="cash"
+            />
+            <label class="btn btn-outline-success" for="debt-pay-cash">
+              <i class="bi bi-cash-stack me-1"></i>Наличные
+            </label>
+            <input
+              id="debt-pay-qr"
+              v-model="paymentModal.method"
+              type="radio"
+              class="btn-check"
+              value="qr"
+              :disabled="!paymentModal.debt?.order_id"
+            />
+            <label class="btn btn-outline-primary" for="debt-pay-qr">
+              <i class="bi bi-qr-code me-1"></i>Безнал (QR)
+            </label>
+          </div>
           <div class="input-group">
             <input
               type="number"
@@ -767,28 +936,39 @@ onMounted(() => {
               :max="paymentModal.maxAmount"
               min="0"
               placeholder="Сумма"
+              @keyup.enter="submitPayment"
             />
-            <select
-              v-model="paymentModal.method"
-              class="form-select"
-              style="max-width: 130px"
-            >
-              <option value="cash">Нал</option>
-              <option value="mbank">MBank</option>
-              <option value="card">Карта</option>
-            </select>
+            <span class="input-group-text">сом</span>
             <button
-              class="btn btn-success"
+              class="btn"
+              :class="
+                paymentModal.method === 'qr' ? 'btn-primary' : 'btn-success'
+              "
               :disabled="isUpdating || paymentModal.amount <= 0"
               @click="submitPayment"
             >
-              ОК
+              <span
+                v-if="isUpdating"
+                class="spinner-border spinner-border-sm"
+              ></span>
+              <template v-else>{{
+                paymentModal.method === "qr" ? "Сгенерировать QR" : "Принять"
+              }}</template>
             </button>
+          </div>
+          <div
+            v-if="paymentModal.method === 'qr'"
+            class="form-text"
+          >
+            Выплата запишется в долг после подтверждения банка.
           </div>
         </div>
 
         <div
-          v-if="paymentModal.debt?.payments?.length"
+          v-if="
+            paymentModal.debt?.payments?.length ||
+            firstInstallment(paymentModal.debt) > 0
+          "
           class="mt-4 pt-3 border-top"
         >
           <h6 class="fw-bold mb-2 small text-muted text-uppercase">
@@ -798,6 +978,21 @@ onMounted(() => {
             class="list-group list-group-flush border rounded-3 overflow-hidden"
           >
             <div
+              v-if="firstInstallment(paymentModal.debt) > 0"
+              class="list-group-item py-2 bg-light-subtle"
+            >
+              <div class="fw-bold small">
+                {{ formatPrice(firstInstallment(paymentModal.debt)) }}
+                <span class="badge bg-primary-subtle text-primary ms-1"
+                  >Первый взнос</span
+                >
+              </div>
+              <div class="text-muted" style="font-size: 0.65rem">
+                {{ formatDateTime(paymentModal.debt.created_at) }} •
+                {{ firstInstallmentMethod(paymentModal.debt) }}
+              </div>
+            </div>
+            <div
               v-for="pay in paymentModal.debt.payments"
               :key="pay.id"
               class="list-group-item d-flex justify-content-between align-items-center py-2 bg-light-subtle"
@@ -805,11 +1000,13 @@ onMounted(() => {
               <div>
                 <div class="fw-bold small">{{ formatPrice(pay.amount) }}</div>
                 <div class="text-muted" style="font-size: 0.65rem">
-                  {{ formatDate(pay.created_at) }} •
+                  {{ formatDateTime(pay.created_at) }} •
                   {{ translatePaymentMethod(pay.payment_method) }}
                 </div>
               </div>
+              <!-- QR-оплату подтвердил банк — её не удаляют -->
               <button
+                v-if="pay.payment_method !== 'qr'"
                 class="btn btn-sm text-danger p-0"
                 @click="removePayment(pay.id)"
                 :disabled="isUpdating"
@@ -908,6 +1105,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.debt-qr-panel {
+  background: var(--bs-primary-bg-subtle);
+}
+
 .glass-header {
   background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
 }
@@ -961,5 +1162,49 @@ onMounted(() => {
 }
 .items-details-row {
   background-color: #f8fafc !important;
+}
+.group-header {
+  cursor: pointer;
+}
+.group-header > td {
+  background: #f8fafc;
+}
+.child-row > td:first-child {
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+.accordion-arrow.is-expanded-r {
+  transform: rotate(90deg);
+  color: #3b82f6;
+}
+.order-items-box {
+  margin: 0.4rem 0.75rem 0.6rem 2rem;
+  padding: 0.6rem 0.8rem;
+  background: #fff;
+  border-left: 3px solid #3b82f6;
+  border-radius: 0.5rem;
+}
+.debt-group-m {
+  border-bottom: 1px solid #e2e8f0;
+}
+.debt-group-m > .adm-mcard {
+  background: #f8fafc;
+  border-bottom: 0;
+}
+.debt-group-children .adm-mcard {
+  padding-left: 1.25rem;
+  border-left: 3px solid #3b82f6;
+  border-top: 1px solid #eef2f7;
+  border-bottom: 0;
+}
+.order-items-m {
+  background: #f8fafc;
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.6rem;
+}
+.min-w-0 {
+  min-width: 0;
+}
+.debts-page .adm-head {
+  margin-bottom: 1rem;
 }
 </style>

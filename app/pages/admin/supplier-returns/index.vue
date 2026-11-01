@@ -321,7 +321,7 @@ const handleSubmit = async () => {
     activeTab.value = "list";
     await loadReturns();
   } catch (error) {
-    uiStore.error(error.data?.message || "Ошибка при создании возврата");
+    uiStore.error(apiErrorMessage(error, "Ошибка при создании возврата"));
   }
 };
 
@@ -408,270 +408,285 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="supplier-returns-page p-4">
-    <div class="header-card mb-4 p-4 rounded-4 shadow-sm text-white">
-      <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
-        <div>
-          <h1 class="h3 mb-1 fw-bold">Возврат товара поставщику</h1>
-          <p class="mb-0 text-white-50">Возврат ранее закупленного товара поставщику</p>
-        </div>
-        <div class="tab-switcher p-1 rounded-pill bg-white bg-opacity-10 border border-white border-opacity-10 d-flex">
-          <button class="btn-tab" :class="{ active: activeTab === 'list' }" @click="activeTab = 'list'">
-            <i class="bi bi-clock-history me-2"></i>История
-          </button>
-          <button class="btn-tab" :class="{ active: activeTab === 'create' }" @click="activeTab = 'create'">
-            <i class="bi bi-arrow-return-left me-2"></i>Новый возврат
-          </button>
-        </div>
+  <div class="adm-page supplier-returns-page p-3 p-md-4">
+    <div class="adm-head header-card text-white rounded-4 shadow-sm p-3">
+      <div class="adm-head-title">
+        <h1 class="h4 mb-0">Возврат поставщику</h1>
+        <p class="mb-0 text-white-50 small">Возврат ранее закупленного товара</p>
+      </div>
+      <div class="tab-switcher p-1 rounded-pill bg-white bg-opacity-10 border border-white border-opacity-10 d-flex">
+        <button class="btn-tab" :class="{ active: activeTab === 'list' }" @click="activeTab = 'list'">
+          <i class="bi bi-clock-history me-1"></i>История
+        </button>
+        <button class="btn-tab" :class="{ active: activeTab === 'create' }" @click="activeTab = 'create'">
+          <i class="bi bi-arrow-return-left me-1"></i>Новый возврат
+        </button>
       </div>
     </div>
 
     <div v-if="activeTab === 'list'" class="animate-fade-in">
-      <div class="card border-0 shadow-sm rounded-4 p-4 mb-4 bg-white">
-        <div class="row g-3 align-items-end">
-          <div class="col-md-2">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">С даты</label>
-            <input v-model="filters.date_from" type="date" class="form-control border-0 bg-light rounded-pill px-3 py-2" @change="loadReturns" />
+      <div class="card border-0 shadow-sm rounded-4 p-3 mb-3 bg-white">
+        <div class="adm-filters">
+          <div>
+            <label class="form-label">С даты</label>
+            <input v-model="filters.date_from" type="date" class="form-control rounded-3" @change="loadReturns" />
           </div>
-          <div class="col-md-2">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">По дату</label>
-            <input v-model="filters.date_to" type="date" class="form-control border-0 bg-light rounded-pill px-3 py-2" @change="loadReturns" />
+          <div>
+            <label class="form-label">По дату</label>
+            <input v-model="filters.date_to" type="date" class="form-control rounded-3" @change="loadReturns" />
           </div>
-          <div class="col-md-3">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Поставщик</label>
-            <select v-model="filters.supplier_id" class="form-select border-0 bg-light rounded-pill px-3 py-2" @change="loadReturns">
+          <div>
+            <label class="form-label">Поставщик</label>
+            <select v-model="filters.supplier_id" class="form-select rounded-3" @change="loadReturns">
               <option value="">Все</option>
               <option v-for="s in suppliers" :key="s.id" :value="s.id">{{ s.name }}</option>
             </select>
           </div>
-          <div class="col-md-2">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Статус</label>
-            <select v-model="filters.status" class="form-select border-0 bg-light rounded-pill px-3 py-2" @change="loadReturns">
+          <div>
+            <label class="form-label">Статус</label>
+            <select v-model="filters.status" class="form-select rounded-3" @change="loadReturns">
               <option value="">Все</option>
               <option value="draft">Черновик</option>
               <option value="confirmed">Проведён</option>
               <option value="cancelled">Отменён</option>
             </select>
           </div>
-          <div class="col-md-2">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Поиск</label>
-            <input v-model="filters.search" type="text" placeholder="Причина, коммент..." class="form-control border-0 bg-light rounded-pill px-3 py-2" />
-          </div>
-          <div class="col-md-1 text-end">
-            <button class="btn btn-refresh-round shadow-sm" @click="loadReturns" title="Обновить">
-              <i class="bi bi-arrow-clockwise" :class="{ spin: loading }"></i>
-            </button>
+          <div class="adm-filter-full">
+            <label class="form-label">Поиск</label>
+            <div class="d-flex gap-2">
+              <input v-model="filters.search" type="text" placeholder="Причина, комментарий…" class="form-control rounded-3" />
+              <button class="adm-ico primary flex-shrink-0" style="width: 38px; height: 38px;" title="Обновить" @click="loadReturns">
+                <i class="bi bi-arrow-clockwise"></i>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
-        <div class="table-responsive-cards">
-          <table class="table table-hover align-middle mb-0 custom-table">
-            <thead class="d-none d-lg-table-header-group">
-              <tr>
-                <th class="ps-4">№ / Дата</th>
-                <th>Поставщик</th>
-                <th>Товаров</th>
-                <th>Сумма</th>
-                <th>Статус</th>
-                <th class="text-end pe-4">Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="loading">
-                <td colspan="6" class="text-center py-5">
-                  <div class="spinner-border text-primary" role="status"></div>
-                </td>
-              </tr>
-              <tr v-if="!loading && returns.length === 0">
-                <td colspan="6" class="text-center py-5 text-muted small">Возвратов пока нет</td>
-              </tr>
-              <tr v-for="r in returns" :key="r.id">
-                <td class="ps-4" data-label="Возврат">
-                  <div class="fw-bold text-dark">#{{ r.id }}</div>
-                  <div class="text-muted small">{{ new Date(r.return_date || r.created_at).toLocaleDateString() }}</div>
-                </td>
-                <td data-label="Поставщик">
-                  <span class="small fw-bold">{{ r.supplier?.name || "—" }}</span>
-                </td>
-                <td data-label="Товары">
-                  <span class="badge bg-light text-primary border rounded-pill">{{ r.items?.length || 0 }} поз.</span>
-                </td>
-                <td data-label="Сумма">
-                  <span class="fw-bold text-dark">{{ formatPrice(r.total_amount) }}</span>
-                </td>
-                <td data-label="Статус">
-                  <span class="badge rounded-pill px-3 py-2" :class="STATUS_LABELS[r.status]?.class">
-                    {{ STATUS_LABELS[r.status]?.text || r.status }}
-                  </span>
-                </td>
-                <td class="text-end pe-4">
-                  <div class="d-flex justify-content-end gap-2">
-                    <button
-                      v-if="r.status === 'draft'"
-                      class="btn btn-sm btn-light rounded-pill border shadow-sm"
-                      title="Провести возврат"
-                      @click="openConfirmSummary(r)"
-                    >
-                      <i class="bi bi-check2-circle text-success"></i>
-                    </button>
-                    <button
-                      v-if="r.status === 'confirmed'"
-                      class="btn btn-sm btn-light rounded-pill border shadow-sm"
-                      title="Отменить возврат"
-                      @click="handleCancel(r)"
-                    >
-                      <i class="bi bi-arrow-counterclockwise text-warning"></i>
-                    </button>
-                    <button
-                      v-if="r.status === 'draft' && authStore.hasPermission('supplier_returns.delete')"
-                      class="btn btn-sm btn-light rounded-pill border shadow-sm"
-                      title="Удалить"
-                      @click="handleDelete(r)"
-                    >
-                      <i class="bi bi-trash text-danger"></i>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-if="loading && returns.length === 0" class="adm-empty">
+          <div class="spinner-border text-primary"></div>
         </div>
-      </div>
-
-      <div v-if="returnData.last_page > 1" class="d-flex justify-content-between align-items-center mt-4 px-2">
-        <div class="small fw-bold text-muted">
-          Всего записей: <span class="text-dark">{{ returnData.total }}</span>
+        <div v-else-if="returns.length === 0" class="adm-empty">
+          <i class="bi bi-arrow-return-left fs-1 d-block mb-2 opacity-50"></i>
+          Возвратов пока нет
         </div>
-        <nav>
-          <ul class="pagination-premium mb-0">
-            <li :class="{ disabled: filters.page <= 1 }">
-              <button @click="changePage(filters.page - 1)" :disabled="filters.page <= 1"><i class="bi bi-chevron-left"></i></button>
-            </li>
-            <li v-for="page in returnData.last_page" :key="page" :class="{ active: page === filters.page }">
-              <button @click="changePage(page)">{{ page }}</button>
-            </li>
-            <li :class="{ disabled: filters.page >= returnData.last_page }">
-              <button @click="changePage(filters.page + 1)" :disabled="filters.page >= returnData.last_page"><i class="bi bi-chevron-right"></i></button>
-            </li>
-          </ul>
-        </nav>
-      </div>
-    </div>
-
-    <div v-if="activeTab === 'create'" class="row g-4 animate-slide-up h-view-content">
-      <div class="col-12">
-        <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
-          <div class="p-4 border-bottom bg-white flex-shrink-0">
-            <div class="row g-3">
-              <div class="col-md-6">
-                <label class="form-label fw-bold small text-secondary">Поставщик</label>
-                <select v-model="form.supplier_id" class="form-select border-0 bg-light rounded-3 shadow-sm px-3 py-2">
-                  <option value="">Выберите поставщика...</option>
-                  <option v-for="s in suppliers" :key="s.id" :value="s.id">{{ s.name }}</option>
-                </select>
+        <template v-else>
+          <div class="adm-mlist d-md-none" :class="{ 'opacity-50': loading }">
+            <div v-for="r in returns" :key="r.id" class="adm-mcard">
+              <div class="adm-mline">
+                <span class="adm-mtitle">#{{ r.id }} · {{ r.supplier?.name || "—" }}</span>
+                <span class="adm-mval">{{ formatPrice(r.total_amount) }}</span>
               </div>
-              <div class="col-md-6">
-                <label class="form-label fw-bold small text-secondary">Причина возврата</label>
-                <input v-model="form.reason" type="text" class="form-control border-0 bg-light rounded-3 shadow-sm px-3 py-2" placeholder="Брак, пересорт, излишек..." />
+              <div v-if="r.reason" class="adm-msub">{{ r.reason }}</div>
+              <div class="adm-mline">
+                <span class="adm-msub">
+                  {{ new Date(r.return_date || r.created_at).toLocaleDateString("ru-RU") }} · {{ r.items?.length || 0 }} поз.
+                </span>
+                <span class="badge rounded-pill" :class="STATUS_LABELS[r.status]?.class">
+                  {{ STATUS_LABELS[r.status]?.text || r.status }}
+                </span>
               </div>
-            </div>
-
-            <div v-if="form.supplier_id" class="mt-3">
-              <label class="form-label fw-bold small text-secondary d-block mb-2">Добавить товары из закупки</label>
-              <div v-if="supplierPurchases.length === 0" class="text-muted small">
-                У этого поставщика пока нет закупок.
-              </div>
-              <div class="d-flex flex-wrap gap-2">
-                <button
-                  v-for="p in supplierPurchases"
-                  :key="p.id"
-                  class="btn btn-sm btn-outline-primary rounded-pill"
-                  :disabled="loadingReturnableItems"
-                  @click="addPurchaseItems(p.id)"
-                >
-                  <i class="bi bi-plus-lg me-1"></i>Закупка #{{ p.id }} от {{ new Date(p.created_at).toLocaleDateString() }}
-                </button>
+              <div v-if="r.status !== 'cancelled'" class="adm-mline justify-content-end">
+                <div class="adm-mactions">
+                  <button v-if="r.status === 'draft'" class="btn btn-sm btn-success rounded-pill px-3" @click="openConfirmSummary(r)">
+                    <i class="bi bi-check2-circle me-1"></i>Провести
+                  </button>
+                  <button v-if="r.status === 'confirmed'" class="btn btn-sm btn-outline-warning rounded-pill px-3" @click="handleCancel(r)">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Отменить
+                  </button>
+                  <button
+                    v-if="r.status === 'draft' && authStore.hasPermission('supplier_returns.delete')"
+                    class="adm-ico danger"
+                    title="Удалить"
+                    @click="handleDelete(r)"
+                  >
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="p-0 flex-grow-1 overflow-auto">
-            <table class="table mb-0 align-middle">
-              <thead class="bg-light">
-                <tr style="font-size: 0.7rem; color: #64748b; text-transform: uppercase">
-                  <th class="ps-4">Товар</th>
-                  <th class="text-center">Закуплено</th>
-                  <th class="text-center">Возвращено ранее</th>
-                  <th class="text-center">Доступно</th>
-                  <th>Цена</th>
-                  <th width="140" class="text-center">Вернуть</th>
-                  <th width="140" class="text-end">Сумма</th>
-                  <th width="50"></th>
+          <div class="adm-table-wrap d-none d-md-block" style="max-height: calc(100vh - 380px); min-height: 240px;" :class="{ 'opacity-50': loading }">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th>№</th>
+                  <th>Дата</th>
+                  <th>Поставщик</th>
+                  <th>Причина</th>
+                  <th class="text-center">Позиций</th>
+                  <th class="text-end">Сумма</th>
+                  <th>Статус</th>
+                  <th class="text-end">Действия</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(item, index) in form.items" :key="item.purchase_item_id">
-                  <td class="ps-4">
-                    <div class="fw-bold text-dark small">{{ item.name }}</div>
-                    <div class="text-muted" style="font-size: 11px">{{ item.sku }}</div>
+                <tr v-for="r in returns" :key="r.id">
+                  <td class="adm-nowrap fw-bold">#{{ r.id }}</td>
+                  <td class="adm-nowrap text-muted">{{ new Date(r.return_date || r.created_at).toLocaleDateString("ru-RU") }}</td>
+                  <td class="adm-nowrap fw-semibold">{{ r.supplier?.name || "—" }}</td>
+                  <td class="adm-clip text-muted" :title="r.reason">{{ r.reason || "—" }}</td>
+                  <td class="text-center adm-nowrap">
+                    <span class="badge bg-light text-primary border rounded-pill">{{ r.items?.length || 0 }}</span>
                   </td>
-                  <td class="text-center small">{{ item.quantity_purchased }} {{ item.unit }}</td>
-                  <td class="text-center small text-muted">{{ item.returned_before }} {{ item.unit }}</td>
-                  <td class="text-center small fw-bold text-primary">{{ item.available }} {{ item.unit }}</td>
-                  <td class="small">{{ formatPrice(item.price) }}</td>
-                  <td>
-                    <input
-                      :ref="(el) => setQtyInputRef(index, el)"
-                      v-model.number="item.quantity"
-                      type="number"
-                      min="0"
-                      :max="item.available"
-                      step="0.001"
-                      class="form-control form-control-sm border-0 bg-light rounded-pill text-center"
-                      :class="{ 'border border-danger': item.quantity > item.available }"
-                      @input="clampQuantity(item)"
-                    />
+                  <td class="text-end adm-nowrap fw-bold">{{ formatPrice(r.total_amount) }}</td>
+                  <td class="adm-nowrap">
+                    <span class="badge rounded-pill" :class="STATUS_LABELS[r.status]?.class">
+                      {{ STATUS_LABELS[r.status]?.text || r.status }}
+                    </span>
                   </td>
-                  <td class="text-end fw-bold text-dark small">
-                    {{ formatPrice((item.quantity || 0) * item.price) }}
-                  </td>
-                  <td class="text-center">
-                    <button class="btn btn-sm btn-link text-danger p-1" @click="removeItem(index)">
-                      <i class="bi bi-x-circle"></i>
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="form.items.length === 0">
-                  <td colspan="8" class="text-center py-5 text-muted small opacity-75">
-                    <i class="bi bi-arrow-return-left d-block fs-1 mb-2"></i>
-                    Выберите поставщика и добавьте товары из закупки
+                  <td class="text-end adm-nowrap">
+                    <div class="d-inline-flex gap-1">
+                      <button v-if="r.status === 'draft'" class="adm-ico success" title="Провести возврат" @click="openConfirmSummary(r)">
+                        <i class="bi bi-check2-circle"></i>
+                      </button>
+                      <button v-if="r.status === 'confirmed'" class="adm-ico warning" title="Отменить возврат" @click="handleCancel(r)">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                      </button>
+                      <button
+                        v-if="r.status === 'draft' && authStore.hasPermission('supplier_returns.delete')"
+                        class="adm-ico danger"
+                        title="Удалить"
+                        @click="handleDelete(r)"
+                      >
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
+        </template>
+      </div>
 
-          <div class="p-4 border-top bg-white mt-auto flex-shrink-0">
-            <div class="mb-3">
-              <label class="form-label fw-bold small text-secondary">Комментарий</label>
-              <textarea v-model="form.notes" class="form-control border-0 bg-light rounded-3" rows="2"></textarea>
+      <div v-if="returnData.last_page > 1" class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3 px-1">
+        <div class="small fw-bold text-muted">
+          Всего записей: <span class="text-dark">{{ returnData.total }}</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <button class="btn btn-sm btn-light rounded-pill px-3" :disabled="filters.page <= 1" @click="changePage(filters.page - 1)">
+            <i class="bi bi-chevron-left"></i>
+          </button>
+          <span class="small fw-bold">{{ filters.page }} / {{ returnData.last_page }}</span>
+          <button class="btn btn-sm btn-light rounded-pill px-3" :disabled="filters.page >= returnData.last_page" @click="changePage(filters.page + 1)">
+            <i class="bi bi-chevron-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="activeTab === 'create'" class="animate-slide-up">
+      <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="p-3 border-bottom bg-white">
+          <div class="row g-2 g-md-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold small text-secondary">Поставщик</label>
+              <select v-model="form.supplier_id" class="form-select bg-light border-0 rounded-3 px-3 py-2">
+                <option value="">Выберите поставщика...</option>
+                <option v-for="s in suppliers" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
             </div>
-            <div class="row align-items-center">
-              <div class="col">
-                <div class="text-muted small fw-bold">СУММА ВОЗВРАТА:</div>
-                <h2 class="fw-bold text-primary mb-0">{{ formatPrice(totalAmount) }}</h2>
-              </div>
-              <div class="col-auto">
-                <button
-                  class="btn btn-receive-large shadow-lg"
-                  :disabled="activeItems.length === 0 || !form.supplier_id"
-                  @click="handleSubmit"
-                >
-                  <i class="bi bi-check2-circle-fill me-2"></i>Создать черновик возврата
-                </button>
-              </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold small text-secondary">Причина возврата</label>
+              <input v-model="form.reason" type="text" class="form-control bg-light border-0 rounded-3 px-3 py-2" placeholder="Брак, пересорт, излишек..." />
+            </div>
+          </div>
+
+          <div v-if="form.supplier_id" class="mt-3">
+            <label class="form-label fw-bold small text-secondary d-block mb-2">Добавить товары из закупки</label>
+            <div v-if="supplierPurchases.length === 0" class="text-muted small">
+              У этого поставщика пока нет закупок.
+            </div>
+            <div class="purchase-chips">
+              <button
+                v-for="p in supplierPurchases"
+                :key="p.id"
+                class="btn btn-sm btn-outline-primary rounded-pill text-nowrap"
+                :disabled="loadingReturnableItems"
+                @click="addPurchaseItems(p.id)"
+              >
+                <i class="bi bi-plus-lg me-1"></i>#{{ p.id }} от {{ new Date(p.created_at).toLocaleDateString("ru-RU") }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="return-items-scroll">
+          <div v-if="form.items.length === 0" class="adm-empty">
+            <i class="bi bi-arrow-return-left d-block fs-1 mb-2"></i>
+            Выберите поставщика и добавьте товары из закупки
+          </div>
+          <table v-else class="table mb-0 align-middle return-table">
+            <thead class="bg-light">
+              <tr style="font-size: 0.7rem; color: #64748b; text-transform: uppercase">
+                <th class="ps-3">Товар</th>
+                <th class="text-center">Закуплено</th>
+                <th class="text-center">Возвращено</th>
+                <th class="text-center">Доступно</th>
+                <th class="text-end">Цена</th>
+                <th width="130" class="text-center">Вернуть</th>
+                <th width="130" class="text-end">Сумма</th>
+                <th width="44"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(item, index) in form.items" :key="item.purchase_item_id" class="return-row">
+                <td class="ps-3 rr-name">
+                  <div class="fw-bold text-dark small">{{ item.name }}</div>
+                  <div class="text-muted" style="font-size: 11px">{{ item.sku }}</div>
+                </td>
+                <td class="text-center small rr-bought" data-label="Закуплено">{{ item.quantity_purchased }} {{ item.unit }}</td>
+                <td class="text-center small text-muted rr-ret" data-label="Возвращено">{{ item.returned_before }} {{ item.unit }}</td>
+                <td class="text-center small fw-bold text-primary rr-avail" data-label="Доступно">{{ item.available }} {{ item.unit }}</td>
+                <td class="small text-end text-nowrap rr-price" data-label="Цена">{{ formatPrice(item.price) }}</td>
+                <td class="rr-qty" data-label="Вернуть">
+                  <input
+                    :ref="(el) => setQtyInputRef(index, el)"
+                    v-model.number="item.quantity"
+                    type="number"
+                    min="0"
+                    :max="item.available"
+                    step="0.001"
+                    inputmode="decimal"
+                    class="form-control form-control-sm border-0 bg-light rounded-pill text-center"
+                    :class="{ 'border border-danger': item.quantity > item.available }"
+                    @input="clampQuantity(item)"
+                  />
+                </td>
+                <td class="text-end fw-bold text-dark small text-nowrap rr-sum">
+                  {{ formatPrice((item.quantity || 0) * item.price) }}
+                </td>
+                <td class="text-center rr-del">
+                  <button class="btn btn-sm btn-link text-danger p-1" title="Убрать" @click="removeItem(index)">
+                    <i class="bi bi-x-circle"></i>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="p-3 border-top bg-white">
+          <div class="mb-3">
+            <label class="form-label fw-bold small text-secondary">Комментарий</label>
+            <textarea v-model="form.notes" class="form-control border-0 bg-light rounded-3" rows="2"></textarea>
+          </div>
+          <div class="row g-2 align-items-center">
+            <div class="col-12 col-sm">
+              <div class="text-muted small fw-bold">СУММА ВОЗВРАТА:</div>
+              <h2 class="fw-bold text-primary mb-0 return-total">{{ formatPrice(totalAmount) }}</h2>
+            </div>
+            <div class="col-12 col-sm-auto">
+              <button
+                class="btn btn-receive-large shadow-lg"
+                :disabled="activeItems.length === 0 || !form.supplier_id"
+                @click="handleSubmit"
+              >
+                <i class="bi bi-check2-circle me-2"></i>Создать черновик возврата
+              </button>
             </div>
           </div>
         </div>
@@ -825,5 +840,88 @@ onUnmounted(() => {
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+/* Кнопки закупок — горизонтальная лента, а не стена из кнопок */
+.purchase-chips {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.return-items-scroll {
+  max-height: calc(100vh - 470px);
+  min-height: 160px;
+  overflow: auto;
+}
+.supplier-returns-page input[type="number"]::-webkit-outer-spin-button,
+.supplier-returns-page input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+@media (max-width: 767.98px) {
+  .supplier-returns-page .tab-switcher {
+    width: 100%;
+  }
+  .supplier-returns-page .tab-switcher .btn-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: nowrap;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+  .return-items-scroll {
+    max-height: none;
+  }
+  /* Строка возврата — карточка:
+     Название                          ✕
+     Закуплено · Возвращено · Доступно
+     Цена      | Вернуть     | Сумма       */
+  .return-table thead {
+    display: none;
+  }
+  .return-table tbody tr.return-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    grid-template-areas:
+      "name name name del"
+      "bought ret avail avail"
+      "price qty sum sum";
+    gap: 6px 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .return-table tbody tr.return-row > td {
+    display: block;
+    padding: 0 !important;
+    border: 0;
+    text-align: left !important;
+    min-width: 0;
+  }
+  .return-table .rr-name { grid-area: name; }
+  .return-table .rr-del { grid-area: del; }
+  .return-table .rr-bought { grid-area: bought; }
+  .return-table .rr-ret { grid-area: ret; }
+  .return-table .rr-avail { grid-area: avail; }
+  .return-table .rr-price { grid-area: price; }
+  .return-table .rr-qty { grid-area: qty; }
+  .return-table .rr-sum { grid-area: sum; text-align: right !important; align-self: end; }
+  .return-table [data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+  }
+  .btn-receive-large {
+    width: 100%;
+    padding: 0.85rem 1rem;
+  }
+  .return-total {
+    font-size: 1.5rem;
+  }
 }
 </style>

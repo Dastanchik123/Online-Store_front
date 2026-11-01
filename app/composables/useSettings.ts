@@ -43,14 +43,21 @@ export const useSettings = () => {
     });
   }
 
-  const fetchPublicSettings = async () => {
+  // fresh — минуя SWR-кэш (печать чека: нужны актуальные настройки сразу)
+  const fetchPublicSettings = async ({ fresh = false } = {}) => {
     try {
-      const data = (await api.apiFetch("/settings/public")) as Record<
+      // onRefresh: SWR сначала отдаёт кэш, а свежий ответ приходит фоном —
+      // без колбека изменённые в админке настройки доходили только со
+      // второй загрузки страницы
+      const apply = (data: Record<string, any>) => {
+        settings.value = data;
+        writeSettingsCache(data);
+      };
+      const data = (await api.apiFetch("/settings/public", { onRefresh: apply, noCache: fresh })) as Record<
         string,
         any
       >;
-      settings.value = data;
-      writeSettingsCache(data);
+      apply(data);
     } catch (e) {
       console.error(e);
     }

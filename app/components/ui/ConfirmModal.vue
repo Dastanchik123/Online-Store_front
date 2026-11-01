@@ -42,6 +42,7 @@ const uiStore = useUiStore();
   left: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: rgba(0, 0, 0, 0.5);
   z-index: 10000;
 }

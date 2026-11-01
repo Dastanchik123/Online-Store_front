@@ -7,11 +7,13 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
 
   if (import.meta.client) {
     if (!authStore.isAuth) {
-      return navigateTo("/auth/login");
+      return navigateTo("/auth/staff");
     }
 
     
-    if (!authStore.isAdmin && !authStore.isPurchaser) {
+    // По праву, а не по имени роли: роль, созданная в админке с
+    // purchaser.access, иначе видела пункт меню, но получала редирект
+    if (!authStore.hasPermission("purchaser.access")) {
       return navigateTo("/");
     }
   }

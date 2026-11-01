@@ -1,7 +1,6 @@
 // Штрихкод весового товара: [prefix][product_id(5)][вес в граммах(weightDigits)][check digit(1)].
-// Зеркало src-electron/weightedBarcode.cjs (Electron offline) и
-// WeightedBarcodeService.php (Laravel) — см. комментарий в .cjs-версии,
-// почему это не один общий файл.
+// Зеркало WeightedBarcodeService.php (Laravel): фронт разбирает штрихкод для
+// мгновенного добавления в корзину, окончательно его проверяет сервер.
 
 const PRODUCT_ID_DIGITS = 5;
 

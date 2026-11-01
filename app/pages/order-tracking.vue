@@ -29,11 +29,12 @@ const unsubscribeTracking = () => {
   }
 };
 
-const subscribeToOrderUpdates = (num) => {
-  if (!import.meta.client || !$echo) return;
+// Канал заказа — по его uuid (непредсказуемому), а не по номеру чека
+const subscribeToOrderUpdates = (uuid) => {
+  if (!import.meta.client || !$echo || !uuid) return;
   unsubscribeTracking();
-  trackingChannelName = num;
-  $echo.channel(`order.${num}`).listen(".OrderStatusUpdated", (e) => {
+  trackingChannelName = uuid;
+  $echo.channel(`order.${uuid}`).listen(".OrderStatusUpdated", (e) => {
     if (order.value) {
       order.value.status = e.status;
       order.value.payment_status = e.payment_status;
@@ -53,7 +54,7 @@ const track = async () => {
 
   try {
     order.value = await trackOrder(orderNumber.value);
-    subscribeToOrderUpdates(order.value.order_number);
+    subscribeToOrderUpdates(order.value.uuid);
   } catch (e) {
     ui.addToast("Заказ не найден. Проверьте номер.", "warning");
   } finally {

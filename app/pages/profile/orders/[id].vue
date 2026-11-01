@@ -2,7 +2,7 @@
 const route = useRoute();
 const { getOrder, cancelOrder, downloadOrderInvoice, generatePaymentQr } =
   useOrders();
-const { createPayment, getPayments } = usePayments();
+const { getPayments } = usePayments();
 const { settings, fetchPublicSettings } = useSettings();
 const uiStore = useUiStore();
 
@@ -14,7 +14,6 @@ const order = ref(null);
 const payments = ref([]);
 const loading = ref(false);
 const error = ref(null);
-const paymentLoading = ref(false);
 
 // ───── Динамический QR оплаты (GoPay) для payment_method === 'mbank' ─────
 const qrDataUrl = ref("");
@@ -25,12 +24,17 @@ const qrCountdown = ref("");
 let qrPollTimer = null;
 let qrCountdownTimer = null;
 
+// Самый новый QR-платёж — по id, а не по позиции: /payments отдаёт список
+// от новых к старым, и обход с конца брал самый старый (истёкший) платёж —
+// после «Получить новый QR» страница продолжала писать «QR истёк»
 const latestMbankPayment = computed(() => {
-  const list = payments.value || [];
-  for (let i = list.length - 1; i >= 0; i--) {
-    if (list[i].payment_method === "mbank") return list[i];
+  let latest = null;
+  for (const p of payments.value || []) {
+    if (p.payment_method === "mbank" && (!latest || Number(p.id) > Number(latest.id))) {
+      latest = p;
+    }
   }
-  return null;
+  return latest;
 });
 
 const showMbankQr = computed(
@@ -39,6 +43,17 @@ const showMbankQr = computed(
     order.value?.payment_status !== "paid" &&
     order.value?.status !== "cancelled"
 );
+
+// Срок оплаты QR-заказа (payment_deadline с бэкенда): после него заказ
+// отменяет orders:expire-unpaid
+const paymentDeadlineText = computed(() => {
+  const raw = order.value?.payment_deadline;
+  if (!raw) return "";
+  const d = new Date(raw);
+  return isNaN(d.getTime())
+    ? ""
+    : d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+});
 
 const stopQrCountdown = () => {
   if (qrCountdownTimer) {
@@ -147,6 +162,10 @@ const regenerateQr = async () => {
     startQrPolling();
   } catch (err) {
     uiStore.error(err.data?.message || "Не удалось создать QR для оплаты");
+    // 409 — заказ уже оплачен по предыдущему QR, 400 — уже оплачен или
+    // отменён (истёк срок оплаты, пока страница была открыта): показать
+    // актуальное состояние вместо устаревшего QR-блока
+    if (err.status === 409 || err.status === 400) await loadOrder();
   } finally {
     qrRegenerating.value = false;
   }
@@ -193,32 +212,6 @@ const loadOrder = async () => {
 };
 
 
-const handleCreatePayment = async () => {
-  if (!order.value) return;
-
-  
-  const method = order.value.payment_method || "cash";
-
-  paymentLoading.value = true;
-
-  try {
-    const payment = await createPayment({
-      order_id: order.value.id,
-      payment_method: method,
-      amount: order.value.total,
-      currency: order.value.currency || "KGS",
-    });
-
-    uiStore.success("Платеж успешно создан!");
-    await loadOrder(); 
-  } catch (err) {
-    uiStore.error(err.data?.message || "Ошибка создания платежа");
-  } finally {
-    paymentLoading.value = false;
-  }
-};
-
-
 const handleCancelOrder = async () => {
   const confirmed = await uiStore.showConfirm(
     "Отмена заказа",
@@ -233,6 +226,8 @@ const handleCancelOrder = async () => {
     await loadOrder();
   } catch (err) {
     uiStore.error(err.data?.message || "Ошибка отмены заказа");
+    // 409 — заказ только что оплатили: показать актуальное состояние
+    if (err.status === 409) await loadOrder();
   }
 };
 
@@ -491,6 +486,10 @@ onUnmounted(() => {
                 class="mt-4 p-3 bg-light rounded-4 text-center border border-primary border-opacity-25"
               >
                 <h6 class="fw-bold mb-2">Оплата по QR (MBank)</h6>
+                <div v-if="paymentDeadlineText" class="small text-warning-emphasis mb-2">
+                  Оплатите до {{ paymentDeadlineText }} — иначе заказ отменится
+                  автоматически и товар вернётся в продажу.
+                </div>
 
                 <template v-if="qrExpired">
                   <div class="small text-danger mb-3">
@@ -608,24 +607,6 @@ onUnmounted(() => {
 
               
               <div v-if="order.status === 'pending'" class="mt-3">
-                <button
-                  v-if="
-                    order.payment_status !== 'paid' &&
-                    order.payment_method !== 'cash' &&
-                    order.payment_method !== 'mbank'
-                  "
-                  class="btn btn-primary w-100 mb-2"
-                  :disabled="paymentLoading"
-                  @click="handleCreatePayment"
-                >
-                  <span
-                    v-if="paymentLoading"
-                    class="spinner-border spinner-border-sm me-2"
-                    role="status"
-                    aria-hidden="true"
-                  ></span>
-                  Оплатить заказ
-                </button>
                 <button class="btn btn-danger w-100" @click="handleCancelOrder">
                   Отменить заказ
                 </button>

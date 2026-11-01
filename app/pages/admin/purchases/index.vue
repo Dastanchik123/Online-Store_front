@@ -260,6 +260,8 @@ const handleRegisterPayment = async () => {
     uiStore.error("Введите корректную сумму");
     return;
   }
+  if (isSubmitting.value) return;
+  isSubmitting.value = true;
   try {
     await registerSupplierPayment(
       selectedPurchaseForPayment.value.id,
@@ -269,9 +271,9 @@ const handleRegisterPayment = async () => {
     showPaymentModal.value = false;
     await loadData();
   } catch (error) {
-    uiStore.error(
-      "Ошибка: " + (error.data?.message || "Не удалось сохранить оплату"),
-    );
+    uiStore.error(apiErrorMessage(error, "Не удалось сохранить оплату"));
+  } finally {
+    isSubmitting.value = false;
   }
 };
 
@@ -616,6 +618,9 @@ const handleSubmit = async () => {
     uiStore.error("Заполните все поля и добавьте хотя бы один товар");
     return;
   }
+  // Двойной клик создавал две закупки — двойной остаток и долг поставщику
+  if (isSubmitting.value) return;
+  isSubmitting.value = true;
 
   try {
     if (editingPurchaseId.value) {
@@ -629,11 +634,13 @@ const handleSubmit = async () => {
     cancelEdit();
     loadData();
   } catch (error) {
-    uiStore.error(
-      "Ошибка при сохранении: " + (error.data?.message || "Сервер не отвечает"),
-    );
+    uiStore.error(apiErrorMessage(error, "Ошибка при сохранении: сервер не отвечает"));
+  } finally {
+    isSubmitting.value = false;
   }
 };
+
+const isSubmitting = ref(false);
 
 const handleEdit = (purchase) => {
   editingPurchaseId.value = purchase.id;
@@ -707,8 +714,12 @@ const handleDelete = async (id) => {
 };
 
 const formatPrice = (price) => {
-  return parseFloat(price).toLocaleString("ru-RU") + " сом";
+  return (parseFloat(price) || 0).toLocaleString("ru-RU") + " сом";
 };
+
+const purchaseDebt = (p) =>
+  Math.max(0, (parseFloat(p.total_amount) || 0) - (parseFloat(p.paid_amount) || 0));
+const isPurchaseUnpaid = (p) => purchaseDebt(p) > 0.009;
 
 const goToSupplierReturn = (purchase) => {
   navigateTo({
@@ -735,269 +746,184 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="purchases-page p-4">
-    <div class="header-card mb-4 p-4 rounded-4 shadow-sm text-white">
-      <div
-        class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3"
-      >
-        <div>
-          <h1 class="h3 mb-1 fw-bold">Склад: Приём и Закупки</h1>
-          <p class="mb-0 text-white-50">
-            Управление входящими поставками товаров
-          </p>
-        </div>
-        <div
-          class="tab-switcher p-1 rounded-pill bg-white bg-opacity-10 border border-white border-opacity-10 d-flex"
-        >
-          <button
-            class="btn-tab"
-            :class="{ active: activeTab === 'list' }"
-            @click="activeTab = 'list'"
-          >
-            <i class="bi bi-clock-history me-2"></i>История
-          </button>
-          <button
-            class="btn-tab"
-            :class="{ active: activeTab === 'create' }"
-            @click="activeTab = 'create'"
-          >
-            <i class="bi bi-plus-circle-fill me-2"></i
-            >{{ editingPurchaseId ? "Правка приёма" : "Новый приём" }}
-          </button>
-        </div>
+  <div class="adm-page purchases-page p-3 p-md-4">
+    <div class="adm-head header-card glass-header text-white rounded-4 shadow-sm p-3">
+      <div class="adm-head-title">
+        <h1 class="h4 mb-0">Склад: приём и закупки</h1>
+        <p class="mb-0 text-white-50 small">Входящие поставки товаров</p>
+      </div>
+      <div class="tab-switcher p-1 rounded-pill bg-white bg-opacity-10 border border-white border-opacity-10 d-flex">
+        <button class="btn-tab" :class="{ active: activeTab === 'list' }" @click="activeTab = 'list'">
+          <i class="bi bi-clock-history me-1"></i>История
+        </button>
+        <button class="btn-tab" :class="{ active: activeTab === 'create' }" @click="activeTab = 'create'">
+          <i class="bi bi-plus-circle-fill me-1"></i>{{ editingPurchaseId ? "Правка приёма" : "Новый приём" }}
+        </button>
       </div>
     </div>
 
     <div v-if="activeTab === 'list'" class="animate-fade-in">
-      <div
-        class="card border-0 shadow-sm rounded-4 p-4 mb-4 bg-white luxury-filter-card"
-      >
-        <div class="row g-3 align-items-end">
-          <div class="col-md-2">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block"
-              >С даты</label
-            >
-            <input
-              v-model="filters.date_from"
-              type="date"
-              class="form-control border-0 bg-light rounded-pill px-3 py-2"
-              @change="loadData"
-            />
+      <div class="card border-0 shadow-sm rounded-4 p-3 mb-3 bg-white">
+        <div class="adm-filters">
+          <div>
+            <label class="form-label">С даты</label>
+            <input v-model="filters.date_from" type="date" class="form-control rounded-3" @change="loadData" />
           </div>
-          <div class="col-md-2">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block"
-              >По дату</label
-            >
-            <input
-              v-model="filters.date_to"
-              type="date"
-              class="form-control border-0 bg-light rounded-pill px-3 py-2"
-              @change="loadData"
-            />
+          <div>
+            <label class="form-label">По дату</label>
+            <input v-model="filters.date_to" type="date" class="form-control rounded-3" @change="loadData" />
           </div>
-          <div class="col-md-2">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block"
-              >Поставщик</label
-            >
-            <select
-              v-model="filters.supplier_id"
-              class="form-select border-0 bg-light rounded-pill px-3 py-2"
-              @change="loadData"
-            >
+          <div>
+            <label class="form-label">Поставщик</label>
+            <select v-model="filters.supplier_id" class="form-select rounded-3" @change="loadData">
               <option value="">Все</option>
-              <option v-for="s in suppliers" :key="s.id" :value="s.id">
-                {{ s.name }}
-              </option>
+              <option v-for="s in suppliers" :key="s.id" :value="s.id">{{ s.name }}</option>
             </select>
           </div>
-          <div class="col-md-2">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block"
-              >Статус</label
-            >
-            <select
-              v-model="filters.status"
-              class="form-select border-0 bg-light rounded-pill px-3 py-2"
-              @change="loadData"
-            >
+          <div>
+            <label class="form-label">Статус</label>
+            <select v-model="filters.status" class="form-select rounded-3" @change="loadData">
               <option value="">Все</option>
               <option value="completed">✅ Выполнено</option>
               <option value="pending">⏳ Ожидает</option>
               <option value="cancelled">❌ Отменено</option>
             </select>
           </div>
-          <div class="col-md-2">
-            <label class="small fw-bold text-muted text-uppercase mb-2 d-block"
-              >Поиск</label
-            >
-            <div class="input-group search-pill-inner">
-              <span class="input-group-text border-0 ps-3 bg-light"
-                ><i class="bi bi-search"></i
-              ></span>
-              <input
-                v-model="filters.search"
-                type="text"
-                placeholder="Инфо..."
-                class="form-control border-0 bg-light rounded-end-pill"
-              />
+          <div class="adm-filter-full">
+            <label class="form-label">Поиск</label>
+            <div class="d-flex gap-2">
+              <input v-model="filters.search" type="text" placeholder="№ или поставщик…" class="form-control rounded-3" />
+              <button class="adm-ico primary flex-shrink-0" style="width: 38px; height: 38px;" title="Обновить" @click="loadData">
+                <i class="bi bi-arrow-clockwise" :class="{ spin: loading }"></i>
+              </button>
             </div>
           </div>
-          <div class="col-md-2 text-end">
-            <button
-              class="btn btn-refresh-round shadow-sm"
-              @click="loadData"
-              title="Обновить"
-            >
-              <i class="bi bi-arrow-clockwise" :class="{ spin: loading }"></i>
-            </button>
-          </div>
         </div>
       </div>
 
-      <div
-        class="card border-0 shadow-sm rounded-4 overflow-hidden d-flex flex-column"
-        style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px);"
-      >
-        <div
-          class="table-responsive-cards flex-grow-1 overflow-auto custom-scrollbar"
-        >
-          <table class="table table-hover align-middle mb-0 custom-table">
-            <thead class="d-none d-lg-table-header-group">
-              <tr>
-                <th class="ps-4">№ ПНК / Дата</th>
-                <th>Поставщик</th>
-                <th>Товары</th>
-                <th>Сумма</th>
-                <th class="text-end pe-4">Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="loading">
-                <td colspan="5" class="text-center py-5">
-                  <div class="spinner-border text-primary" role="status"></div>
-                </td>
-              </tr>
-              <tr v-for="p in purchases" :key="p.id" class="purchase-row">
-                <td class="ps-4" data-label="Накладная">
-                  <div class="fw-bold text-dark">
-                    #{{ p.purchase_number || p.id }}
-                  </div>
-                  <div class="text-muted small">
-                    {{ new Date(p.created_at).toLocaleDateString() }}
-                  </div>
-                </td>
-                <td data-label="Поставщик">
-                  <div
-                    class="d-flex align-items-center justify-content-end justify-content-lg-start"
-                  >
-                    <div class="supplier-blob me-2 d-none d-lg-block"></div>
-                    <span class="small fw-bold">{{
-                      p.supplier?.name || "Прямая поставка"
-                    }}</span>
-                  </div>
-                </td>
-                <td data-label="Товары">
-                  <span class="badge bg-light text-primary border rounded-pill">
-                    {{ p.items?.length || 0 }} поз.
+      <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div v-if="loading && purchases.length === 0" class="adm-empty">
+          <div class="spinner-border text-primary"></div>
+        </div>
+        <div v-else-if="purchases.length === 0" class="adm-empty">
+          <i class="bi bi-truck fs-1 d-block mb-2 opacity-50"></i>
+          Приёмов не найдено
+        </div>
+        <template v-else>
+          <!-- Телефон -->
+          <div class="adm-mlist d-md-none" :class="{ 'opacity-50': loading }">
+            <div v-for="p in purchases" :key="p.id" class="adm-mcard">
+              <div class="adm-mline">
+                <span class="adm-mtitle">#{{ p.purchase_number || p.id }} · {{ p.supplier?.name || "Прямая поставка" }}</span>
+                <span class="adm-mval">{{ formatPrice(p.total_amount) }}</span>
+              </div>
+              <div class="adm-mline">
+                <span class="adm-msub">
+                  {{ new Date(p.created_at).toLocaleDateString("ru-RU") }} · {{ p.items?.length || 0 }} поз. ·
+                  <span :class="isPurchaseUnpaid(p) ? 'text-danger' : 'text-success'">
+                    оплачено {{ formatPrice(p.paid_amount) }}
                   </span>
-                </td>
-                <td data-label="Сумма">
-                  <div
-                    class="d-flex flex-column text-end text-lg-start"
-                    style="font-size: 0.85rem"
+                </span>
+              </div>
+              <div class="adm-mline justify-content-end">
+                <div class="adm-mactions">
+                  <button class="adm-ico danger" title="Накладная PDF" @click="downloadPurchaseInvoice(p.id)">
+                    <i class="bi bi-file-earmark-pdf"></i>
+                  </button>
+                  <button v-if="isPurchaseUnpaid(p)" class="adm-ico success" title="Внести оплату" @click="openPaymentModal(p)">
+                    <i class="bi bi-cash-coin"></i>
+                  </button>
+                  <button class="adm-ico primary" title="Правка" @click="handleEdit(p)">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button
+                    v-if="authStore.hasPermission('supplier_returns.manage')"
+                    class="adm-ico warning"
+                    title="Вернуть поставщику"
+                    @click="goToSupplierReturn(p)"
                   >
-                    <span class="fw-bold text-dark">{{
-                      formatPrice(p.total_amount)
-                    }}</span>
-                    <span class="text-success small"
-                      >Оплачено: {{ formatPrice(p.paid_amount) }}</span
-                    >
-                  </div>
-                </td>
-                <td class="text-end pe-4 mobile-actions">
-                  <div class="d-flex justify-content-end gap-2">
-                    <button
-                      class="btn btn-sm btn-light rounded-pill border shadow-sm"
-                      @click="downloadPurchaseInvoice(p.id)"
-                      title="Скачать накладную"
-                    >
-                      <i class="bi bi-file-earmark-pdf text-danger"></i>
-                    </button>
-                    <button
-                      v-if="
-                        parseFloat(p.total_amount) >
-                        parseFloat(p.paid_amount || 0)
-                      "
-                      class="btn btn-sm btn-light rounded-pill border shadow-sm"
-                      @click="openPaymentModal(p)"
-                      title="Внести оплату"
-                    >
-                      <i class="bi bi-cash-coin text-success"></i>
-                    </button>
-                    <button
-                      class="btn btn-sm btn-light rounded-pill border shadow-sm"
-                      @click="handleEdit(p)"
-                      title="Правка"
-                    >
-                      <i class="bi bi-pencil-fill text-primary"></i>
-                    </button>
-                    <button
-                      v-if="authStore.hasPermission('supplier_returns.manage')"
-                      class="btn btn-sm btn-light rounded-pill border shadow-sm"
-                      @click="goToSupplierReturn(p)"
-                      title="Вернуть поставщику"
-                    >
-                      <i class="bi bi-arrow-return-left text-warning"></i>
-                    </button>
-                    <button
-                      v-if="authStore.hasPermission('purchases.delete')"
-                      class="btn btn-sm btn-light rounded-pill border shadow-sm"
-                      @click="handleDelete(p.id)"
-                      title="Удалить"
-                    >
-                      <i class="bi bi-trash text-danger"></i>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+                    <i class="bi bi-arrow-return-left"></i>
+                  </button>
+                  <button v-if="authStore.hasPermission('purchases.delete')" class="adm-ico danger" title="Удалить" @click="handleDelete(p.id)">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Планшет и десктоп -->
+          <div class="adm-table-wrap d-none d-md-block" style="max-height: calc(100vh - 380px); min-height: 240px;" :class="{ 'opacity-50': loading }">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th>№ ПНК</th>
+                  <th>Дата</th>
+                  <th>Поставщик</th>
+                  <th class="text-center">Позиций</th>
+                  <th class="text-end">Сумма</th>
+                  <th class="text-end">Оплачено</th>
+                  <th class="text-end">Долг</th>
+                  <th class="text-end">Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="p in purchases" :key="p.id">
+                  <td class="adm-nowrap fw-bold">#{{ p.purchase_number || p.id }}</td>
+                  <td class="adm-nowrap text-muted">{{ new Date(p.created_at).toLocaleDateString("ru-RU") }}</td>
+                  <td class="adm-clip fw-semibold" :title="p.supplier?.name">{{ p.supplier?.name || "Прямая поставка" }}</td>
+                  <td class="text-center adm-nowrap">
+                    <span class="badge bg-light text-primary border rounded-pill">{{ p.items?.length || 0 }}</span>
+                  </td>
+                  <td class="text-end adm-nowrap fw-bold">{{ formatPrice(p.total_amount) }}</td>
+                  <td class="text-end adm-nowrap text-success">{{ formatPrice(p.paid_amount) }}</td>
+                  <td class="text-end adm-nowrap" :class="isPurchaseUnpaid(p) ? 'text-danger fw-bold' : 'text-muted'">
+                    {{ isPurchaseUnpaid(p) ? formatPrice(purchaseDebt(p)) : "—" }}
+                  </td>
+                  <td class="text-end adm-nowrap">
+                    <div class="d-inline-flex gap-1">
+                      <button class="adm-ico danger" title="Накладная PDF" @click="downloadPurchaseInvoice(p.id)">
+                        <i class="bi bi-file-earmark-pdf"></i>
+                      </button>
+                      <button v-if="isPurchaseUnpaid(p)" class="adm-ico success" title="Внести оплату" @click="openPaymentModal(p)">
+                        <i class="bi bi-cash-coin"></i>
+                      </button>
+                      <button class="adm-ico primary" title="Правка" @click="handleEdit(p)">
+                        <i class="bi bi-pencil"></i>
+                      </button>
+                      <button
+                        v-if="authStore.hasPermission('supplier_returns.manage')"
+                        class="adm-ico warning"
+                        title="Вернуть поставщику"
+                        @click="goToSupplierReturn(p)"
+                      >
+                        <i class="bi bi-arrow-return-left"></i>
+                      </button>
+                      <button v-if="authStore.hasPermission('purchases.delete')" class="adm-ico danger" title="Удалить" @click="handleDelete(p.id)">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </div>
 
-      <div
-        v-if="purchaseData.last_page > 1"
-        class="d-flex justify-content-between align-items-center mt-4 px-2"
-      >
+      <div v-if="purchaseData.last_page > 1" class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3 px-1">
         <div class="small fw-bold text-muted">
           Всего записей: <span class="text-dark">{{ purchaseData.total }}</span>
         </div>
-        <nav>
-          <ul class="pagination-premium mb-0">
-            <li :class="{ disabled: filters.page <= 1 }">
-              <button
-                @click="changePage(filters.page - 1)"
-                :disabled="filters.page <= 1"
-              >
-                <i class="bi bi-chevron-left"></i>
-              </button>
-            </li>
-            <li
-              v-for="page in purchaseData.last_page"
-              :key="page"
-              :class="{ active: page === filters.page }"
-            >
-              <button @click="changePage(page)">{{ page }}</button>
-            </li>
-            <li :class="{ disabled: filters.page >= purchaseData.last_page }">
-              <button
-                @click="changePage(filters.page + 1)"
-                :disabled="filters.page >= purchaseData.last_page"
-              >
-                <i class="bi bi-chevron-right"></i>
-              </button>
-            </li>
-          </ul>
-        </nav>
+        <div class="d-flex align-items-center gap-2">
+          <button class="btn btn-sm btn-light rounded-pill px-3" :disabled="filters.page <= 1" @click="changePage(filters.page - 1)">
+            <i class="bi bi-chevron-left"></i>
+          </button>
+          <span class="small fw-bold">{{ filters.page }} / {{ purchaseData.last_page }}</span>
+          <button class="btn btn-sm btn-light rounded-pill px-3" :disabled="filters.page >= purchaseData.last_page" @click="changePage(filters.page + 1)">
+            <i class="bi bi-chevron-right"></i>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1010,16 +936,16 @@ onUnmounted(() => {
           class="card border-0 shadow-sm rounded-4 overflow-hidden h-100 d-flex flex-column"
         >
           <div
-            class="p-4 border-bottom bg-white d-flex justify-content-between align-items-center"
+            class="p-3 border-bottom bg-white d-flex flex-wrap justify-content-between align-items-center gap-2"
           >
-            <h5 class="fw-bold mb-0">
+            <h5 class="fw-bold mb-0 me-auto">
               {{
                 editingPurchaseId
                   ? "Редактирование приёма"
                   : "Формирование приёма"
               }}
             </h5>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2 receipt-actions">
               <button
                 v-if="selectedItemsCount > 0"
                 class="btn btn-sm btn-dark rounded-pill px-3"
@@ -1049,8 +975,8 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="p-4 bg-light-subtle border-bottom">
-            <div class="row g-3">
+          <div class="p-3 bg-light-subtle border-bottom">
+            <div class="row g-2 g-md-3">
               <div class="col-md-7">
                 <div
                   class="d-flex justify-content-between align-items-center mb-1"
@@ -1103,7 +1029,7 @@ onUnmounted(() => {
           </div>
 
           <div class="receipt-builder p-0 flex-grow-1 overflow-auto">
-            <table class="table mb-0 align-middle">
+            <table class="table mb-0 align-middle receipt-table">
               <thead class="bg-light sticky-top" style="z-index: 5">
                 <tr
                   style="
@@ -1135,17 +1061,17 @@ onUnmounted(() => {
                   :key="item.product_id + '-' + index"
                   class="receipt-item-row"
                 >
-                  <td class="text-center">
+                  <td class="text-center rc-chk">
                     <input
                       type="checkbox"
                       class="form-check-input"
                       v-model="selectedItems[index]"
                     />
                   </td>
-                  <td class="text-muted small font-monospace">
+                  <td class="text-muted small font-monospace rc-sku">
                     {{ item.sku || "—" }}
                   </td>
-                  <td class="ps-4">
+                  <td class="ps-4 rc-name">
                     <div class="fw-bold text-dark small">{{ item.name }}</div>
                     <div
                       v-if="item.package_unit"
@@ -1172,7 +1098,7 @@ onUnmounted(() => {
                       </button>
                     </div>
                   </td>
-                  <td>
+                  <td class="rc-qty" data-label="Кол-во">
                     <input
                       :ref="(el) => setQtyInputRef(index, el)"
                       v-model.number="item.quantity"
@@ -1189,7 +1115,7 @@ onUnmounted(() => {
                       = {{ (item.quantity * item.package_size).toLocaleString("ru-RU") }} {{ item.unit }}
                     </div>
                   </td>
-                  <td>
+                  <td class="rc-buy" data-label="Закуп">
                     <div class="input-group input-group-sm">
                       <input
                         v-model.number="item.buy_price"
@@ -1205,7 +1131,7 @@ onUnmounted(() => {
                       >
                     </div>
                   </td>
-                  <td>
+                  <td class="rc-sale" data-label="Продажа">
                     <div class="input-group input-group-sm">
                       <input
                         v-model.number="item.sale_price"
@@ -1221,7 +1147,7 @@ onUnmounted(() => {
                       >
                     </div>
                   </td>
-                  <td class="text-end fw-bold text-dark small">
+                  <td class="text-end fw-bold text-dark small rc-total">
                     {{
                       formatPrice(item.quantity * item.buy_price).replace(
                         " сом",
@@ -1229,7 +1155,7 @@ onUnmounted(() => {
                       )
                     }}
                   </td>
-                  <td class="text-center">
+                  <td class="text-center rc-act">
                     <div class="d-flex align-items-center justify-content-center gap-1">
                       <button
                         class="btn btn-sm btn-link text-secondary p-1 btn-print-label"
@@ -1260,19 +1186,19 @@ onUnmounted(() => {
             </table>
           </div>
 
-          <div class="mt-auto p-4 border-top bg-white shadow-lg">
-            <div class="row align-items-center">
-              <div class="col">
+          <div class="mt-auto p-3 border-top bg-white shadow-lg receipt-footer">
+            <div class="row g-2 align-items-center">
+              <div class="col-12 col-sm">
                 <div class="text-muted small fw-bold">ОБЩИЙ ИТОГ ПРИЁМА:</div>
-                <h2 class="fw-bold text-primary mb-0">
+                <h2 class="fw-bold text-primary mb-0 receipt-total">
                   {{ formatPrice(totalAmount) }}
                 </h2>
               </div>
-              <div class="col-auto">
+              <div class="col-12 col-sm-auto">
                 <button
                   class="btn btn-receive-large shadow-lg"
                   :class="{ 'btn-warning': editingPurchaseId }"
-                  :disabled="form.items.length === 0 || !form.supplier_id"
+                  :disabled="form.items.length === 0 || !form.supplier_id || isSubmitting"
                   @click="handleSubmit"
                 >
                   <i class="bi bi-check2-circle-fill me-2"></i>
@@ -1708,6 +1634,7 @@ onUnmounted(() => {
           </button>
           <button
             class="btn btn-success px-4 rounded-pill fw-bold shadow-sm"
+            :disabled="isSubmitting"
             @click="handleRegisterPayment"
           >
             <i class="bi bi-check2-circle me-2"></i>Зарегистрировать оплату
@@ -1926,6 +1853,94 @@ thead th {
   to {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+
+/* На сенсорных экранах нет hover — кнопка этикетки видна всегда */
+@media (hover: none) {
+  .btn-print-label {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .purchases-page .tab-switcher {
+    width: 100%;
+  }
+  .purchases-page .tab-switcher .btn-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+  .receipt-actions {
+    width: 100%;
+  }
+  .receipt-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  /* Строка приёма — карточка:
+     [✓] Название                    [🏷][✕]
+         артикул                     итого
+         Кол-во | Закуп | Продажа            */
+  .receipt-table thead {
+    display: none;
+  }
+  .receipt-table tbody tr.receipt-item-row {
+    display: grid;
+    grid-template-columns: 28px repeat(3, minmax(0, 1fr)) auto;
+    grid-template-areas:
+      "chk name name name act"
+      "chk sku sku total total"
+      "chk qty buy sale sale";
+    gap: 4px 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .receipt-table tbody tr.receipt-item-row > td {
+    display: block;
+    padding: 0 !important;
+    border: 0;
+    min-width: 0;
+  }
+  .receipt-table .rc-chk { grid-area: chk; padding-top: 2px !important; }
+  .receipt-table .rc-name { grid-area: name; }
+  .receipt-table .rc-sku { grid-area: sku; align-self: center; }
+  .receipt-table .rc-total { grid-area: total; align-self: center; }
+  .receipt-table .rc-act { grid-area: act; }
+  .receipt-table .rc-qty { grid-area: qty; }
+  .receipt-table .rc-buy { grid-area: buy; }
+  .receipt-table .rc-sale { grid-area: sale; }
+  .receipt-table .rc-qty::before,
+  .receipt-table .rc-buy::before,
+  .receipt-table .rc-sale::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .receipt-table .rc-buy .input-group-text,
+  .receipt-table .rc-sale .input-group-text {
+    display: none;
+  }
+  .receipt-table .rc-buy .form-control,
+  .receipt-table .rc-sale .form-control {
+    border-radius: 50px !important;
+    padding-left: 0.6rem !important;
+  }
+  .receipt-footer .btn-receive-large {
+    width: 100%;
+    padding: 0.85rem 1rem;
+  }
+  .receipt-total {
+    font-size: 1.5rem;
   }
 }
 </style>

@@ -207,11 +207,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="container-fluid p-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1 class="h3 text-gray-800">Категории</h1>
-      <button @click="openCreateModal" class="btn btn-primary">
-        + Создать категорию
+  <div class="container-fluid p-3 p-md-4">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3 mb-md-4">
+      <h1 class="h3 text-gray-800 mb-0">Категории</h1>
+      <button @click="openCreateModal" class="btn btn-primary text-nowrap">
+        + Создать<span class="d-none d-sm-inline"> категорию</span>
       </button>
     </div>
 
@@ -236,21 +236,23 @@ onUnmounted(() => {
       >
         <table class="table table-hover align-middle mb-0 categories-table">
           <thead class="table-light">
+            <!-- Телефон: без «#» и Slug, статус — под названием; иначе
+                 кнопки действий уезжали за правый край экрана -->
             <tr>
-              <th scope="col" class="ps-4" style="width: 50px">#</th>
-              <th scope="col" style="width: 90px">Фото</th>
-              <th scope="col" style="min-width: 200px">Название</th>
-              <th scope="col" style="min-width: 180px">Slug</th>
-              <th scope="col" style="min-width: 140px">Активность</th>
-              <th scope="col" class="text-end pe-4" style="min-width: 130px">
+              <th scope="col" class="ps-4 d-none d-md-table-cell" style="width: 50px">#</th>
+              <th scope="col" class="col-photo">Фото</th>
+              <th scope="col" class="col-name">Название</th>
+              <th scope="col" class="d-none d-lg-table-cell" style="min-width: 180px">Slug</th>
+              <th scope="col" class="d-none d-sm-table-cell" style="min-width: 120px">Активность</th>
+              <th scope="col" class="text-end pe-3 pe-md-4">
                 Действия
               </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(cat, index) in categories" :key="cat.id">
-              <td class="ps-4 text-muted">{{ index + 1 }}</td>
-              <td>
+              <td class="ps-4 text-muted d-none d-md-table-cell">{{ index + 1 }}</td>
+              <td class="col-photo">
                 <img
                   v-if="cat.image"
                   :src="getImageUrl(cat.image)"
@@ -264,14 +266,20 @@ onUnmounted(() => {
                   <i class="bi bi-image"></i>
                 </div>
               </td>
-              <td class="fw-medium">
+              <td class="fw-medium col-name">
                 {{ cat.name }}
                 <span v-if="cat.parent_id" class="badge bg-secondary ms-2"
                   >Подкатегория</span
                 >
+                <span
+                  class="badge rounded-pill ms-2 d-sm-none"
+                  :class="cat.is_active ? 'text-bg-success' : 'text-bg-danger'"
+                >
+                  {{ cat.is_active ? "Активна" : "Скрыта" }}
+                </span>
               </td>
-              <td class="text-muted">{{ cat.slug }}</td>
-              <td>
+              <td class="text-muted d-none d-lg-table-cell">{{ cat.slug }}</td>
+              <td class="d-none d-sm-table-cell">
                 <span
                   class="badge rounded-pill"
                   :class="cat.is_active ? 'text-bg-success' : 'text-bg-danger'"
@@ -279,7 +287,7 @@ onUnmounted(() => {
                   {{ cat.is_active ? "Активна" : "Скрыта" }}
                 </span>
               </td>
-              <td class="text-end pe-4">
+              <td class="text-end text-nowrap pe-3 pe-md-4">
                 <button
                   @click="openEditModal(cat)"
                   class="btn btn-sm btn-outline-primary me-2"
@@ -437,6 +445,26 @@ onUnmounted(() => {
   width: 38px;
   height: 38px;
   object-fit: cover;
+}
+
+.col-photo {
+  width: 90px;
+}
+.col-name {
+  min-width: 200px;
+}
+@media (max-width: 767.98px) {
+  .col-photo {
+    width: 56px;
+  }
+  .col-name {
+    min-width: 0;
+  }
+  .categories-table thead th,
+  .categories-table tbody td {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
 }
 
 /* На узких экранах таблица остаётся таблицей и скроллится по горизонтали

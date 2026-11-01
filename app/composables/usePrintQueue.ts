@@ -7,83 +7,106 @@ export interface PrintQueueItem {
   qty: number;
 }
 
-const QUEUE_CACHE_KEY = "print_label_queue_cache_v1";
-
-const readQueueCache = (): PrintQueueItem[] => {
-  if (!import.meta.client) return [];
-  try {
-    const raw = localStorage.getItem(QUEUE_CACHE_KEY);
-    const data = raw ? JSON.parse(raw) : [];
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    return [];
-  }
-};
-
-const writeQueueCache = (items: PrintQueueItem[]) => {
-  if (!import.meta.client) return;
-  try {
-    localStorage.setItem(QUEUE_CACHE_KEY, JSON.stringify(items));
-  } catch (e) {
-    /* localStorage недоступен (приватный режим и т.п.) — просто без кеша */
-  }
-};
-
-let cacheHydrated = false;
 let dbHydrated = false;
 let watcherAttached = false;
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
+// Есть локальные изменения, ещё не ушедшие в БД (debounce). Пока они есть,
+// очередь из БД старее локальной и подставлять её нельзя: кнопка «Печать
+// этикетки» на /admin/products кладёт товар в очередь и сразу открывает
+// страницу печати, а та за эти 800мс загружала из БД прежнюю очередь и
+// затирала только что выбранный товар — выглядело как «залипший кэш».
+let dirty = false;
+// Присвоение очереди из БД — не локальное изменение, обратно не отправляем
+let applyingRemote = false;
 
 // Очередь товаров для страницы пакетной печати этикеток/ценников
-// (/admin/print-labels). Раньше жила только в useState и пропадала при
-// перезагрузке — теперь любое изменение (добавили товар, поправили кол-во,
-// очистили) сразу пишется в localStorage (мгновенно, работает офлайн) и с
-// debounce уходит в БД (общий ключ настроек print_label_queue), поэтому
-// очередь переживает перезагрузку и доступна с других устройств/касс.
+// (/admin/print-labels). Хранится только в БД (общий ключ настроек
+// print_label_queue): изменения уходят туда с debounce, поэтому очередь
+// переживает перезагрузку и видна с других устройств/касс. Локального кеша
+// в localStorage больше нет — он показывал устаревшую очередь поверх БД.
 export const usePrintQueue = () => {
   const queue = useState<PrintQueueItem[]>("print_label_queue", () => []);
-  const { settings, updateSettings } = useSettings();
+  const { settings } = useSettings();
+  const api = useApi();
 
-  if (import.meta.client && !cacheHydrated) {
-    cacheHydrated = true;
-    const cached = readQueueCache();
-    if (cached.length) queue.value = cached;
-  }
+  const applyRemote = (raw: string | undefined) => {
+    try {
+      const fromDb = JSON.parse(raw || "[]");
+      if (!Array.isArray(fromDb)) return;
+      applyingRemote = true;
+      queue.value = fromDb;
+    } catch (e) {
+      /* битый JSON в БД — оставляем текущую очередь */
+    } finally {
+      // deep-watch очереди срабатывает асинхронно (flush: 'pre') — флаг
+      // снимаем после него, иначе присвоение из БД ушло бы обратно в БД
+      nextTick(() => {
+        applyingRemote = false;
+      });
+    }
+  };
+
+  // Немедленно отправить локальные изменения (без ожидания debounce)
+  const flushQueue = async () => {
+    if (syncTimer) {
+      clearTimeout(syncTimer);
+      syncTimer = null;
+    }
+    if (!dirty) return;
+    const snapshot = JSON.parse(JSON.stringify(queue.value));
+    try {
+      await api.apiFetch("/print-label-queue", { method: "POST", body: { queue: snapshot } });
+      // Пока шёл запрос, очередь могли снова поменять — тогда dirty остаётся
+      if (JSON.stringify(queue.value) === JSON.stringify(snapshot)) dirty = false;
+      if (settings.value) settings.value = { ...settings.value, print_label_queue: JSON.stringify(snapshot) };
+    } catch {
+      useUiStore().addToast("Не удалось сохранить очередь этикеток — нет связи с сервером", "error");
+    }
+  };
 
   if (import.meta.client && !watcherAttached) {
     watcherAttached = true;
 
-    watch(
-      queue,
-      () => {
-        writeQueueCache(queue.value);
-        if (syncTimer) clearTimeout(syncTimer);
-        syncTimer = setTimeout(() => {
-          updateSettings({ ...settings.value, print_label_queue: JSON.stringify(queue.value) }).catch(() => {
-            /* нет сети — очередь уже в локальном кеше, синхронизируется позже */
-          });
-        }, 800);
-      },
-      { deep: true },
-    );
+    // Остаток старого кеша — чтобы не лежал в браузере
+    try {
+      localStorage.removeItem("print_label_queue_cache_v1");
+    } catch (e) {
+      /* localStorage недоступен — нечего чистить */
+    }
 
-    // Первая реальная выгрузка настроек из БД считается авторитетной —
-    // подхватываем общую очередь (например, при заходе с другого устройства
-    // или после очистки localStorage).
-    watch(
-      () => settings.value?.print_label_queue,
-      (val) => {
-        if (dbHydrated || val === undefined) return;
-        dbHydrated = true;
-        try {
-          const fromDb = JSON.parse(val || "[]");
-          if (Array.isArray(fromDb)) queue.value = fromDb;
-        } catch (e) {
-          /* битый JSON в БД — оставляем локальное значение как есть */
-        }
-      },
-      { immediate: true },
-    );
+    // Отдельный (detached) scope: наблюдатели живут всё время работы
+    // приложения. Раньше они создавались в setup первой открывшей очередь
+    // страницы (обычно /admin/products) и останавливались вместе с ней, а
+    // флаг watcherAttached оставался — после перехода на страницу печати
+    // правки количества/удаления там больше не сохранялись в БД.
+    effectScope(true).run(() => {
+      // Свой эндпоинт с правом products.view и только этим ключом. Раньше шёл
+      // POST /settings (только админ — у менеджера каждое изменение падало
+      // с ошибкой) со всем снимком публичных настроек, который затирал
+      // устаревшими значениями то, что успел поменять другой админ.
+      watch(
+        queue,
+        () => {
+          if (applyingRemote) return;
+          dirty = true;
+          if (syncTimer) clearTimeout(syncTimer);
+          syncTimer = setTimeout(flushQueue, 800);
+        },
+        { deep: true },
+      );
+
+      // Первая выгрузка настроек из БД — источник очереди
+      watch(
+        () => settings.value?.print_label_queue,
+        (val) => {
+          if (dbHydrated || val === undefined) return;
+          dbHydrated = true;
+          if (dirty) return; // локальная очередь новее БД
+          applyRemote(val);
+        },
+        { immediate: true },
+      );
+    });
   }
 
   const setQueue = (items: PrintQueueItem[]) => {
@@ -94,5 +117,17 @@ export const usePrintQueue = () => {
     queue.value = [];
   };
 
-  return { queue, setQueue, clearQueue };
+  // Свежая очередь из БД — при каждом открытии страницы печати, а не та,
+  // что осталась в памяти с прошлого захода (могли поменять с другой кассы).
+  // Если локально есть неотправленные изменения (только что нажали «Печать
+  // этикетки» у товара) — они новее БД: отправляем их, а не затираем.
+  const reloadQueue = async () => {
+    if (dirty) {
+      await flushQueue();
+      return;
+    }
+    applyRemote(settings.value?.print_label_queue);
+  };
+
+  return { queue, setQueue, clearQueue, reloadQueue, flushQueue };
 };

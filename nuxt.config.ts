@@ -1,4 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { fileURLToPath } from "node:url";
+import { appleSplashScreens } from "./pwa/apple-splash.mjs";
 
 // NUXT_TARGET=laravel — SPA-сборка для раздачи прямо из public/ Laravel
 // (same-origin с API: нет CORS-preflight и лишнего домена). Запуск: npm run build:laravel
@@ -9,11 +11,11 @@ const isCapacitorTarget = process.env.NUXT_TARGET === "capacitor";
 const isStaticTarget = isLaravelTarget || isCapacitorTarget;
 
 // Фактический прод-домен витрины: build:laravel копируется в
-// Online-Store_back/public и деплоится как kurulush-store-back.fly.dev
+// Online-Store_back/public и деплоится как kurulush-store.fly.dev
 // (кастомного домена нет — см. `flyctl certs list`). Переопредели через
 // .env при смене домена (NUXT_PUBLIC_SITE_URL). SEO-модули (sitemap/robots)
 // и useSeo.ts используют это значение как единый источник истины.
-const SITE_URL = process.env.NUXT_PUBLIC_SITE_URL || "https://kurulush-store-back.fly.dev";
+const SITE_URL = process.env.NUXT_PUBLIC_SITE_URL || "https://kurulush-store.fly.dev";
 
 // build:laravel намеренно ставит NUXT_PUBLIC_API_BASE=/api — относительный
 // путь для same-origin браузерных запросов в рантайме (см. комментарий выше
@@ -24,7 +26,7 @@ const SITE_URL = process.env.NUXT_PUBLIC_SITE_URL || "https://kurulush-store-bac
 // всегда нужен абсолютный адрес API.
 const BUILD_API_BASE = process.env.NUXT_PUBLIC_API_BASE?.startsWith("http")
   ? process.env.NUXT_PUBLIC_API_BASE
-  : "https://kurulush-store-back.fly.dev/api";
+  : "https://kurulush-store.fly.dev/api";
 
 // SEO (sitemap/robots) нужен для публичной витрины — и SSR/vercel-таргета,
 // и статической laravel-сборки (это и есть реальный прод, см. SITE_URL
@@ -32,6 +34,15 @@ const BUILD_API_BASE = process.env.NUXT_PUBLIC_API_BASE?.startsWith("http")
 // самообслуживания, никогда не индексируется и разделы cashier/admin ему
 // и так недоступны публично.
 const isSeoTarget = !isCapacitorTarget;
+
+// PWA (service worker + manifest) — только у витрины в build:laravel: она
+// раздаётся с того же домена из корня Online-Store_back/public, поэтому sw.js
+// ложится в корень и сразу получает scope "/". В Capacitor (file://) SW не
+// нужен, в `nuxt dev` мешал бы HMR. Модуль подключён всегда: при disable его
+// virtual:pwa-register превращается в заглушку, и pwa.client.ts не ломается.
+const isPwaTarget = isLaravelTarget;
+const PWA_THEME_COLOR = "#0f172a"; // цвет шапки (Header.vue)
+const PWA_BACKGROUND_COLOR = "#ffffff"; // фон splash-экранов (scripts/generate-pwa-icons.mjs)
 
 // Пока API-хост не даёт единый список слагов на лету, конкретный список
 // динамических маршрутов для prerender строим из тех же данных, что и
@@ -47,15 +58,19 @@ const fetchDynamicRoutes = async (apiBase: string): Promise<string[]> => {
     return res.json();
   };
 
-  try {
+  // PRERENDER_PRODUCTS=0 — быстрая сборка (~3-5 мин вместо ~25) для срочных
+  // правок: /product/* не пререндерятся и рендерятся в браузере, как
+  // товары за пределами лимита ниже. SEO карточек — до следующей полной сборки.
+  if (process.env.PRERENDER_PRODUCTS === "0") {
+    console.log("[prerender] PRERENDER_PRODUCTS=0 — товары пропущены");
+  } else try {
     // В каталоге 1000+ активных товаров — prerender всех при throttle:api
     // 60 запросов/мин на бэкенде (см. Online-Store_back/routes/api.php)
     // растягивает сборку на 30-45+ минут и грузит прод-API на каждый деплой.
-    // Ограничиваемся ~300 недавно обновлёнными: они получают полноценный
-    // SSR/SEO при разумном времени сборки, остальные остаются
-    // клиентски рендерящимися как и раньше (не хуже статус-кво). Sitemap
+    // С 2026-10-28 — только 20 недавно обновлённых (было 300: сборка шла
+    // ~25 мин). Остальные рендерятся в браузере, как и раньше. Sitemap
     // (см. ниже) по-прежнему перечисляет все товары.
-    const PRERENDER_PRODUCTS_LIMIT = 300;
+    const PRERENDER_PRODUCTS_LIMIT = 20;
     const products: any = await fetchJson(
       `/products?is_active=true&per_page=${PRERENDER_PRODUCTS_LIMIT}&fields=list&sort_by=updated_at&sort_order=desc`,
     );
@@ -82,6 +97,9 @@ const fetchDynamicRoutes = async (apiBase: string): Promise<string[]> => {
 
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
+  // Несколько `nuxt dev` в одной папке (разные чаты) делят .nuxt и ломают
+  // друг друга при перезапуске — NUXT_BUILD_DIR=.nuxt-<имя> разводит их
+  ...(process.env.NUXT_BUILD_DIR ? { buildDir: process.env.NUXT_BUILD_DIR } : {}),
   devtools: { enabled: true },
   // Полноценный SSR/SSG нужен и статической laravel-сборке (реальный прод) —
   // без него useSeo.ts/useHead вообще не попадают в отдаваемый HTML, страница
@@ -91,8 +109,68 @@ export default defineNuxtConfig({
   ssr: !isCapacitorTarget,
   modules: [
     "@pinia/nuxt",
+    "@vite-pwa/nuxt",
     ...(isSeoTarget ? ["@nuxtjs/sitemap", "@nuxtjs/robots"] : []),
   ],
+
+  pwa: {
+    disable: !isPwaTarget,
+    strategies: "injectManifest",
+    srcDir: fileURLToPath(new URL("./pwa", import.meta.url)),
+    filename: "sw.ts", // → /sw.js в корне public
+    // Новая версия не активируется сама: app/plugins/pwa.client.ts
+    // показывает «Доступно обновление» и ждёт кнопку «Обновить»
+    registerType: "prompt",
+    injectRegister: false,
+    // Регистрация своя (app/plugins/pwa.client.ts): штатный плагин модуля
+    // регистрировал бы SW и в Electron-кассе, которая открывает этот же сайт
+    client: { registerPlugin: false },
+    // Заголовки sw.js/manifest отдаёт nginx (Online-Store_back/nginx.conf):
+    // в статической сборке routeRules Nitro не действуют
+    registerWebManifestInRouteRules: false,
+    manifest: {
+      id: "/",
+      name: "KurulushStore — интернет-магазин",
+      short_name: "Kurulush",
+      description: "Интернет-магазин с широким ассортиментом товаров по выгодным ценам",
+      lang: "ru",
+      dir: "ltr",
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+      // Витрина — портрет на телефоне, админка — альбом на планшете
+      orientation: "any",
+      theme_color: PWA_THEME_COLOR,
+      background_color: PWA_BACKGROUND_COLOR,
+      categories: ["shopping"],
+      icons: [
+        { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+        { src: "/icons/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      ],
+    },
+    injectManifest: {
+      // Предкэш — только оболочка приложения. Страницы (615 prerender-
+      // маршрутов) и их _payload.json кэшируются по мере посещения
+      // (NetworkFirst в pwa/sw.ts), а не все разом при установке.
+      globPatterns: [
+        "_nuxt/**/*.{js,css,woff2}",
+        "offline.html",
+        "favicon.png",
+        "icons/icon-*.png",
+        "icons/maskable-512.png",
+        "icons/apple-touch-icon-180.png",
+      ],
+      // _nuxt/builds/*.json (latest.json) Nuxt сам опрашивает, чтобы узнать о
+      // новом деплое — из precache он получал бы старый buildId
+      globIgnores: ["**/_payload.json", "_nuxt/builds/**"],
+      maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+      // Свой transform вместо штатного модуля: тот переписывает *.html в
+      // «чистые» URL prerender-страниц (offline.html → /offline), а такой
+      // адрес nginx отдаёт как SPA-оболочку 200.html, не офлайн-страницу
+      manifestTransforms: [async (entries) => ({ manifest: entries, warnings: [] })],
+    },
+  },
 
   site: {
     url: SITE_URL,
@@ -136,10 +214,12 @@ export default defineNuxtConfig({
     //   NUXT_PUBLIC_WS_KEY=local-app-key
     //   NUXT_PUBLIC_WS_TLS=false
     public: {
-      apiBase: "https://kurulush-store-back.fly.dev/api",
-      wsHost: "kurulush-store-soketi.fly.dev",
+      apiBase: "https://kurulush-store.fly.dev/api",
+      // soketi-приложение kurulush-soketi (папка soketi/, тот же Fly-аккаунт,
+      // что и kurulush-store)
+      wsHost: "kurulush-soketi.fly.dev",
       wsPort: 443,
-      wsKey: "05ae0397a6d6ec07bcd3919d",
+      wsKey: "kurulush-key",
       wsTLS: true,
       // Домен самой витрины (для canonical/og:url в useSeo.ts) — НЕ домен
       // API. См. комментарий у SITE_URL выше.
@@ -158,28 +238,40 @@ export default defineNuxtConfig({
     optimizeDeps: {
       include: ["bootstrap/dist/js/bootstrap.bundle.min.js"],
     },
+    // Только для `nuxt dev`: открыть фронт с телефона через cloudflared
+    // quick tunnel (проверка QR на чеке). Без этого Vite отвечает 403 на
+    // любой хост, кроме localhost. На сборку и прод не влияет.
+    server: {
+      allowedHosts: [".trycloudflare.com"],
+    },
   },
 
+  // Сторонних скриптов с CDN нет: bootstrap JS и иконки — из npm
+  // (plugins/bootstrap.client.ts, css выше). Скрипт с CDN без проверки
+  // целостности получил бы на кассе доступ к window.electronAPI.
   app: {
     head: {
       htmlAttrs: { lang: "ru" },
-      link: [
-        {
-          rel: "stylesheet",
-          href: "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css",
-        },
+      // viewport-fit=cover — контент под чёлкой/Dynamic Island, отступы
+      // через env(safe-area-inset-*) (Header.vue, BottomNav.vue, main.css)
+      viewport: "width=device-width, initial-scale=1, viewport-fit=cover",
+      meta: [
+        { name: "theme-color", content: PWA_THEME_COLOR },
+        { name: "mobile-web-app-capable", content: "yes" },
+        { name: "apple-mobile-web-app-capable", content: "yes" },
+        // Статус-бар прозрачный поверх тёмной шапки — шапка сама отступает
+        // на env(safe-area-inset-top)
+        { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+        { name: "apple-mobile-web-app-title", content: "Kurulush" },
       ],
-      script: [
-        {
-          src: "https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js",
-          defer: true,
-        },
-        {
-          src: "https://cdn.jsdelivr.net/npm/rsvp@4.8.5/dist/rsvp.min.js",
-        },
-        {
-          src: "https://cdn.jsdelivr.net/npm/qz-tray@2.1.2/qz-tray.min.js",
-        },
+      link: [
+        ...(isPwaTarget ? [{ rel: "manifest", href: "/manifest.webmanifest" }] : []),
+        { rel: "apple-touch-icon", sizes: "180x180", href: "/icons/apple-touch-icon-180.png" },
+        ...appleSplashScreens().map((s) => ({
+          rel: "apple-touch-startup-image",
+          media: s.media,
+          href: `/icons/splash/${s.file}`,
+        })),
       ],
     },
   },
@@ -188,7 +280,7 @@ export default defineNuxtConfig({
     preset: isStaticTarget ? "static" : "vercel",
     devProxy: {
       "/api": {
-        target: "https://kurulush-store-back.fly.dev/api",
+        target: "https://kurulush-store.fly.dev/api",
         changeOrigin: true,
       },
     },

@@ -142,7 +142,10 @@
         </NuxtLink>
       </div>
 
-      
+      <!-- Меню вынесено из <header>: у .header-scrolled есть backdrop-filter,
+           а он делает шапку контейнером для position: fixed — меню
+           обрезалось по высоте шапки после прокрутки страницы. -->
+      <Teleport to="#teleports">
       <transition name="fade">
         <div
           v-if="isMobileMenuOpen"
@@ -219,9 +222,9 @@
           </ul>
           
           <ul
+            v-if="authStore.isAuthenticated"
             class="mobile-nav-list border-top pt-3 border-secondary border-opacity-25"
           >
-            <template v-if="authStore.isAuthenticated">
               <li class="mb-3 px-2">
                 <div class="d-flex align-items-center text-white-50 small">
                   <i class="bi bi-person-circle fs-4 me-2"></i>
@@ -291,22 +294,21 @@
                   <i class="bi bi-box-arrow-right me-3"></i>Выйти
                 </button>
               </li>
-            </template>
-            <template v-else>
-              <li>
-                <NuxtLink
-                  to="/auth/login"
-                  @click="isMobileMenuOpen = false"
-                  class="btn btn-primary w-100 justify-content-center text-dark fw-bold"
-                >
-                  <i class="bi bi-box-arrow-in-right me-2"></i>Войти /
-                  Регистрация
-                </NuxtLink>
-              </li>
-            </template>
           </ul>
         </div>
+        <!-- Вход вне прокручиваемого списка: всегда виден внизу экрана,
+             даже когда пункты меню не помещаются -->
+        <div v-if="!authStore.isAuthenticated" class="mobile-sidebar-footer">
+          <NuxtLink
+            to="/auth/login"
+            @click="isMobileMenuOpen = false"
+            class="mobile-auth-btn"
+          >
+            <i class="bi bi-box-arrow-in-right me-2"></i>Войти / Регистрация
+          </NuxtLink>
+        </div>
       </aside>
+      </Teleport>
     </nav>
   </header>
 </template>
@@ -384,18 +386,24 @@ const handleLogoutMobil = async () => {
   left: 0;
   width: 100%;
   z-index: 1000;
-  padding: 0.75rem 0;
+  /* env(safe-area-inset-*) — установленное PWA на iOS рисует страницу под
+     статус-баром (black-translucent), в браузере inset = 0 */
+  padding: calc(0.75rem + env(safe-area-inset-top, 0px)) env(safe-area-inset-right, 0px) 0.75rem env(safe-area-inset-left, 0px);
   transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
   background: #0f172a;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 @media (min-width: 992px) {
-  .header { padding: 1.25rem 0; }
+  .header {
+    padding-top: calc(1.25rem + env(safe-area-inset-top, 0px));
+    padding-bottom: 1.25rem;
+  }
 }
 
 .header-scrolled {
-  padding: 0.75rem 0;
+  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+  padding-bottom: 0.75rem;
   background: rgba(15, 23, 42, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -521,10 +529,12 @@ const handleLogoutMobil = async () => {
 
 .mobile-sidebar {
   position: fixed;
+  /* top+bottom вместо height: 100vh — на мобильных браузерах 100vh выше
+     видимой области, и низ меню уходил под панель браузера */
   top: 0;
+  bottom: 0;
   right: -300px;
   width: 300px;
-  height: 100vh;
   background: #0f172a;
   z-index: 2000;
   transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
@@ -538,7 +548,7 @@ const handleLogoutMobil = async () => {
 }
 
 .mobile-sidebar-header {
-  padding: 1.75rem 1.5rem;
+  padding: calc(1.75rem + env(safe-area-inset-top, 0px)) 1.5rem 1.75rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -553,6 +563,7 @@ const handleLogoutMobil = async () => {
   flex-direction: column;
   overflow-y: auto;
   gap: 2rem;
+  min-height: 0;
 }
 
 .mobile-nav-list {
@@ -589,10 +600,38 @@ const handleLogoutMobil = async () => {
   font-size: 1.3rem;
 }
 
+/* Свой стиль вместо btn-primary: общий стиль .mobile-nav-list li a перебивал
+   его фон, и тёмный текст сливался с тёмным меню. */
+.mobile-auth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 1.25rem;
+  border-radius: 16px;
+  background: #38bdf8;
+  color: #0f172a;
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.mobile-auth-btn:hover,
+.mobile-auth-btn.router-link-active {
+  background: #0ea5e9;
+  color: #0f172a;
+}
+
+.mobile-auth-btn i {
+  font-size: 1.3rem;
+}
+
 .mobile-sidebar-footer {
+  flex-shrink: 0;
   margin-top: auto;
-  padding: 1.5rem;
+  padding: 1rem 1.5rem calc(1rem + env(safe-area-inset-bottom));
   border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: #0f172a;
 }
 
 .mobile-menu-overlay {
@@ -601,6 +640,7 @@ const handleLogoutMobil = async () => {
   left: 0;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   background: rgba(2, 6, 23, 0.8);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);

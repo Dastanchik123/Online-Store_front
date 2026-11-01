@@ -13,6 +13,7 @@ const {
   createOrder,
   getPaymentStatus,
   cancelOrder,
+  staffOverride,
   getDeviceToken,
   clearDeviceToken,
   pairDevice,
@@ -127,10 +128,17 @@ async function fetchHotProducts() {
     // сайдбар горячих товаров просто не покажется — не блокируем кассу
   }
 }
-const hotGroups = computed(() => {
-  const groups = hotProducts.value.map((p) => p.hot_group).filter(Boolean);
-  return [...new Set(groups)];
+// Порядок групп — как задан в админке (настройка pos_hot_groups)
+const { settings: publicSettings, fetchPublicSettings } = useSettings();
+onMounted(() => {
+  fetchPublicSettings().catch(() => {});
 });
+const hotGroups = computed(() =>
+  orderHotGroups(
+    hotProducts.value.map((p) => p.hot_group),
+    publicSettings.value?.pos_hot_groups,
+  ),
+);
 const activeHotGroup = ref(null);
 const filteredHotProducts = computed(() =>
   hotProducts.value.filter((p) => p.hot_group === activeHotGroup.value),
@@ -138,6 +146,11 @@ const filteredHotProducts = computed(() =>
 function toggleHotGroup(group) {
   activeHotGroup.value = activeHotGroup.value === group ? null : group;
 }
+
+// Сколько штук товара уже в корзине — бейдж на плитке
+const cartQtyById = computed(() =>
+  Object.fromEntries(cart.value.map((i) => [i.product_id, i.quantity])),
+);
 
 const formatMoney = (v) =>
   Number(v || 0).toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -191,8 +204,105 @@ function clearCart() {
   cart.value = [];
 }
 
+// ───── Подтверждение сотрудника: убрать товар / уменьшить количество / очистить
+// корзину покупатель сам не может (защита от «отсканировал → удалил → унёс»).
+// Касса просит PIN или бейдж; после подтверждения включается режим сотрудника —
+// он может поправить несколько позиций подряд, пока не нажмёт «Готово» или
+// режим не закроется сам после минуты бездействия ─────
+const STAFF_MODE_IDLE_MS = 60_000;
+const staffSession = ref(null); // { name } пока режим сотрудника включён
+let staffIdleTimer = null;
+
+const staffModal = ref(null); // { action, item } — ждём подтверждения
+const staffPin = ref("");
+const staffError = ref("");
+const staffChecking = ref(false);
+
+const STAFF_ACTION_TEXT = {
+  remove: (item) => `Убрать «${item.name}» из корзины`,
+  decrement: (item) => `Уменьшить количество «${item.name}»`,
+  clear: () => "Очистить всю корзину",
+};
+const staffActionText = computed(() =>
+  staffModal.value ? STAFF_ACTION_TEXT[staffModal.value.action](staffModal.value.item) : "",
+);
+
+function touchStaffSession() {
+  if (staffIdleTimer) clearTimeout(staffIdleTimer);
+  staffIdleTimer = setTimeout(endStaffSession, STAFF_MODE_IDLE_MS);
+}
+function endStaffSession() {
+  if (staffIdleTimer) clearTimeout(staffIdleTimer);
+  staffIdleTimer = null;
+  staffSession.value = null;
+}
+
+function applyStaffAction(action, item) {
+  if (action === "remove") removeItem(item);
+  else if (action === "decrement") decrementItem(item);
+  else if (action === "clear") clearCart();
+}
+
+function requestStaffAction(action, item = null) {
+  if (staffSession.value) {
+    applyStaffAction(action, item);
+    touchStaffSession();
+    return;
+  }
+  staffModal.value = { action, item };
+  staffPin.value = "";
+  staffError.value = "";
+}
+function closeStaffModal() {
+  staffModal.value = null;
+  staffPin.value = "";
+  staffError.value = "";
+}
+
+function pressStaffPinDigit(d) {
+  if (staffChecking.value || staffPin.value.length >= 8) return;
+  staffError.value = "";
+  staffPin.value += d;
+}
+function backspaceStaffPin() {
+  staffPin.value = staffPin.value.slice(0, -1);
+}
+
+async function submitStaffCredential(method, credential) {
+  if (!staffModal.value || staffChecking.value || !credential) return;
+  staffChecking.value = true;
+  staffError.value = "";
+  try {
+    const { action, item } = staffModal.value;
+    const snapshot = cart.value.map((i) => ({ product_id: i.product_id, quantity: i.quantity }));
+    const res = await staffOverride(method, credential, action, snapshot);
+    staffSession.value = { name: res.staff?.name || "Сотрудник" };
+    closeStaffModal();
+    applyStaffAction(action, item);
+    touchStaffSession();
+  } catch (e) {
+    if (e?.status === 401 || e?.statusCode === 401) {
+      closeStaffModal();
+      await handleUnauthorized();
+      return;
+    }
+    staffPin.value = "";
+    staffError.value =
+      e?.status === 429 || e?.statusCode === 429
+        ? "Слишком много попыток. Подождите минуту."
+        : e?.data?.message || "Не удалось проверить. Попробуйте ещё раз.";
+  } finally {
+    staffChecking.value = false;
+  }
+}
+
 // ───── Штрихкод: SKU и есть баркод в этом проекте (см. cashier/pos.vue) ─────
+// Пока открыто окно подтверждения сотрудника, скан — это бейдж, а не товар
 useBarcodeScanner((code) => {
+  if (staffModal.value) {
+    submitStaffCredential("badge", code.trim());
+    return;
+  }
   if (screen.value !== "catalog") return;
   const trimmed = code.trim();
   const found = catalogProducts.value.find(
@@ -262,6 +372,7 @@ let successTimer = null;
 
 async function checkout() {
   if (cart.value.length === 0 || checkingOut.value) return;
+  endStaffSession();
   checkingOut.value = true;
   try {
     const clientUuid = crypto.randomUUID();
@@ -324,7 +435,9 @@ function stopPolling() {
 
 async function onPaid() {
   try {
-    await printReceipt(currentOrder.value, "thermal");
+    // API самообслуживания не отдаёт channel — без него чек печатался как
+    // кассовый, со всей суммой в «Наличные»
+    await printReceipt({ ...currentOrder.value, channel: "self_service" }, "thermal");
   } catch (e) {
     // печать не должна блокировать показ экрана успеха
   }
@@ -347,6 +460,7 @@ async function cancelPayment() {
 function resetToCatalog() {
   if (successTimer) clearTimeout(successTimer);
   stopPolling();
+  endStaffSession();
   clearCart();
   currentOrder.value = null;
   currentPayment.value = null;
@@ -358,6 +472,7 @@ function resetToCatalog() {
 onUnmounted(() => {
   stopPolling();
   if (successTimer) clearTimeout(successTimer);
+  endStaffSession();
 });
 </script>
 
@@ -407,6 +522,8 @@ onUnmounted(() => {
             <div v-if="!isConnected" class="alert alert-info mt-2 py-2 small">
               Запустите приложение через <strong>Electron</strong> для выбора принтера и прямой печати.
             </div>
+
+            <PrinterReceiptPrintModeSettings />
 
             <small class="text-muted mt-3 d-block">
               Выбранный принтер будет использоваться для печати чеков БЕЗ открытия окна с диалогом печати.
@@ -522,22 +639,43 @@ onUnmounted(() => {
       </div>
 
       <aside class="ss-cart">
-        <div class="ss-cart-title">Корзина</div>
+        <div class="ss-cart-header">
+          <div class="ss-cart-title">
+            <i class="bi bi-basket2"></i> Ваша корзина
+            <span v-if="cartItemsCount" class="ss-cart-count">{{ cartItemsCount }}</span>
+          </div>
+          <button v-if="cart.length > 0" class="ss-clear-btn" @click="requestStaffAction('clear')">
+            <i class="bi bi-x-circle"></i> Очистить
+          </button>
+        </div>
+        <div v-if="staffSession" class="ss-staff-banner">
+          <span><i class="bi bi-person-badge"></i> Режим сотрудника: {{ staffSession.name }}</span>
+          <button @click="endStaffSession">Готово</button>
+        </div>
         <div v-if="cart.length === 0" class="ss-cart-empty">
-          Отсканируйте или выберите товар
+          <i class="bi bi-upc-scan"></i>
+          <div class="ss-cart-empty-title">Корзина пуста</div>
+          <div>Отсканируйте штрихкод товара<br />или нажмите на товар слева</div>
         </div>
         <div v-else class="ss-cart-items">
           <div v-for="item in cart" :key="item.product_id" class="ss-cart-item">
             <div class="ss-cart-item-info">
               <div class="ss-cart-item-name">{{ item.name }}</div>
-              <div class="ss-cart-item-price">{{ formatMoney(item.price) }} сом</div>
+              <div class="ss-cart-item-price">
+                {{ formatMoney(item.price) }} сом × {{ item.quantity }} =
+                <strong>{{ formatMoney(item.price * item.quantity) }} сом</strong>
+              </div>
             </div>
             <div class="ss-qty-stepper">
-              <button @click="decrementItem(item)"><i class="bi bi-dash"></i></button>
+              <button
+                @click="requestStaffAction(item.quantity <= 1 ? 'remove' : 'decrement', item)"
+              >
+                <i class="bi bi-dash"></i>
+              </button>
               <span>{{ item.quantity }}</span>
               <button @click="incrementItem(item)"><i class="bi bi-plus"></i></button>
             </div>
-            <button class="ss-remove-btn" @click="removeItem(item)">
+            <button class="ss-remove-btn" @click="requestStaffAction('remove', item)">
               <i class="bi bi-trash"></i>
             </button>
           </div>
@@ -545,7 +683,7 @@ onUnmounted(() => {
 
         <div class="ss-cart-footer">
           <div class="ss-cart-total">
-            <span>ИТОГО:</span>
+            <span>К оплате:</span>
             <span>{{ formatMoney(cartTotal) }} сом</span>
           </div>
           <button
@@ -554,10 +692,10 @@ onUnmounted(() => {
             @click="checkout"
           >
             <span v-if="checkingOut">Оформляем...</span>
-            <span v-else>ОПЛАТИТЬ ({{ cartItemsCount }})</span>
-          </button>
-          <button v-if="cart.length > 0" class="ss-clear-btn" @click="clearCart">
-            Очистить корзину
+            <template v-else>
+              <i class="bi bi-qr-code"></i>
+              <span>ОПЛАТИТЬ</span>
+            </template>
           </button>
         </div>
       </aside>
@@ -584,6 +722,7 @@ onUnmounted(() => {
               v-for="product in filteredHotProducts"
               :key="product.id"
               class="ss-product-tile"
+              :class="{ 'in-cart': cartQtyById[product.id] }"
               :disabled="!product.in_stock"
               @click="addToCart(product); activeHotGroup = null"
             >
@@ -591,6 +730,9 @@ onUnmounted(() => {
                 <img v-if="product.image" :src="getImageUrl(product.image)" :alt="product.name" />
                 <i v-else class="bi bi-image"></i>
                 <span v-if="!product.in_stock" class="ss-out-badge">Нет в наличии</span>
+                <span v-else-if="cartQtyById[product.id]" class="ss-qty-badge">
+                  {{ cartQtyById[product.id] }}
+                </span>
               </div>
               <div class="ss-product-name">{{ product.name }}</div>
               <div class="ss-product-price">
@@ -603,6 +745,43 @@ onUnmounted(() => {
           </div>
         </div>
       </Transition>
+    </div>
+
+    <!-- ══════════ Подтверждение сотрудника (PIN или бейдж) ══════════ -->
+    <div v-if="staffModal" class="ss-staff-backdrop" @click.self="closeStaffModal">
+      <div class="ss-staff-card">
+        <i class="bi bi-person-badge ss-staff-icon"></i>
+        <h2>Нужен сотрудник магазина</h2>
+        <p class="ss-staff-action">{{ staffActionText }}</p>
+        <p class="ss-payment-hint">
+          Позовите сотрудника: он отсканирует бейдж или введёт PIN-код
+        </p>
+
+        <div class="ss-staff-pin-dots">
+          <span v-for="n in Math.max(4, staffPin.length)" :key="n" :class="{ filled: n <= staffPin.length }"></span>
+        </div>
+        <p v-if="staffError" class="ss-pairing-error">{{ staffError }}</p>
+
+        <div class="ss-staff-pad">
+          <button v-for="d in ['1','2','3','4','5','6','7','8','9']" :key="d" @click="pressStaffPinDigit(d)">
+            {{ d }}
+          </button>
+          <button class="ss-staff-pad-muted" @click="backspaceStaffPin">
+            <i class="bi bi-backspace"></i>
+          </button>
+          <button @click="pressStaffPinDigit('0')">0</button>
+          <button
+            class="ss-staff-pad-ok"
+            :disabled="staffPin.length < 4 || staffChecking"
+            @click="submitStaffCredential('pin', staffPin)"
+          >
+            <span v-if="staffChecking" class="ss-spinner"></span>
+            <i v-else class="bi bi-check-lg"></i>
+          </button>
+        </div>
+
+        <button class="ss-back-btn" @click="closeStaffModal">ОТМЕНА</button>
+      </div>
     </div>
 
     <!-- ══════════ Экран оплаты ══════════ -->
@@ -815,14 +994,31 @@ onUnmounted(() => {
   gap: 10px;
 }
 .ss-empty-icon { font-size: 2.4rem; color: #cbd5e1; }
+
 .ss-product-tile {
   background: #fff;
-  border: none;
+  border: 2px solid transparent;
   border-radius: 16px;
   padding: 10px;
   text-align: left;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   cursor: pointer;
+}
+.ss-product-tile.in-cart { border-color: #0ea5e9; }
+.ss-qty-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #0ea5e9;
+  color: #fff;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .ss-product-tile:disabled { opacity: 0.5; cursor: not-allowed; }
 .ss-product-tile:active:not(:disabled) { transform: scale(0.97); }
@@ -866,9 +1062,12 @@ onUnmounted(() => {
 }
 .ss-product-price { margin-top: 4px; font-weight: 800; color: #0ea5e9; font-size: 1.05rem; }
 
+/* Корзина — главный блок экрана: забирает больше половины ширины,
+   слева остаются только поиск и подсказка */
+.ss-catalog { flex: 0 0 38%; }
 .ss-cart {
-  width: 680px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
   background: #fff;
   display: flex;
   flex-direction: column;
@@ -981,19 +1180,44 @@ onUnmounted(() => {
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.18s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-.ss-cart-title {
+
+.ss-cart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 20px 20px 12px;
-  font-size: 1.2rem;
+  border-bottom: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+.ss-cart-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.3rem;
   font-weight: 800;
   color: #0f172a;
-  flex-shrink: 0;
+}
+.ss-cart-count {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #0ea5e9;
+  color: #fff;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .ss-cart-empty {
   margin: auto;
   color: #94a3b8;
   text-align: center;
   padding: 0 20px;
+  line-height: 1.5;
 }
+.ss-cart-empty i { font-size: 3.5rem; color: #cbd5e1; display: block; margin-bottom: 8px; }
+.ss-cart-empty-title { font-size: 1.2rem; font-weight: 700; color: #64748b; margin-bottom: 4px; }
 .ss-cart-items { flex: 1; overflow-y: auto; padding: 0 16px; }
 .ss-cart-item {
   display: flex;
@@ -1004,14 +1228,17 @@ onUnmounted(() => {
 }
 .ss-cart-item-info { flex: 1; min-width: 0; }
 .ss-cart-item-name {
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-weight: 600;
   color: #0f172a;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.ss-cart-item-price { font-size: 0.85rem; color: #64748b; }
+.ss-cart-item-price { font-size: 0.85rem; color: #64748b; margin-top: 2px; }
+.ss-cart-item-price strong { color: #0f172a; }
 .ss-qty-stepper {
   display: flex;
   align-items: center;
@@ -1021,8 +1248,8 @@ onUnmounted(() => {
   padding: 4px;
 }
 .ss-qty-stepper button {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border: none;
   border-radius: 8px;
   background: #fff;
@@ -1053,7 +1280,11 @@ onUnmounted(() => {
 }
 .ss-pay-btn {
   width: 100%;
-  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 22px;
   border: none;
   border-radius: 16px;
   background: #0ea5e9;
@@ -1064,13 +1295,13 @@ onUnmounted(() => {
 }
 .ss-pay-btn:disabled { background: #cbd5e1; }
 .ss-clear-btn {
-  width: 100%;
-  margin-top: 10px;
-  padding: 12px;
+  padding: 8px 12px;
   border: none;
-  background: none;
-  color: #94a3b8;
-  font-size: 0.95rem;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #ef4444;
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
 /* ══════════ Оплата / Успех ══════════ */
@@ -1138,12 +1369,92 @@ onUnmounted(() => {
 .ss-pairing-input:focus { outline: 3px solid #38bdf8; border-color: transparent; }
 .ss-pairing-error { color: #ef4444; font-weight: 600; margin-bottom: 16px; }
 
+/* ══════════ Подтверждение сотрудника ══════════ */
+.ss-staff-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 10px 16px 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #c2410c;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.ss-staff-banner button {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 16px;
+  background: #f97316;
+  color: #fff;
+  font-weight: 700;
+}
+.ss-staff-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ss-staff-card {
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  background: #fff;
+  border-radius: 24px;
+  padding: 28px 32px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.ss-staff-card h2 { font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; }
+.ss-staff-icon { font-size: 2.6rem; color: #f97316; }
+.ss-staff-action { font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+.ss-staff-pin-dots {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ss-staff-pin-dots span {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+}
+.ss-staff-pin-dots span.filled { background: #0f172a; border-color: #0f172a; }
+.ss-staff-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.ss-staff-pad button {
+  height: 60px;
+  border: none;
+  border-radius: 14px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-size: 1.5rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ss-staff-pad button:active:not(:disabled) { background: #e2e8f0; }
+.ss-staff-pad .ss-staff-pad-muted { color: #64748b; font-size: 1.3rem; }
+.ss-staff-pad .ss-staff-pad-ok { background: #22c55e; color: #fff; }
+.ss-staff-pad .ss-staff-pad-ok:disabled { background: #cbd5e1; }
+
 .ss-success-icon { font-size: 4rem; color: #22c55e; margin-bottom: 10px; }
 .ss-success-order { color: #64748b; margin-bottom: 6px; }
 .ss-success-card p { color: #64748b; margin-bottom: 24px; }
 
 @media (max-width: 900px) {
   .ss-body { flex-direction: column; }
+  .ss-catalog { flex: none; }
   .ss-cart { width: 100%; max-height: 45vh; }
   .ss-hot-sidebar {
     width: 100%;

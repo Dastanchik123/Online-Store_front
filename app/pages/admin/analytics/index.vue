@@ -137,8 +137,9 @@ onMounted(fetchStats);
 
       <div class="d-flex flex-wrap gap-3 align-items-center">
         
+        <!-- flex-wrap: две даты по 140px не помещались в телефон в одну строку -->
         <div
-          class="d-flex align-items-center gap-2 bg-white p-2 px-3 rounded-pill shadow-sm"
+          class="d-flex flex-wrap align-items-center gap-2 bg-white p-2 px-3 rounded-4 shadow-sm"
         >
           <div class="d-flex align-items-center gap-2">
             <span class="text-muted small fw-bold">ОТ:</span>
@@ -150,7 +151,7 @@ onMounted(fetchStats);
               style="width: 140px"
             />
           </div>
-          <div class="d-flex align-items-center gap-2 ms-2">
+          <div class="d-flex align-items-center gap-2 ms-sm-2">
             <span class="text-muted small fw-bold">ДО:</span>
             <input
               v-model="filters.date_to"
@@ -176,32 +177,6 @@ onMounted(fetchStats);
             {{ p.label }}
           </button>
         </div>
-      </div>
-    </div>
-
-    
-    <div v-if="data?.alerts?.length" class="alerts-section mb-5">
-      <div
-        v-for="(alert, idx) in data.alerts"
-        :key="idx"
-        class="alert-banner d-flex align-items-center p-3 mb-2 rounded-4 shadow-sm border-start border-4 border-warning"
-        style="background: white"
-      >
-        <div
-          class="alert-icon rounded-circle me-3 d-flex align-items-center justify-content-center bg-warning text-dark"
-          style="width: 40px; height: 40px"
-        >
-          <i class="bi-box-seam"></i>
-        </div>
-        <div class="flex-grow-1">
-          <div class="fw-bold small">{{ alert.message }}</div>
-          <div class="text-muted x-small">Требуется ваше внимание</div>
-        </div>
-        <NuxtLink
-          :to="`/admin/products`"
-          class="btn btn-sm btn-light rounded-pill"
-          >Перейти</NuxtLink
-        >
       </div>
     </div>
 
@@ -492,6 +467,7 @@ onMounted(fetchStats);
 .analytics-dashboard {
   background-color: #f8fafc;
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: "Inter", sans-serif;
 }
 
@@ -507,6 +483,9 @@ onMounted(fetchStats);
 
 .kpi-card {
   position: relative;
+  /* Декоративная иконка выступает за край карточки (right/bottom < 0) —
+     без обрезки она растягивала страницу вбок на телефоне */
+  overflow: hidden;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -524,14 +503,6 @@ onMounted(fetchStats);
   opacity: 0.03;
   transform: rotate(-15deg);
   pointer-events: none;
-}
-
-.alert-banner {
-  transition: transform 0.2s ease;
-}
-
-.alert-banner:hover {
-  transform: scale(1.01);
 }
 
 .progress {

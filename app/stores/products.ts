@@ -2,6 +2,8 @@ import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { useApi } from "~/composables/useApi";
 
+export const HOME_PAGE_SIZE = 40;
+
 export const useProductsStore = defineStore("products", () => {
   const products = ref<any[]>([]);
   const categories = ref<any[]>([]);
@@ -30,14 +32,27 @@ export const useProductsStore = defineStore("products", () => {
 
     try {
       const api = useApi();
-      const response: any = await api.apiFetch("/products", { params });
+      // Без параметров — это витрина главной: популярные (в наличии, по
+      // продажам), сразу 40 штук, чтобы «Показать ещё» раскрыл их без запроса
+      const query = Object.keys(params).length === 0
+        ? { sort_by: "popular", per_page: HOME_PAGE_SIZE }
+        : params;
+      const isHome = Object.keys(params).length === 0;
+      const toList = (res: any) => (Array.isArray(res) ? res : res?.data || []);
+      // SWR отдаёт витрину из кэша (до суток), а свежий ответ приходит фоном —
+      // без onRefresh покупатель видел старые цены до следующего захода
+      const response: any = await api.apiFetch("/products", {
+        params: query,
+        ...(isHome && {
+          onRefresh: (fresh: any) => {
+            products.value = toList(fresh);
+            lastProductsFetch.value = Date.now();
+          },
+        }),
+      });
 
-      const data = Array.isArray(response)
-        ? response
-        : response?.data || [];
-
-      if (Object.keys(params).length === 0) {
-        products.value = data;
+      if (isHome) {
+        products.value = toList(response);
         lastProductsFetch.value = Date.now();
       }
       

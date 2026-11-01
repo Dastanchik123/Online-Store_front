@@ -211,7 +211,7 @@ const handleSubmit = async () => {
     cancelEdit();
     loadData();
   } catch (error) {
-    uiStore.error("Ошибка: " + (error.data?.message || "Неизвестная ошибка"));
+    uiStore.error(apiErrorMessage(error, "Неизвестная ошибка"));
   }
 };
 
@@ -246,8 +246,34 @@ const handleDelete = async (id) => {
     uiStore.success("Запись удалена");
     loadData();
   } catch (error) {
-    uiStore.error("Ошибка при удалении");
+    uiStore.error(apiErrorMessage(error, "Ошибка при удалении"));
   }
+};
+
+// Разница корректировки: в разных версиях API поле называлось по-разному
+const adjDiff = (adj) =>
+  Number(adj.difference ?? adj.quantity_change ?? adj.change_amount ?? 0);
+const adjDiffShown = (adj) =>
+  adj.difference ?? adj.quantity_change ?? adj.change_amount ?? adj.quantity ?? 0;
+
+const formatAdjDate = (value) =>
+  new Date(value).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+const resetHistoryFilters = () => {
+  Object.assign(historyFilters.value, {
+    reason: "",
+    date_from: "",
+    date_to: "",
+    search: "",
+    page: 1,
+  });
+  loadData();
 };
 
 const getReasonTextInRu = (reason, reason_text) => {
@@ -286,25 +312,23 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="inventory-page p-4">
-    
-    <div class="header-card mb-4 p-4 rounded-4 shadow-sm text-white">
-      <div class="row align-items-center">
-        <div class="col-auto">
-          <div class="header-icon-box bg-white text-info shadow-sm">
-            <i class="bi bi-box-seam fs-4"></i>
-          </div>
-        </div>
-        <div class="col">
-          <h1 class="h3 mb-1 fw-bold">Склад: Инвентаризация</h1>
-          <p class="mb-0 text-white-50">
-            Контроль и корректировка остатков продукции
-          </p>
-        </div>
+  <div class="adm-page inventory-page p-3 p-md-4">
+    <div class="adm-head header-card rounded-4 shadow-sm text-white p-3">
+      <div class="header-icon-box bg-white text-info shadow-sm d-none d-sm-flex">
+        <i class="bi bi-box-seam fs-5"></i>
+      </div>
+      <div class="adm-head-title">
+        <h1 class="h4 mb-0">Склад: инвентаризация</h1>
+        <p class="mb-0 text-white-50 small">Контроль и корректировка остатков</p>
+      </div>
+      <div class="adm-head-actions">
+        <NuxtLink to="/admin/stock" class="btn btn-light rounded-pill fw-bold">
+          <i class="bi bi-layers me-1"></i>Остатки
+        </NuxtLink>
       </div>
     </div>
 
-    <div class="row g-4 animate-slide-up">
+    <div class="row g-3 g-md-4 animate-slide-up">
       
       <div class="col-lg-4">
         <div
@@ -498,232 +522,134 @@ onMounted(async () => {
 
       
       <div class="col-lg-8">
-        <div class="card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
-          <div
-            class="p-4 border-bottom bg-white d-flex justify-content-between align-items-center"
-          >
-            <h5 class="fw-bold mb-0">История складских движений</h5>
-            <button class="btn btn-refresh-circle shadow-sm" @click="loadData">
+        <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+          <div class="p-3 border-bottom bg-white d-flex justify-content-between align-items-center gap-2">
+            <h5 class="fw-bold mb-0">История движений</h5>
+            <button class="adm-ico primary" style="width: 36px; height: 36px;" title="Обновить" @click="loadData">
               <i class="bi bi-arrow-clockwise"></i>
             </button>
           </div>
-          <div class="row g-2 p-3 bg-light border-bottom align-items-end mx-0">
-            <div class="col-md-3">
-              <label class="small text-muted fw-bold mb-1">Причина</label>
-              <select
-                v-model="historyFilters.reason"
-                class="form-select form-select-sm rounded-pill"
-                @change="loadData"
-              >
-                <option value="">Все причины</option>
-                <option value="damage">📦 Брак</option>
-                <option value="theft">🚫 Кража</option>
-                <option value="gift">🎁 Подарок</option>
-                <option value="surplus">✨ Излишки</option>
-                <option value="other">⚙️ Прочее</option>
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="small text-muted fw-bold mb-1">С даты</label>
-              <input
-                v-model="historyFilters.date_from"
-                type="date"
-                class="form-control form-control-sm rounded-pill"
-                @change="loadData"
-              />
-            </div>
-            <div class="col-md-2">
-              <label class="small text-muted fw-bold mb-1">По дату</label>
-              <input
-                v-model="historyFilters.date_to"
-                type="date"
-                class="form-control form-control-sm rounded-pill"
-                @change="loadData"
-              />
-            </div>
-            <div class="col-md-3">
-              <label class="small text-muted fw-bold mb-1">Поиск</label>
-              <input
-                v-model="historyFilters.search"
-                type="text"
-                class="form-control form-control-sm rounded-pill"
-                placeholder="Товар или SKU..."
-              />
-            </div>
-            <div class="col-md-2 text-end">
-              <button
-                class="btn btn-sm btn-outline-secondary rounded-pill w-100"
-                @click="
-                  Object.assign(historyFilters, {
-                    reason: '',
-                    date_from: '',
-                    date_to: '',
-                    search: '',
-                    page: 1,
-                  });
-                  loadData();
-                "
-              >
-                Сброс
-              </button>
+          <div class="p-3 bg-light border-bottom">
+            <div class="adm-filters">
+              <div class="adm-filter-full adm-filter-wide">
+                <label class="form-label">Поиск</label>
+                <input v-model="historyFilters.search" type="text" class="form-control form-control-sm rounded-3" placeholder="Товар или SKU..." />
+              </div>
+              <div class="adm-filter-full">
+                <label class="form-label">Причина</label>
+                <select v-model="historyFilters.reason" class="form-select form-select-sm rounded-3" @change="loadData">
+                  <option value="">Все причины</option>
+                  <option value="damage">📦 Брак</option>
+                  <option value="theft">🚫 Кража</option>
+                  <option value="gift">🎁 Подарок</option>
+                  <option value="surplus">✨ Излишки</option>
+                  <option value="other">⚙️ Прочее</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">С даты</label>
+                <input v-model="historyFilters.date_from" type="date" class="form-control form-control-sm rounded-3" @change="loadData" />
+              </div>
+              <div>
+                <label class="form-label">По дату</label>
+                <input v-model="historyFilters.date_to" type="date" class="form-control form-control-sm rounded-3" @change="loadData" />
+              </div>
+              <div class="adm-filter-full">
+                <button class="btn btn-sm btn-outline-secondary rounded-3 w-100" @click="resetHistoryFilters">
+                  <i class="bi bi-x-circle me-1"></i>Сброс
+                </button>
+              </div>
             </div>
           </div>
-          <div class="table-responsive-cards" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
-            <table class="table table-hover align-middle mb-0">
-              <thead class="d-none d-lg-table-header-group">
-                <tr>
-                  <th class="ps-4">Штамп времени</th>
-                  <th>Товар / Артикул</th>
-                  <th class="text-center">Тип</th>
-                  <th class="text-center">Кол-во</th>
-                  <th class="text-center">Причина</th>
-                  <th class="pe-4 text-end">Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="adj in adjustments" :key="adj.id" class="adj-row">
-                  <td class="ps-4" data-label="Время">
-                    <div class="fw-bold text-dark small">
-                      #{{ adj.id }} —
-                      {{ new Date(adj.created_at).toLocaleDateString() }}
-                    </div>
-                    <div class="text-muted small" style="font-size: 0.65rem">
-                      {{
-                        new Date(adj.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      }}
-                    </div>
-                  </td>
-                  <td data-label="Товар">
-                    <div class="fw-bold text-dark small mb-0">
-                      {{ adj.product?.name || "Удаленный товар" }}
-                    </div>
-                    <div class="text-muted" style="font-size: 0.7rem">
-                      SKU: {{ adj.product?.sku || "N/A" }}
-                    </div>
-                  </td>
-                  <td data-label="Тип" class="text-center">
-                    <span
-                      v-if="
-                        (adj.difference ??
-                          adj.quantity_change ??
-                          adj.change_amount ??
-                          0) > 0
-                      "
-                      class="badge-type positive"
-                      >Оприходование</span
-                    >
-                    <span
-                      v-else-if="
-                        (adj.difference ??
-                          adj.quantity_change ??
-                          adj.change_amount ??
-                          0) < 0
-                      "
-                      class="badge-type negative"
-                      >Списание</span
-                    >
-                    <span v-else class="badge-type text-muted border"
-                      >Коррекция (0)</span
-                    >
-                  </td>
-                  <td
-                    data-label="Кол-во"
-                    class="text-center fw-bold font-monospace"
-                    :class="
-                      (adj.difference ??
-                        adj.quantity_change ??
-                        adj.change_amount ??
-                        0) >= 0
-                        ? 'text-success'
-                        : 'text-danger'
-                    "
-                  >
-                    {{
-                      (adj.difference ??
-                        adj.quantity_change ??
-                        adj.change_amount ??
-                        0) > 0
-                        ? "+"
-                        : ""
-                    }}{{
-                      adj.difference ??
-                      adj.quantity_change ??
-                      adj.change_amount ??
-                      adj.quantity ??
-                      0
-                    }}
-                  </td>
-                  <td data-label="Причина" class="text-center">
-                    <span class="text-muted small italic-reason">{{
-                      getReasonTextInRu(adj.reason_text, adj.reason)
-                    }}</span>
-                  </td>
-                  <td class="pe-4 text-end mobile-actions">
-                    <div class="d-flex justify-content-end gap-1">
-                      <button
-                        class="btn btn-sm btn-light rounded-circle border shadow-sm p-1"
-                        @click="handleEdit(adj)"
-                        title="Править"
-                      >
-                        <i class="bi bi-pencil fs-6 text-primary"></i>
-                      </button>
-                      <button
-                        v-if="authStore.hasPermission('inventory.delete')"
-                        class="btn btn-sm btn-light rounded-circle border shadow-sm p-1"
-                        @click="handleDelete(adj.id)"
-                        title="Удалить"
-                      >
-                        <i class="bi bi-trash fs-6 text-danger"></i>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="adjustments.length === 0">
-                  <td colspan="6" class="text-center py-5">
-                    <i class="bi bi-journal-x fs-1 opacity-25 d-block mb-3"></i>
-                    <div class="text-muted">Движений пока не зафиксировано</div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+
+          <div v-if="adjustments.length === 0" class="adm-empty">
+            <i class="bi bi-journal-x fs-1 opacity-50 d-block mb-2"></i>
+            Движений пока не зафиксировано
           </div>
-          
+          <template v-else>
+            <!-- Телефон -->
+            <div class="adm-mlist d-md-none">
+              <div v-for="adj in adjustments" :key="adj.id" class="adm-mcard">
+                <div class="adm-mline">
+                  <span class="adm-mtitle">{{ adj.product?.name || "Удалённый товар" }}</span>
+                  <span class="adm-mval font-monospace" :class="adjDiff(adj) >= 0 ? 'text-success' : 'text-danger'">
+                    {{ adjDiff(adj) > 0 ? "+" : "" }}{{ adjDiffShown(adj) }}
+                  </span>
+                </div>
+                <div class="adm-mline">
+                  <span class="adm-msub">
+                    {{ formatAdjDate(adj.created_at) }} · {{ getReasonTextInRu(adj.reason_text, adj.reason) }}
+                  </span>
+                  <div class="adm-mactions">
+                    <button class="adm-ico primary" title="Править" @click="handleEdit(adj)">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button v-if="authStore.hasPermission('inventory.delete')" class="adm-ico danger" title="Удалить" @click="handleDelete(adj.id)">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Планшет и десктоп -->
+            <div class="adm-table-wrap d-none d-md-block" style="max-height: calc(100vh - 400px); min-height: 260px;">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th>№</th>
+                    <th>Дата</th>
+                    <th>Товар</th>
+                    <th>Тип</th>
+                    <th class="text-end">Кол-во</th>
+                    <th>Причина</th>
+                    <th class="text-end"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="adj in adjustments" :key="adj.id">
+                    <td class="adm-nowrap text-muted">#{{ adj.id }}</td>
+                    <td class="adm-nowrap small">{{ formatAdjDate(adj.created_at) }}</td>
+                    <td class="adm-clip" :title="adj.product?.name">
+                      <span class="fw-bold">{{ adj.product?.name || "Удалённый товар" }}</span>
+                      <span class="text-muted small ms-2 font-monospace">{{ adj.product?.sku || "" }}</span>
+                    </td>
+                    <td class="adm-nowrap">
+                      <span v-if="adjDiff(adj) > 0" class="badge-type positive">Оприходование</span>
+                      <span v-else-if="adjDiff(adj) < 0" class="badge-type negative">Списание</span>
+                      <span v-else class="badge-type text-muted border">Коррекция</span>
+                    </td>
+                    <td class="adm-nowrap text-end fw-bold font-monospace" :class="adjDiff(adj) >= 0 ? 'text-success' : 'text-danger'">
+                      {{ adjDiff(adj) > 0 ? "+" : "" }}{{ adjDiffShown(adj) }}
+                    </td>
+                    <td class="adm-nowrap text-muted small">{{ getReasonTextInRu(adj.reason_text, adj.reason) }}</td>
+                    <td class="adm-nowrap text-end">
+                      <div class="d-inline-flex gap-1">
+                        <button class="adm-ico primary" title="Править" @click="handleEdit(adj)">
+                          <i class="bi bi-pencil"></i>
+                        </button>
+                        <button v-if="authStore.hasPermission('inventory.delete')" class="adm-ico danger" title="Удалить" @click="handleDelete(adj.id)">
+                          <i class="bi bi-trash"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+
           <div
             v-if="historyData.last_page > 1"
-            class="p-3 border-top bg-light d-flex justify-content-center"
+            class="p-2 border-top bg-light d-flex justify-content-center align-items-center gap-2"
           >
-            <nav>
-              <ul class="pagination-premium mb-0">
-                <li :class="{ disabled: historyData.current_page <= 1 }">
-                  <button
-                    @click="changeHistoryPage(historyData.current_page - 1)"
-                  >
-                    <i class="bi bi-chevron-left"></i>
-                  </button>
-                </li>
-                <li
-                  v-for="page in historyData.last_page"
-                  :key="page"
-                  :class="{ active: page === historyData.current_page }"
-                >
-                  <button @click="changeHistoryPage(page)">{{ page }}</button>
-                </li>
-                <li
-                  :class="{
-                    disabled: historyData.current_page >= historyData.last_page,
-                  }"
-                >
-                  <button
-                    @click="changeHistoryPage(historyData.current_page + 1)"
-                  >
-                    <i class="bi bi-chevron-right"></i>
-                  </button>
-                </li>
-              </ul>
-            </nav>
+            <button class="btn btn-sm btn-light rounded-pill px-3" :disabled="historyData.current_page <= 1" @click="changeHistoryPage(historyData.current_page - 1)">
+              <i class="bi bi-chevron-left"></i>
+            </button>
+            <span class="small fw-bold">{{ historyData.current_page }} / {{ historyData.last_page }}</span>
+            <button class="btn btn-sm btn-light rounded-pill px-3" :disabled="historyData.current_page >= historyData.last_page" @click="changeHistoryPage(historyData.current_page + 1)">
+              <i class="bi bi-chevron-right"></i>
+            </button>
           </div>
         </div>
       </div>
@@ -732,6 +658,14 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.adm-head .header-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 .header-card {
   background: linear-gradient(135deg, #0891b2 0%, #155e75 100%);
   border: 1px solid rgba(255, 255, 255, 0.05);

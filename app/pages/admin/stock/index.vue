@@ -7,7 +7,8 @@ definePageMeta({
 
 const { getProducts } = useProducts();
 const productsStore = useProductsStore();
-const uiStore = useUiStore();
+
+const PER_PAGE = 100;
 
 const products = ref({
   data: [],
@@ -18,135 +19,103 @@ const products = ref({
 
 const categories = computed(() => productsStore.categories);
 const isLoading = ref(false);
-const sortField = ref('none'); // none, stock_quantity
-const sortOrder = ref('desc'); // asc, desc
-
-// Сортировка по остатку — это порядок ПО ВСЕМ товарам, не только по
-// текущей странице: раньше сортировка была локальной (JS .sort() по 100
-// строкам страницы), из-за чего при листании порядок ломался. Теперь
-// порядок задаётся на бэкенде (sort_by=stock_quantity) — при клике по
-// заголовку страница сбрасывается на 1-ю и товары перезапрашиваются.
-const toggleSort = (field) => {
-  if (sortField.value === field) {
-    if (sortOrder.value === 'desc') {
-      sortOrder.value = 'asc';
-    } else {
-      sortField.value = 'none';
-    }
-  } else {
-    sortField.value = field;
-    sortOrder.value = 'desc';
-  }
-  filters.value.page = 1;
-  tableContainer.value?.scrollTo({ top: 0, behavior: "auto" });
-  fetchProducts();
-};
-
-// Данные уже приходят отсортированными с бэкенда — здесь только
-// фильтрация по статусу остатка (в рамках текущей страницы)
-const filteredProducts = computed(() => [...(products.value.data || [])]);
+const sortField = ref("none"); // none | stock_quantity
+const sortOrder = ref("desc");
 
 const filters = ref({
   search: "",
   category_id: "",
-  stock_status: "all", // all, low, out, in
+  stock_status: "all", // all | in | low | out — фильтруется на сервере
   page: 1,
-  per_page: 100,
 });
 
+const tableContainer = ref(null);
+
+// Сортировка по остатку — по ВСЕМ товарам (на бэкенде), а не по странице
+const toggleSort = (field) => {
+  if (sortField.value === field) {
+    if (sortOrder.value === "desc") sortOrder.value = "asc";
+    else sortField.value = "none";
+  } else {
+    sortField.value = field;
+    sortOrder.value = "desc";
+  }
+  filters.value.page = 1;
+  fetchProducts();
+};
+
+let requestSeq = 0;
 const fetchProducts = async () => {
+  const seq = ++requestSeq;
   isLoading.value = true;
+  tableContainer.value?.scrollTo({ top: 0, behavior: "auto" });
   try {
-    const params = {
-      ...filters.value,
-      category_id: filters.value.category_id || undefined,
-      sort_by: sortField.value !== 'none' ? sortField.value : undefined,
-      sort_order: sortField.value !== 'none' ? sortOrder.value : undefined,
-    };
-
-    const data = await getProducts(params);
-    
-    let processedData = data.data || data;
-
-    // Frontend filtering for stock status
-    if (filters.value.stock_status !== 'all') {
-        processedData = processedData.filter(p => {
-            const qty = parseFloat(p.stock_quantity || 0);
-            if (filters.value.stock_status === 'out') return qty <= 0;
-            if (filters.value.stock_status === 'low') return qty > 0 && qty <= 5;
-            if (filters.value.stock_status === 'in') return qty > 5;
-            return true;
-        });
-    }
-
+    const search = filters.value.search.trim();
+    const data = await getProducts(
+      {
+        search: search || undefined,
+        search_strict: search ? 1 : undefined,
+        category_id: filters.value.category_id || undefined,
+        stock_status: filters.value.stock_status !== "all" ? filters.value.stock_status : undefined,
+        sort_by: sortField.value !== "none" ? sortField.value : "name",
+        sort_order: sortField.value !== "none" ? sortOrder.value : "asc",
+        page: filters.value.page,
+        per_page: PER_PAGE,
+        fields: "list",
+      },
+      { noCache: true },
+    );
+    // Ответ на устаревший запрос (быстро печатали в поиске) не показываем
+    if (seq !== requestSeq) return;
+    const rows = data?.data || data || [];
+    const offset = ((data?.current_page || 1) - 1) * PER_PAGE;
     products.value = {
-        data: processedData,
-        current_page: data.current_page || 1,
-        last_page: data.last_page || 1,
-        total: data.total || processedData.length
+      data: rows.map((p, i) => ({ ...p, _idx: offset + i + 1 })),
+      current_page: data?.current_page || 1,
+      last_page: data?.last_page || 1,
+      total: data?.total ?? rows.length,
     };
   } catch (error) {
     console.error("Error fetching stocks:", error);
   } finally {
-    isLoading.value = false;
+    if (seq === requestSeq) isLoading.value = false;
   }
 };
 
-const tableContainer = ref(null);
+let searchTimer = null;
+const onSearchInput = () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    filters.value.page = 1;
+    fetchProducts();
+  }, 400);
+};
 
-const changePage = (page) => {
-  filters.value.page = page;
-  // Новая страница показывается с первой строки: скроллим саму таблицу
-  // наверх сразу при пендинге (не дожидаясь ответа сервера). Это скролл
-  // только внутреннего контейнера — скролл всей страницы админки не трогаем.
-  tableContainer.value?.scrollTo({ top: 0, behavior: "auto" });
+const applyFilter = () => {
+  filters.value.page = 1;
   fetchProducts();
 };
 
-const initResize = (e) => {
-  const th = e.target.parentElement;
-  const startX = e.pageX;
-  const startWidth = th.offsetWidth;
-
-  const onMouseMove = (moveEvent) => {
-    const newWidth = startWidth + (moveEvent.pageX - startX);
-    if (newWidth > 50) {
-      th.style.width = `${newWidth}px`;
-    }
-  };
-
-  const onMouseUp = () => {
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
-    document.body.style.cursor = 'default';
-  };
-
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
-  document.body.style.cursor = 'col-resize';
+const changePage = (page) => {
+  if (page < 1 || page > products.value.last_page) return;
+  filters.value.page = page;
+  fetchProducts();
 };
 
-const getRowClass = (qty) => {
-  const q = parseFloat(qty || 0);
-  if (q <= 0) return 'stock-critical'; // Самый красный
-  if (q <= 5) return 'stock-low';      // Красный
-  if (q <= 10) return 'stock-warning';  // Бледный красный
-  return 'stock-ok'; // Зелёный (норма)
+const qtyOf = (p) => parseFloat(p.stock_quantity || 0);
+
+const stockLevel = (p) => {
+  const q = qtyOf(p);
+  if (q <= 0) return "out";
+  if (q <= 5) return "low";
+  if (q <= 10) return "warn";
+  return "ok";
 };
 
-const getStockBadgeClass = (qty) => {
-  const q = parseFloat(qty || 0);
-  if (q <= 0) return "bg-danger text-white";
-  if (q <= 5) return "bg-warning text-dark";
-  return "bg-light text-muted"; // В наличии делаем просто светлым
-};
+const stockText = { out: "Нет", low: "Мало", warn: "Заканчивается", ok: "Есть" };
 
-const getStockStatusText = (qty) => {
-  const q = parseFloat(qty || 0);
-  if (q <= 0) return "Нет";
-  if (q <= 5) return "Мало";
-  return "Есть";
-};
+const formatPrice = (price) =>
+  parseFloat(price || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 }) + " сом";
 
 onMounted(async () => {
   await productsStore.fetchCategories();
@@ -155,269 +124,274 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="stock-monitoring-page p-3 animate-fade-in h-100 d-flex flex-column">
-    <!-- Header: Compact -->
-    <div class="card border-0 shadow-sm rounded-4 luxury-header mb-3 overflow-hidden">
-      <div class="luxury-header-pattern"></div>
-      <div class="card-body p-3 position-relative z-1">
-        <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
-          <h5 class="fw-bold mb-0 text-white"><i class="bi bi-layers me-2"></i>Мониторинг остатков</h5>
-          <div class="stats-badge bg-white bg-opacity-10 rounded-pill px-3 py-1 text-white border border-white border-opacity-10 small align-self-start align-self-sm-center">
-            <span class="opacity-75 me-2">ВСЕГО SKU:</span>
-            <span class="fw-bold">{{ products.total }}</span>
+  <div class="adm-page stock-page p-3 p-md-4 animate-fade-in">
+    <div class="adm-head header-card glass-header text-white rounded-4 shadow-sm p-3">
+      <div class="adm-head-title">
+        <h1 class="h4 mb-0"><i class="bi bi-layers me-2"></i>Мониторинг остатков</h1>
+        <p class="mb-0 opacity-75 small">Найдено позиций: {{ products.total }}</p>
+      </div>
+      <div class="adm-head-actions">
+        <NuxtLink to="/admin/inventory" class="btn btn-light rounded-pill fw-bold">
+          <i class="bi bi-clipboard-check me-1"></i>Инвентаризация
+        </NuxtLink>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 mb-3 p-3">
+      <div class="adm-filters">
+        <div class="adm-filter-full adm-filter-wide">
+          <label class="form-label">Поиск</label>
+          <div class="input-group search-pill-inner">
+            <span class="input-group-text border-0 ps-3"><i class="bi bi-search"></i></span>
+            <input
+              v-model="filters.search"
+              type="text"
+              class="form-control border-0"
+              placeholder="Название или артикул…"
+              @input="onSearchInput"
+            />
           </div>
+        </div>
+        <div>
+          <label class="form-label">Категория</label>
+          <select v-model="filters.category_id" class="form-select rounded-3" @change="applyFilter">
+            <option value="">Все категории</option>
+            <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Остаток</label>
+          <select v-model="filters.stock_status" class="form-select rounded-3" @change="applyFilter">
+            <option value="all">Все товары</option>
+            <option value="in">🟢 В наличии (&gt; 5)</option>
+            <option value="low">🟠 Мало (1–5)</option>
+            <option value="out">🔴 Нет (0 и меньше)</option>
+          </select>
         </div>
       </div>
     </div>
 
-    <!-- Filters: Compact -->
-    <div class="card border-0 shadow-sm rounded-4 mb-3 filter-card">
-      <div class="card-body p-2">
-        <div class="row g-2">
-          <div class="col-lg-4">
-            <div class="input-group input-group-sm search-box">
-              <span class="input-group-text bg-light border-0">
-                <i class="bi bi-search text-muted"></i>
-              </span>
-              <input 
-                v-model="filters.search" 
-                type="text" 
-                class="form-control bg-light border-0" 
-                placeholder="Поиск товара..."
-                @input="fetchProducts"
-              />
-            </div>
-          </div>
-          <div class="col-md-3">
-            <select v-model="filters.category_id" class="form-select form-select-sm border-0 bg-light" @change="fetchProducts">
-              <option value="">Все категории</option>
-              <option v-for="cat in categories" :key="cat.id" :value="cat.id">
-                {{ cat.name }}
-              </option>
-            </select>
-          </div>
-          <div class="col-md-3">
-            <select v-model="filters.stock_status" class="form-select form-select-sm border-0 bg-light" @change="fetchProducts">
-              <option value="all">Все товары</option>
-              <option value="in">В наличии</option>
-              <option value="low">Мало (1-5)</option>
-              <option value="out">Нет (0)</option>
-            </select>
-          </div>
-          <div class="col-md-2 d-flex gap-1">
-            <button class="btn btn-sm btn-primary w-100 rounded-3" @click="fetchProducts">
-              <i class="bi bi-filter"></i>
-            </button>
-            <button class="btn btn-sm btn-light rounded-3" @click="fetchProducts">
-              <i class="bi bi-arrow-clockwise"></i>
-            </button>
-          </div>
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+      <div class="card-header bg-white border-0 py-2 px-3 d-flex align-items-center gap-2">
+        <h6 class="mb-0 fw-bold">Остатки</h6>
+        <span v-if="isLoading" class="spinner-border spinner-border-sm text-primary"></span>
+        <div class="ms-auto d-flex align-items-center gap-2 small text-muted">
+          <span class="legend out"></span>Нет
+          <span class="legend low ms-2"></span>Мало
+          <span class="legend warn ms-2"></span>≤ 10
         </div>
       </div>
-    </div>
 
-    <!-- Table: Scrollable & Denser -->
-    <div class="card border-0 shadow-sm rounded-4 overflow-hidden inventory-table-card flex-grow-1">
       <div
         ref="tableContainer"
-        class="table-container table-responsive-cards custom-scrollbar"
-        style="max-height: calc(100vh - 250px); overflow-y: auto;"
-        :class="{ 'is-refetching': isLoading && filteredProducts.length > 0 }"
+        class="adm-table-wrap stock-scroll"
+        :class="{ 'is-refetching': isLoading && products.data.length > 0 }"
       >
-        <table class="table table-hover align-middle mb-0" style="table-layout: fixed;">
-          <thead class="sticky-top bg-white z-2 shadow-sm d-none d-lg-table-header-group">
-            <tr>
-              <th class="ps-4 py-2 col-resize" style="font-size: 0.7rem;">
-                Товар / Артикул
-                <div class="resizer" @mousedown="initResize($event)"></div>
-              </th>
-              <th
-                class="text-center py-2 col-resize position-relative"
-                style="width: 130px; font-size: 0.7rem; cursor: pointer; user-select: none;"
-                @click="toggleSort('stock_quantity')"
-              >
-                <div class="d-flex align-items-center justify-content-center gap-1">
+        <div v-if="isLoading && products.data.length === 0" class="adm-empty">
+          <div class="spinner-border text-primary"></div>
+        </div>
+        <div v-else-if="products.data.length === 0" class="adm-empty">
+          <i class="bi bi-box-seam fs-1 d-block mb-2 opacity-50"></i>
+          Ничего не найдено
+        </div>
+        <template v-else>
+          <!-- Телефон: карточки -->
+          <div class="adm-mlist d-md-none">
+            <div v-for="p in products.data" :key="p.id" class="adm-mcard" :class="'lvl-' + stockLevel(p)">
+              <div class="adm-mline">
+                <span class="adm-mtitle">{{ p.name }}</span>
+                <span class="adm-mval" :class="qtyOf(p) <= 5 ? 'text-danger' : 'text-dark'">
+                  {{ formatQty(p.stock_quantity) }} <small class="fw-normal text-muted">{{ p.unit || "шт" }}</small>
+                </span>
+              </div>
+              <div class="adm-mline">
+                <span class="adm-msub">
+                  <span class="font-monospace">{{ p.sku || "—" }}</span> · {{ p.category?.name || "—" }} ·
+                  {{ formatPrice(p.price) }}
+                </span>
+                <div class="adm-mactions">
+                  <NuxtLink :to="`/admin/inventory?product_id=${p.id}`" class="adm-ico primary" title="Списать / принять">
+                    <i class="bi bi-plus-slash-minus"></i>
+                  </NuxtLink>
+                  <NuxtLink :to="`/admin/products/update-${p.id}`" class="adm-ico" title="Изменить товар">
+                    <i class="bi bi-pencil"></i>
+                  </NuxtLink>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Планшет и десктоп: таблица в стиле «Товаров» -->
+          <table class="adm-table stock-table d-none d-md-table">
+            <colgroup>
+              <col style="width: 52px" />
+              <col style="width: 130px" />
+              <col />
+              <col style="width: 160px" />
+              <col style="width: 110px" />
+              <col style="width: 120px" />
+              <col style="width: 120px" />
+              <col style="width: 84px" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th class="adm-num">#</th>
+                <th>Артикул</th>
+                <th>Товар</th>
+                <th>Категория</th>
+                <th class="text-end">Цена</th>
+                <th class="text-end sortable" @click="toggleSort('stock_quantity')">
                   Остаток
-                  <span
-                    v-if="isLoading && sortField === 'stock_quantity'"
-                    class="spinner-border spinner-border-sm"
-                    style="width: 0.7rem; height: 0.7rem;"
-                    role="status"
-                  ></span>
-                  <i v-else-if="sortField === 'stock_quantity'" class="bi" :class="sortOrder === 'asc' ? 'bi-sort-up' : 'bi-sort-down'"></i>
-                  <i v-else class="bi bi-hash opacity-25"></i>
-                </div>
-                <div class="resizer" @mousedown.stop="initResize($event)"></div>
-              </th>
-              <th class="text-end pe-4 py-2" style="width: 120px; font-size: 0.7rem;">Действия</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Пока грузится следующая страница/фильтр, старые строки
-                 остаются на месте: если убрать их сразу, таблица схлопывается
-                 до одной строки со спиннером, страница укорачивается и
-                 браузер сбрасывает скролл наверх -->
-            <tr v-if="isLoading && filteredProducts.length === 0">
-              <td colspan="3" class="text-center p-4">
-                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-              </td>
-            </tr>
-            <tr v-else-if="filteredProducts.length === 0">
-              <td colspan="3" class="text-center p-4 text-muted small">
-                Ничего не найдено
-              </td>
-            </tr>
-            <tr v-for="p in filteredProducts" :key="p.id" :class="getRowClass(p.stock_quantity)">
-              <td class="ps-4 py-1">
-                <div class="fw-bold text-dark mb-0 small text-truncate">{{ p.name }}</div>
-                <div class="text-muted font-monospace fw-bold" style="font-size: 0.7rem;">{{ p.sku }}</div>
-              </td>
-              <td class="text-center py-1 text-nowrap" data-label="Остаток">
-                <div class="small fw-bold" :class="parseFloat(p.stock_quantity) <= 5 ? 'text-danger' : 'text-dark'">
-                  {{ formatQty(p.stock_quantity) }} <span class="fw-normal text-muted" style="font-size: 0.7rem;">шт.</span>
-                </div>
-              </td>
-              <td class="text-end pe-4 py-1 mobile-actions" data-label="Действия">
-                <div class="d-flex justify-content-end gap-1">
-                  <NuxtLink :to="`/admin/inventory?product_id=${p.id}`" class="btn btn-xs btn-outline-primary rounded-pill p-1 px-2" title="Списать/Принять">
-                    <i class="bi bi-plus-slash-minus" style="font-size: 0.8rem;"></i>
-                  </NuxtLink>
-                  <NuxtLink :to="`/admin/products/update-${p.id}`" class="btn btn-xs btn-light rounded-circle border shadow-sm p-1 px-2">
-                    <i class="bi bi-pencil" style="font-size: 0.8rem;"></i>
-                  </NuxtLink>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                  <i
+                    class="bi ms-1"
+                    :class="
+                      sortField === 'stock_quantity'
+                        ? sortOrder === 'asc'
+                          ? 'bi-sort-up text-primary'
+                          : 'bi-sort-down text-primary'
+                        : 'bi-arrow-down-up opacity-50'
+                    "
+                  ></i>
+                </th>
+                <th>Статус</th>
+                <th class="text-end"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in products.data" :key="p.id" :class="'lvl-' + stockLevel(p)">
+                <td class="adm-num">{{ p._idx }}</td>
+                <td class="adm-nowrap font-monospace fw-bold text-muted small text-truncate" :title="p.sku">{{ p.sku }}</td>
+                <td class="text-truncate fw-bold" :title="p.name">{{ p.name }}</td>
+                <td class="text-truncate">
+                  <span class="cat-pill">{{ p.category?.name || "—" }}</span>
+                </td>
+                <td class="text-end adm-nowrap font-monospace small">{{ formatPrice(p.price) }}</td>
+                <td class="text-end adm-nowrap fw-bold" :class="qtyOf(p) <= 5 ? 'text-danger' : 'text-dark'">
+                  {{ formatQty(p.stock_quantity) }}
+                  <span class="fw-normal text-muted small">{{ p.unit || "шт" }}</span>
+                </td>
+                <td class="adm-nowrap">
+                  <span class="stock-chip" :class="stockLevel(p)">{{ stockText[stockLevel(p)] }}</span>
+                </td>
+                <td class="text-end adm-nowrap">
+                  <div class="d-inline-flex gap-1">
+                    <NuxtLink :to="`/admin/inventory?product_id=${p.id}`" class="adm-ico primary" title="Списать / принять">
+                      <i class="bi bi-plus-slash-minus"></i>
+                    </NuxtLink>
+                    <NuxtLink :to="`/admin/products/update-${p.id}`" class="adm-ico" title="Изменить товар">
+                      <i class="bi bi-pencil"></i>
+                    </NuxtLink>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
       </div>
 
-      <div v-if="products.last_page > 1" class="card-footer bg-white border-0 p-2 d-flex justify-content-center border-top">
-        <nav>
-          <ul class="pagination pagination-xs mb-0">
-            <li class="page-item" :class="{ disabled: filters.page === 1 || isLoading }">
-              <button class="page-link" :disabled="isLoading" @click="changePage(filters.page - 1)" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">Назад</button>
-            </li>
-            <li class="page-item active">
-              <span class="page-link" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">
-                {{ filters.page }} из {{ products.last_page }}
-                <span v-if="isLoading" class="spinner-border spinner-border-sm ms-1" style="width: 0.7rem; height: 0.7rem;" role="status"></span>
-              </span>
-            </li>
-            <li class="page-item" :class="{ disabled: filters.page === products.last_page || isLoading }">
-              <button class="page-link" :disabled="isLoading" @click="changePage(filters.page + 1)" style="padding: 0.2rem 0.5rem; font-size: 0.7rem;">Вперед</button>
-            </li>
-          </ul>
-        </nav>
+      <div
+        v-if="products.last_page > 1"
+        class="card-footer bg-white border-top p-2 d-flex justify-content-center align-items-center gap-2"
+      >
+        <button class="btn btn-sm btn-light rounded-pill px-3" :disabled="filters.page <= 1 || isLoading" @click="changePage(filters.page - 1)">
+          <i class="bi bi-chevron-left"></i><span class="d-none d-sm-inline ms-1">Назад</span>
+        </button>
+        <span class="small fw-bold text-muted px-2">{{ filters.page }} из {{ products.last_page }}</span>
+        <button class="btn btn-sm btn-light rounded-pill px-3" :disabled="filters.page >= products.last_page || isLoading" @click="changePage(filters.page + 1)">
+          <span class="d-none d-sm-inline me-1">Вперёд</span><i class="bi bi-chevron-right"></i>
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Дозагрузка страницы/фильтра: старые строки остаются, но приглушены —
-   без схлопывания таблицы и без сброса скролла страницы */
-.table-container.is-refetching tbody {
+.stock-scroll {
+  max-height: calc(100vh - 330px);
+  min-height: 240px;
+  background: #f8fafc;
+}
+.stock-scroll.is-refetching .adm-mlist,
+.stock-scroll.is-refetching tbody {
   opacity: 0.5;
   pointer-events: none;
   transition: opacity 0.15s;
 }
-
-.luxury-header {
-  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-  position: relative;
+/* Жёсткая раскладка колонок, как на «Товарах»: строки в одну линию */
+.stock-table {
+  table-layout: fixed;
 }
-
-.luxury-header-pattern {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image: radial-gradient(circle at 2px 2px, rgba(255,255,255,0.05) 1px, transparent 0);
-  background-size: 24px 24px;
+.stock-table td {
+  overflow: hidden;
+  height: 34px;
 }
-
-.ls-1 {
-  letter-spacing: 0.1em;
-}
-
-.search-box .input-group-text, .search-box .form-control {
-  padding: 12px;
-}
-
-thead th {
-  background: #f8fafc;
-  color: #64748b;
-  font-size: 0.75rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 1.25rem 1rem;
-  border-bottom: 2px solid #f1f5f9;
-}
-
-.inventory-table-card tbody tr {
-  transition: all 0.2s;
-}
-
-.inventory-table-card tbody tr:hover {
-  background-color: #f8fafc;
-  transform: scale(1.002);
-}
-
-.product-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.stock-ok td {
-  background-color: rgba(22, 163, 74, 0.06) !important;
-}
-
-.stock-critical td {
-  background-color: rgba(220, 38, 38, 0.25) !important;
-}
-
-.stock-low td {
-  background-color: rgba(220, 38, 38, 0.12) !important;
-}
-
-.stock-warning td {
-  background-color: rgba(220, 38, 38, 0.06) !important;
-}
-
-.stock-critical:hover, .stock-low:hover, .stock-warning:hover {
-  filter: brightness(0.95);
-}
-
-.col-resize {
-  position: relative;
+.stock-table .sortable {
+  cursor: pointer;
   user-select: none;
 }
-
-.resizer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 8px;
-  height: 100%;
-  cursor: col-resize;
-  z-index: 10;
+.stock-table .sortable:hover {
+  color: #0369a1;
 }
+.cat-pill {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.05rem 0.55rem;
+  border-radius: 50px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.stock-chip {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.stock-chip.out { background: #dc2626; color: #fff; }
+.stock-chip.low { background: #fee2e2; color: #dc2626; }
+.stock-chip.warn { background: #fef3c7; color: #b45309; }
+.stock-chip.ok { background: #dcfce7; color: #16a34a; }
 
-.resizer:hover {
-  background: rgba(0, 0, 0, 0.05);
-  border-right: 2px solid #0d6efd;
+/* Подсветка строки по уровню остатка — лёгкая полоса слева */
+.stock-table tr.lvl-out > td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
+.stock-table tr.lvl-low > td:first-child { box-shadow: inset 3px 0 0 #f87171; }
+.stock-table tr.lvl-warn > td:first-child { box-shadow: inset 3px 0 0 #fbbf24; }
+.stock-table tr.lvl-out > td { background: #fef2f2; }
+.adm-mcard.lvl-out { box-shadow: inset 3px 0 0 #dc2626; background: #fef2f2; }
+.adm-mcard.lvl-low { box-shadow: inset 3px 0 0 #f87171; }
+.adm-mcard.lvl-warn { box-shadow: inset 3px 0 0 #fbbf24; }
+
+.legend {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.legend.out { background: #dc2626; }
+.legend.low { background: #f87171; }
+.legend.warn { background: #fbbf24; }
+
+.search-pill-inner {
+  background: #f1f5f9;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.search-pill-inner .input-group-text,
+.search-pill-inner .form-control {
+  background: transparent;
+}
+.search-pill-inner .input-group-text {
+  color: #64748b;
+}
+@media (max-width: 767.98px) {
+  .stock-scroll {
+    max-height: none;
+  }
 }
 </style>

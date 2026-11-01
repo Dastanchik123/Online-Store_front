@@ -7,7 +7,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
 
   if (import.meta.client) {
     if (!authStore.isAuth) {
-      return navigateTo("/auth/login");
+      return navigateTo("/auth/staff");
     }
 
     const required = to.meta.permission as string | string[] | undefined;

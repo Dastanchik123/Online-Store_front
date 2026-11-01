@@ -12,7 +12,7 @@ const buildFiltersFromQuery = (query) => ({
   min_price: query.min_price ? Number(query.min_price) : undefined,
   max_price: query.max_price ? Number(query.max_price) : undefined,
   in_stock: query.in_stock === "true" ? true : undefined,
-  sort_by: query.sort_by || "created_at",
+  sort_by: query.sort_by || "popular",
   sort_order: query.sort_order || "desc",
   per_page: 84,
   page: query.page ? Number(query.page) : 1,
@@ -23,6 +23,9 @@ const buildFiltersFromQuery = (query) => ({
 // живёт своей жизнью; при переходе по ссылке/кнопкам браузера синхронизируем
 // его из URL прямо в фетчере ниже (единая точка, без гонки двух watch'ей).
 const filters = ref(buildFiltersFromQuery(route.query));
+
+// Свежий ответ фонового SWR-обновления для текущей выдачи (см. фетчер ниже)
+const refreshedProducts = shallowRef(null);
 
 const viewMode = ref("grid");
 const isCategoriesOpen = ref(true);
@@ -38,8 +41,15 @@ const {
   () => `catalog-${route.fullPath}`,
   async () => {
     filters.value = buildFiltersFromQuery(route.query);
+    // SWR отдаёт список из кэша, свежий (цены/остатки) приходит фоном —
+    // подменяем, если пользователь всё ещё на той же выдаче
+    const requestedPath = route.fullPath;
+    refreshedProducts.value = null;
+    const onRefresh = (fresh) => {
+      refreshedProducts.value = { path: requestedPath, data: fresh };
+    };
     const [productsData, categoriesData] = await Promise.all([
-      getProducts(filters.value),
+      getProducts(filters.value, { onRefresh }),
       getCategories({ is_active: true }),
     ]);
     return { products: productsData, categories: categoriesData };
@@ -47,7 +57,11 @@ const {
   { watch: [() => route.fullPath] },
 );
 
-const products = computed(() => data.value?.products || null);
+const products = computed(() =>
+  refreshedProducts.value?.path === route.fullPath
+    ? refreshedProducts.value.data
+    : data.value?.products || null,
+);
 const categories = computed(() => data.value?.categories || []);
 
 const activeCategory = computed(() =>
@@ -59,6 +73,20 @@ const activeCategory = computed(() =>
 // H1 должен отражать реальное содержимое страницы (см. setSeo title ниже),
 // а не всегда одну и ту же надпись "Каталог товаров"
 const title = computed(() => activeCategory.value?.name || "Каталог товаров");
+
+// «1 товар», «3 товара», «501 товар», «12 товаров»
+const countText = computed(() => {
+  const n = products.value?.total || 0;
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  const word =
+    mod10 === 1 && mod100 !== 11
+      ? "товар"
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? "товара"
+        : "товаров";
+  return `${n.toLocaleString("ru-RU")} ${word}`;
+});
 
 // Динамические title/description: если выбрана категория — используем её
 // название и count товаров, иначе — общее описание каталога
@@ -124,7 +152,7 @@ const resetFilters = () => {
     min_price: undefined,
     max_price: undefined,
     in_stock: undefined,
-    sort_by: "created_at",
+    sort_by: "popular",
     sort_order: "desc",
     per_page: 84,
     page: 1,
@@ -192,10 +220,30 @@ const goToPage = (page) => {
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
+const searchInput = ref(null);
+const submitSearch = () => {
+  filters.value.search = (filters.value.search || "").trim();
+  // Убираем фокус, чтобы на телефоне закрылась клавиатура
+  searchInput.value?.blur();
+  applyFilters();
+};
+const clearSearch = () => {
+  filters.value.search = "";
+  applyFilters();
+};
+
 const isMobileFiltersOpen = ref(false);
 const toggleMobileFilters = () => {
   isMobileFiltersOpen.value = !isMobileFiltersOpen.value;
 };
+
+// Пока открыта мобильная панель фильтров, страница под ней не прокручивается
+watch(isMobileFiltersOpen, (open) => {
+  if (import.meta.client) document.body.style.overflow = open ? "hidden" : "";
+});
+onBeforeUnmount(() => {
+  if (import.meta.client) document.body.style.overflow = "";
+});
 
 // Улучшаем отступы и адаптивность глобально через стили
 useHead({
@@ -222,15 +270,39 @@ useHead({
 <template>
   <div class="catalog-page">
     <div class="container py-4">
-      <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h3 fw-bold mb-0">{{ title }}</h1>
+      <!-- Поиск всегда на виду вверху страницы — раньше он жил в панели
+           фильтров, и на телефоне его не было видно без кнопки «Фильтры» -->
+      <form class="catalog-search mb-4" role="search" @submit.prevent="submitSearch">
+        <i class="bi bi-search catalog-search-icon"></i>
+        <input
+          ref="searchInput"
+          v-model="filters.search"
+          type="search"
+          enterkeyhint="search"
+          class="catalog-search-input"
+          :placeholder="activeCategory ? `Поиск в «${activeCategory.name}»…` : 'Поиск товара…'"
+          aria-label="Поиск товара"
+        />
         <button
-          class="btn btn-outline-primary d-lg-none"
-          @click="toggleMobileFilters"
+          v-if="filters.search"
+          type="button"
+          class="catalog-search-clear"
+          aria-label="Очистить поиск"
+          @click="clearSearch"
         >
-          <i class="bi bi-filter"></i> Фильтры
+          <i class="bi bi-x-lg"></i>
         </button>
-      </div>
+        <button
+          type="button"
+          class="catalog-search-photo"
+          title="Найти по фото"
+          aria-label="Найти по фото"
+          @click="isPhotoSearchOpen = true"
+        >
+          <i class="bi bi-camera"></i>
+        </button>
+        <button type="submit" class="catalog-search-btn">Найти</button>
+      </form>
 
       <div class="row g-4">
         <!-- Sidebar -->
@@ -245,37 +317,6 @@ useHead({
             </div>
 
             <div class="filter-card shadow-sm">
-              <!-- Search -->
-              <div class="filter-section p-4 border-bottom">
-                <div class="d-flex align-items-center mb-3">
-                  <i class="bi bi-search text-primary me-2"></i>
-                  <h6 class="mb-0 fw-bold">Поиск</h6>
-                </div>
-                <div class="search-input-wrapper d-flex gap-2">
-                  <div class="flex-grow-1 position-relative">
-                    <input
-                      v-model="filters.search"
-                      type="text"
-                      class="form-control"
-                      placeholder="Название товара..."
-                      @keyup.enter="applyFilters"
-                    />
-                    <i
-                      class="bi bi-arrow-return-left search-icon"
-                      title="Нажмите Enter для поиска"
-                    ></i>
-                  </div>
-                  <button
-                    type="button"
-                    class="btn btn-outline-primary flex-shrink-0"
-                    title="Найти по фото"
-                    @click="isPhotoSearchOpen = true"
-                  >
-                    <i class="bi bi-camera"></i>
-                  </button>
-                </div>
-              </div>
-
               <!-- Categories -->
               <div class="filter-section p-0 border-bottom">
                 <div
@@ -388,22 +429,42 @@ useHead({
 
         <!-- Main Content -->
         <main class="col-lg-9">
-          <div
-            class="catalog-toolbar d-flex justify-content-between align-items-center mb-4 p-3 bg-white shadow-sm rounded-3"
-          >
-            <div class="text-muted small">
-              Найдено: <span class="fw-bold">{{ products?.total || 0 }}</span>
-            </div>
-            <div class="d-flex gap-3 align-items-center">
-              <select
-                class="form-select form-select-sm border-0 bg-light"
-                :value="`${filters.sort_by}:${filters.sort_order}`"
-                @change="handleSortChange"
-              >
-                <option value="created_at:desc">Новинки</option>
-                <option value="price:asc">Дешевле</option>
-                <option value="price:desc">Дороже</option>
-              </select>
+          <!-- Название категории стоит прямо над её товарами,
+               количество — рядом с названием -->
+          <div class="catalog-head mb-4">
+            <nav aria-label="Навигация">
+              <ol class="catalog-crumbs">
+                <li><NuxtLink to="/">Главная</NuxtLink></li>
+                <li v-if="activeCategory"><NuxtLink to="/catalog">Каталог</NuxtLink></li>
+                <li v-else aria-current="page">Каталог</li>
+                <li v-if="activeCategory" aria-current="page">{{ activeCategory.name }}</li>
+              </ol>
+            </nav>
+            <div class="catalog-head-row">
+              <div class="catalog-head-title">
+                <h1 class="catalog-title">{{ title }}</h1>
+                <span v-if="products" class="catalog-count">{{ countText }}</span>
+              </div>
+              <div class="catalog-head-actions">
+                <button
+                  class="btn btn-outline-primary btn-sm d-lg-none"
+                  @click="toggleMobileFilters"
+                >
+                  <i class="bi bi-filter"></i> Фильтры
+                </button>
+                <select
+                  class="form-select form-select-sm catalog-sort"
+                  aria-label="Сортировка"
+                  :value="`${filters.sort_by}:${filters.sort_order}`"
+                  @change="handleSortChange"
+                >
+                  <option value="popular:desc">Популярные</option>
+                  <option value="created_at:desc">Новинки</option>
+                  <option value="name:asc">По названию</option>
+                  <option value="price:asc">Дешевле</option>
+                  <option value="price:desc">Дороже</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -465,6 +526,7 @@ useHead({
 .catalog-page {
   background-color: #f8fafc;
   min-height: 100vh;
+  min-height: 100dvh;
   width: 100%;
 }
 .catalog-page .container {
@@ -486,38 +548,141 @@ useHead({
   border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
-.search-input-wrapper {
-  position: relative;
+/* Шапка над товарами: крошки, название с количеством, фильтры и сортировка */
+.catalog-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0 0 0.35rem;
+  padding: 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
 }
-
-.search-input-wrapper .form-control {
-  padding-right: 2.6rem;
+.catalog-crumbs li + li::before {
+  content: "/";
+  margin: 0 0.4rem;
+  color: #cbd5e1;
 }
+.catalog-crumbs a {
+  color: #64748b;
+  text-decoration: none;
+}
+.catalog-crumbs a:hover { color: #0ea5e9; }
+.catalog-crumbs [aria-current] { color: #0f172a; }
 
-.search-input-wrapper .search-icon {
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  transform: translateY(-50%);
+.catalog-head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+.catalog-head-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  min-width: 0;
+}
+.catalog-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+.catalog-count {
+  font-size: 0.9rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+.catalog-head-actions {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: #f1f5f9;
+  gap: 0.5rem;
+}
+.catalog-sort {
+  width: auto;
+  min-width: 150px;
+}
+@media (min-width: 992px) {
+  .catalog-title { font-size: 1.6rem; }
+}
+/* Телефон: кнопки под названием, «Фильтры» слева, сортировка справа */
+@media (max-width: 575.98px) {
+  .catalog-head-actions {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+}
+
+/* Строка поиска под заголовком: на телефоне во всю ширину,
+   на планшете и шире — не длиннее 560px, по центру */
+.catalog-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: #fff;
+  border: 2px solid #38bdf8;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+.catalog-search-icon {
+  position: absolute;
+  left: 0.9rem;
   color: #94a3b8;
-  font-size: 0.9rem;
   pointer-events: none;
 }
-
-.search-hint {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.5rem;
-  font-size: 0.75rem;
+.catalog-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  padding: 0 0.5rem 0 2.5rem;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #0f172a;
+  /* 16px — иначе iOS увеличивает страницу при фокусе */
+  font-size: 16px;
+}
+.catalog-search-input::-webkit-search-cancel-button { display: none; }
+.catalog-search-clear,
+.catalog-search-photo {
+  flex-shrink: 0;
+  height: 46px;
+  padding: 0 0.65rem;
+  border: none;
+  background: transparent;
   color: #94a3b8;
+}
+.catalog-search-clear:hover,
+.catalog-search-photo:hover { color: #0ea5e9; }
+.catalog-search-btn {
+  flex-shrink: 0;
+  height: 46px;
+  padding: 0 1.4rem;
+  border: none;
+  background: #38bdf8;
+  color: #0f172a;
+  font-weight: 700;
+  transition: background 0.2s;
+}
+.catalog-search-btn:hover { background: #0ea5e9; }
+@media (min-width: 768px) {
+  .catalog-search {
+    max-width: 560px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .catalog-search-input,
+  .catalog-search-clear,
+  .catalog-search-photo,
+  .catalog-search-btn { height: 42px; }
+}
+@media (max-width: 575.98px) {
+  .catalog-search-btn { padding: 0 1rem; }
 }
 
 .category-list {
@@ -565,13 +730,20 @@ useHead({
     width: 100% !important;
     max-width: 320px;
     height: 100vh;
+    height: 100dvh;
     background: white;
     z-index: 2000;
     margin: 0;
     box-shadow: 20px 0 50px rgba(0, 0, 0, 0.2);
     overflow-y: auto;
+    /* прокрутка не "проваливается" на страницу под панелью */
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     display: flex;
     flex-direction: column;
+  }
+  .filter-header {
+    flex-shrink: 0;
   }
   .filter-sidebar.mobile-open {
     left: 0;
@@ -581,6 +753,9 @@ useHead({
     border-radius: 0;
     box-shadow: none !important;
     background: transparent;
+    /* иначе flex сжимает карточку до высоты экрана и обрезает её
+       (overflow: hidden) — тогда панели нечего прокручивать */
+    flex-shrink: 0;
   }
   .filter-overlay {
     position: fixed;
@@ -588,6 +763,7 @@ useHead({
     left: 0;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     background: rgba(15, 23, 42, 0.5);
     backdrop-filter: blur(4px);
     z-index: 1540;

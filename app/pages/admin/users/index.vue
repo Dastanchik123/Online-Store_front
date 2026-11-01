@@ -359,6 +359,7 @@ onMounted(() => {
       :show="createModal.isOpen"
       title="Новый пользователь"
       @close="createModal.isOpen = false"
+      @submit="submitCreateUser"
     >
       <div class="mb-3">
         <label class="form-label">Имя</label>
@@ -405,32 +406,18 @@ onMounted(() => {
           <option value="admin">Администратор</option>
         </select>
       </div>
-      <div v-if="createModal.form.role !== 'user'" class="mb-3">
-        <label class="form-label">Номер кассы</label>
-        <div class="input-group">
-          <span class="input-group-text">k</span>
-          <input 
-            type="number" 
-            class="form-control" 
-            min="1"
-            placeholder="1"
-            :value="createModal.form.terminal_id ? createModal.form.terminal_id.replace('k', '') : ''"
-            @input="e => createModal.form.terminal_id = e.target.value ? 'k' + e.target.value : ''"
-          />
-        </div>
-      </div>
-
       <template #footer>
         <button
+          type="button"
           class="btn btn-light rounded-pill px-4"
           @click="createModal.isOpen = false"
         >
           Отмена
         </button>
         <button
+          type="submit"
           class="btn btn-primary rounded-pill px-4"
           :disabled="isCreating"
-          @click="submitCreateUser"
         >
           {{ isCreating ? "Создание..." : "Создать" }}
         </button>

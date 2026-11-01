@@ -702,6 +702,7 @@ onBeforeUnmount(() =>
 <style scoped>
 .tsd-page {
   min-height: 100vh;
+  min-height: 100dvh;
   background: #f1f5f9;
   display: flex;
   flex-direction: column;
@@ -711,7 +712,8 @@ onBeforeUnmount(() =>
   background: #0f172a;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   color: white;
-  padding: 0.5rem 1rem;
+  /* + статус-бар установленного PWA на iOS (black-translucent) */
+  padding: calc(0.5rem + env(safe-area-inset-top, 0px)) 1rem 0.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;

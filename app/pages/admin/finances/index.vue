@@ -145,6 +145,31 @@ const resetForm = () => {
   };
 };
 
+const resetFilters = () => {
+  filters.value = {
+    type: "expense",
+    category: "",
+    payment_method: "",
+    user_id: "",
+    date_from: "",
+    date_to: "",
+    page: 1,
+  };
+};
+
+// Суммы по отфильтрованному списку — видно итог периода без калькулятора
+const listTotals = computed(() =>
+  transactions.value.reduce(
+    (acc, t) => {
+      const amount = Number(t.amount) || 0;
+      if (t.type === "expense") acc.expense += amount;
+      else acc.income += amount;
+      return acc;
+    },
+    { expense: 0, income: 0 },
+  ),
+);
+
 const formatPrice = (price: any) => {
   return parseFloat(price || 0).toLocaleString("ru-RU") + " сом";
 };
@@ -162,55 +187,67 @@ watch(filters, fetchTransactions, { deep: true });
 </script>
 
 <template>
-  <div class="finances-page p-4 animate-fade-in">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <div>
-        <h1 class="h3 fw-black mb-1">Учёт расходов и доходов</h1>
+  <div class="adm-page p-3 p-md-4 animate-fade-in">
+    <div class="adm-head">
+      <div class="adm-head-title">
+        <h1 class="h3">Учёт расходов и доходов</h1>
         <p class="text-muted small mb-0">
-          Управление операционными затратами (налоги, интернет и пр.)
+          Операционные затраты: налоги, интернет и пр.
         </p>
       </div>
-
-      <div class="d-flex gap-4">
-        <div
-          class="d-flex align-items-center bg-white shadow-sm px-4 py-2 rounded-4 border-start border-4 border-success"
+      <div class="adm-head-actions">
+        <button
+          class="btn btn-primary rounded-pill px-4 shadow-sm fw-bold"
+          @click="resetForm(); showModal = true"
         >
-          <div class="me-3 bg-success-subtle p-2 rounded-circle text-success">
-            <i class="bi bi-cash-stack fs-5"></i>
-          </div>
-          <div>
-            <div class="small text-muted fw-bold">НАЛИЧНЫЕ</div>
-            <div class="fw-black fs-5">{{ formatPrice(balances.cash) }}</div>
-          </div>
-        </div>
-        <div
-          class="d-flex align-items-center bg-white shadow-sm px-4 py-2 rounded-4 border-start border-4 border-primary"
-        >
-          <div class="me-3 bg-primary-subtle p-2 rounded-circle text-primary">
-            <i class="bi bi-bank fs-5"></i>
-          </div>
-          <div>
-            <div class="small text-muted fw-bold">НА СЧЕТУ</div>
-            <div class="fw-black fs-5">{{ formatPrice(balances.bank) }}</div>
-          </div>
-        </div>
+          <i class="bi bi-plus-lg me-1"></i> Добавить операцию
+        </button>
       </div>
-
-      <button
-        class="btn btn-primary rounded-pill px-4 shadow-sm fw-bold"
-        @click="showModal = true"
-      >
-        <i class="bi bi-plus-lg me-2"></i> Добавить операцию
-      </button>
     </div>
 
-    
-    <div class="card border-0 shadow-sm rounded-4 p-4 mb-4">
-      <div class="d-flex flex-nowrap gap-2 align-items-end">
-        <div class="flex-fill" style="min-width: 0">
-          <label class="form-label small fw-bold text-muted text-uppercase"
-            >Тип</label
-          >
+    <div class="adm-stats">
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-success-subtle text-success">
+          <i class="bi bi-cash-stack"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Наличные</div>
+          <div class="adm-stat-value">{{ formatPrice(balances.cash) }}</div>
+        </div>
+      </div>
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-primary-subtle text-primary">
+          <i class="bi bi-bank"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">На счету</div>
+          <div class="adm-stat-value">{{ formatPrice(balances.bank) }}</div>
+        </div>
+      </div>
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-danger-subtle text-danger">
+          <i class="bi bi-arrow-down-right"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Расходы в списке</div>
+          <div class="adm-stat-value text-danger">{{ formatPrice(listTotals.expense) }}</div>
+        </div>
+      </div>
+      <div class="adm-stat">
+        <div class="adm-stat-ico bg-success-subtle text-success">
+          <i class="bi bi-arrow-up-right"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="adm-stat-label">Доходы в списке</div>
+          <div class="adm-stat-value text-success">{{ formatPrice(listTotals.income) }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 p-3 mb-3">
+      <div class="adm-filters">
+        <div>
+          <label class="form-label">Тип</label>
           <select
             v-model="filters.type"
             class="form-select border-0 bg-light rounded-3"
@@ -220,10 +257,8 @@ watch(filters, fetchTransactions, { deep: true });
             <option value="income">Прочие доходы</option>
           </select>
         </div>
-        <div class="flex-fill" style="min-width: 0">
-          <label class="form-label small fw-bold text-muted text-uppercase"
-            >Категория</label
-          >
+        <div>
+          <label class="form-label">Категория</label>
           <select
             v-model="filters.category"
             class="form-select border-0 bg-light rounded-3"
@@ -238,10 +273,8 @@ watch(filters, fetchTransactions, { deep: true });
             </option>
           </select>
         </div>
-        <div class="flex-fill" style="min-width: 0">
-          <label class="form-label small fw-bold text-muted text-uppercase"
-            >Способ оплаты</label
-          >
+        <div>
+          <label class="form-label">Способ оплаты</label>
           <select
             v-model="filters.payment_method"
             class="form-select border-0 bg-light rounded-3"
@@ -251,10 +284,8 @@ watch(filters, fetchTransactions, { deep: true });
             <option value="bank">Безнал</option>
           </select>
         </div>
-        <div class="flex-fill" style="min-width: 0">
-          <label class="form-label small fw-bold text-muted text-uppercase"
-            >Сотрудник</label
-          >
+        <div>
+          <label class="form-label">Сотрудник</label>
           <select
             v-model="filters.user_id"
             class="form-select border-0 bg-light rounded-3"
@@ -269,148 +300,127 @@ watch(filters, fetchTransactions, { deep: true });
             </option>
           </select>
         </div>
-        <div class="flex-fill" style="min-width: 0">
-          <label class="form-label small fw-bold text-muted text-uppercase"
-            >От</label
-          >
+        <div>
+          <label class="form-label">С даты</label>
           <input
             v-model="filters.date_from"
             type="date"
             class="form-control border-0 bg-light rounded-3"
           />
         </div>
-        <div class="flex-fill" style="min-width: 0">
-          <label class="form-label small fw-bold text-muted text-uppercase"
-            >До</label
-          >
+        <div>
+          <label class="form-label">По дату</label>
           <input
             v-model="filters.date_to"
             type="date"
             class="form-control border-0 bg-light rounded-3"
           />
         </div>
-        <div class="flex-shrink-0">
-          <button
-            class="btn btn-light rounded-3 text-truncate"
-            @click="
-              filters = {
-                type: 'expense',
-                category: '',
-                payment_method: '',
-                user_id: '',
-                date_from: '',
-                date_to: '',
-                page: 1,
-              }
-            "
-          >
-            Сбросить
+        <div>
+          <button class="btn btn-light rounded-3 w-100" @click="resetFilters">
+            <i class="bi bi-x-circle me-1"></i>Сбросить
           </button>
         </div>
       </div>
     </div>
 
-    
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
-      <div class="table-responsive" style="min-height: calc(100vh - 350px); max-height: calc(100vh - 350px); overflow-y: auto; background: #f8fafc;">
-        <table class="table table-hover align-middle mb-0">
-          <thead class="bg-light">
-            <tr>
-              <th
-                class="ps-4 py-3 border-0 small text-uppercase fw-bold text-muted"
-              >
-                Дата
-              </th>
-              <th class="py-3 border-0 small text-uppercase fw-bold text-muted">
-                Категория
-              </th>
-              <th class="py-3 border-0 small text-uppercase fw-bold text-muted">
-                Описание
-              </th>
-              <th class="py-3 border-0 small text-uppercase fw-bold text-muted">
-                Сотрудник
-              </th>
-              <th
-                class="py-3 border-0 small text-uppercase fw-bold text-muted text-end"
-              >
-                Сумма
-              </th>
-              <th class="py-3 border-0 pe-4 text-end"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="loading" v-for="i in 3" :key="i">
-              <td colspan="5" class="py-4 text-center">
-                <div class="placeholder-glow">
-                  <span class="placeholder col-12"></span>
-                </div>
-              </td>
-            </tr>
-            <tr v-else-if="transactions.length === 0">
-              <td colspan="5" class="py-5 text-center text-muted">
-                Операций не найдено
-              </td>
-            </tr>
-            <tr v-for="t in transactions" :key="t.id">
-              <td class="ps-4 fw-medium">{{ formatDate(t.created_at) }}</td>
-              <td>
-                <span
-                  class="badge rounded-pill px-3"
-                  :class="
-                    t.type === 'expense'
-                      ? 'bg-danger-subtle text-danger'
-                      : 'bg-success-subtle text-success'
-                  "
-                >
-                  {{ getCategoryLabel(t.category) }}
-                </span>
-              </td>
-              <td class="text-muted small">{{ t.description || "—" }}</td>
-              <td class="small">
-                <div v-if="t.user" class="d-flex align-items-center">
-                  <div
-                    class="avatar-xs bg-light rounded-circle me-1 text-center"
-                    style="
-                      width: 20px;
-                      height: 20px;
-                      font-size: 10px;
-                      line-height: 20px;
-                    "
-                  >
-                    <i class="bi bi-person text-secondary"></i>
-                  </div>
-                  {{ t.user.name }}
-                </div>
-                <span v-else class="text-muted opacity-50">—</span>
-              </td>
-              <td
-                class="text-end fw-bold"
+      <div v-if="loading" class="adm-empty">
+        <div class="spinner-border text-primary"></div>
+      </div>
+      <div v-else-if="transactions.length === 0" class="adm-empty">
+        <i class="bi bi-wallet2 fs-1 d-block mb-2 opacity-50"></i>
+        Операций не найдено
+      </div>
+      <template v-else>
+        <!-- Телефон: карточки -->
+        <div class="adm-mlist d-md-none">
+          <div v-for="t in transactions" :key="t.id" class="adm-mcard">
+            <div class="adm-mline">
+              <span class="adm-mtitle">{{ getCategoryLabel(t.category) }}</span>
+              <span
+                class="adm-mval"
                 :class="t.type === 'expense' ? 'text-danger' : 'text-success'"
               >
-                {{ t.type === "expense" ? "-" : "+"
-                }}{{ formatPrice(t.amount) }}
-                <div class="small fw-normal opacity-50">
-                  {{ t.payment_method === "cash" ? "Наличные" : "Безнал" }}
-                </div>
-              </td>
-              <td class="pe-4 text-end">
-                <button
-                  class="btn btn-sm btn-light text-primary rounded-pill me-2"
-                  @click="handleEdit(t)"
-                >
+                {{ t.type === "expense" ? "−" : "+" }}{{ formatPrice(t.amount) }}
+              </span>
+            </div>
+            <div v-if="t.description" class="adm-msub text-wrap">{{ t.description }}</div>
+            <div class="adm-mline">
+              <span class="adm-msub">
+                {{ formatDate(t.created_at) }} ·
+                {{ t.payment_method === "cash" ? "Наличные" : "Безнал" }}
+                <template v-if="t.user"> · {{ t.user.name }}</template>
+              </span>
+              <div class="adm-mactions">
+                <button class="adm-ico primary" title="Изменить" @click="handleEdit(t)">
                   <i class="bi bi-pencil"></i>
                 </button>
-                <button
-                  class="btn btn-sm btn-light-danger rounded-pill"
-                  @click="handleDelete(t.id)"
-                >
+                <button class="adm-ico danger" title="Удалить" @click="handleDelete(t.id)">
                   <i class="bi bi-trash"></i>
                 </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Планшет и десктоп: плотная таблица -->
+        <div class="adm-table-wrap d-none d-md-block" style="max-height: calc(100vh - 380px); min-height: 240px;">
+          <table class="adm-table">
+            <thead>
+              <tr>
+                <th class="adm-num">#</th>
+                <th>Дата</th>
+                <th>Категория</th>
+                <th>Описание</th>
+                <th>Сотрудник</th>
+                <th>Оплата</th>
+                <th class="text-end">Сумма</th>
+                <th class="text-end" style="width: 80px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(t, i) in transactions" :key="t.id">
+                <td class="adm-num">{{ i + 1 }}</td>
+                <td class="adm-nowrap">{{ formatDate(t.created_at) }}</td>
+                <td class="adm-nowrap">
+                  <span
+                    class="badge rounded-pill px-2"
+                    :class="
+                      t.type === 'expense'
+                        ? 'bg-danger-subtle text-danger'
+                        : 'bg-success-subtle text-success'
+                    "
+                  >
+                    {{ getCategoryLabel(t.category) }}
+                  </span>
+                </td>
+                <td class="adm-clip text-muted" :title="t.description">{{ t.description || "—" }}</td>
+                <td class="adm-nowrap">{{ t.user?.name || "—" }}</td>
+                <td class="adm-nowrap text-muted">
+                  {{ t.payment_method === "cash" ? "Наличные" : "Безнал" }}
+                </td>
+                <td
+                  class="adm-nowrap text-end fw-bold"
+                  :class="t.type === 'expense' ? 'text-danger' : 'text-success'"
+                >
+                  {{ t.type === "expense" ? "−" : "+" }}{{ formatPrice(t.amount) }}
+                </td>
+                <td class="adm-nowrap text-end">
+                  <div class="d-inline-flex gap-1">
+                    <button class="adm-ico primary" title="Изменить" @click="handleEdit(t)">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="adm-ico danger" title="Удалить" @click="handleDelete(t.id)">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     
@@ -552,9 +562,8 @@ watch(filters, fetchTransactions, { deep: true });
 </template>
 
 <style scoped>
-.finances-page {
-  background-color: #f8fafc;
-  min-height: 100vh;
+.min-w-0 {
+  min-width: 0;
 }
 .fw-black {
   font-weight: 900;

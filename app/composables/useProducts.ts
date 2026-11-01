@@ -196,7 +196,7 @@ export const useProducts = () => {
     }`;
     return await api.downloadFile(
       endpoint,
-      `Products_Export_${new Date().toISOString().split("T")[0]}.xls`
+      `Products_Export_${new Date().toISOString().split("T")[0]}.xlsx`
     );
   };
 

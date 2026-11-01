@@ -5,7 +5,7 @@ definePageMeta({
   permission: "products.view",
 });
 
-const { queue, clearQueue } = usePrintQueue();
+const { queue, clearQueue, reloadQueue } = usePrintQueue();
 const { printers, activePrinter, fetchPrinters, printLabelBatch } = usePrinter();
 const { settings, fetchPublicSettings } = useSettings();
 const { resolveDefaultTemplateId, setDefaultTemplateId, setPrinterTemplateId, getRibbonWidthMm } =
@@ -126,10 +126,64 @@ const removeItem = (index) => {
   queue.value.splice(index, 1);
 };
 
+// Цена, которая попадёт на этикетку: со скидкой, если она есть и меньше
+// обычной (так же решает usePrinter.ts при печати)
+const formatLabelPrice = (item) => {
+  const regular = Number(item.price || 0);
+  const sale = Number(item.sale_price || 0);
+  const price = sale > 0 && sale < regular ? sale : regular;
+  return price.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) + " сом";
+};
+
+// В очереди лежит копия названия/артикула/цены на момент добавления — цену
+// могли поменять после. Перед показом и перед печатью подтягиваем товары из
+// БД (ids — мимо серверного кэша, noCache — мимо SWR-кэша useApi), чтобы на
+// этикетку никогда не попала старая цена. false — связи нет, печатать нельзя.
+const api = useApi();
+const isRefreshing = ref(false);
+const refreshQueueProducts = async () => {
+  if (queue.value.length === 0) return true;
+  isRefreshing.value = true;
+  try {
+    const ids = [...new Set(queue.value.map((i) => i.id))].join(",");
+    const res = await api.apiFetch(`/products?ids=${ids}&per_page=-1&fields=list`, { noCache: true });
+    const fresh = new Map((res?.data || []).map((p) => [String(p.id), p]));
+    const missing = queue.value.filter((i) => !fresh.has(String(i.id)));
+    queue.value = queue.value
+      .filter((i) => fresh.has(String(i.id)))
+      .map((i) => {
+        const p = fresh.get(String(i.id));
+        return {
+          ...i,
+          name: p.name,
+          sku: p.sku || "",
+          price: Number(p.price || 0),
+          sale_price: Number(p.sale_price || 0),
+        };
+      });
+    if (missing.length) {
+      uiStore.addToast(
+        `Убраны из очереди удалённые товары: ${missing.map((i) => i.name).join(", ")}`,
+        "warning",
+      );
+    }
+    return true;
+  } catch (e) {
+    console.error("Failed to refresh queue products", e);
+    return false;
+  } finally {
+    isRefreshing.value = false;
+  }
+};
+
 onMounted(async () => {
   selectedPrinter.value = activePrinter.value;
   if (isElectron.value) await fetchPrinters();
-  if (!Object.keys(settings.value || {}).length) await fetchPublicSettings();
+  // Всегда свежие настройки: шаблоны этикеток и очередь могли поменять
+  // в редакторе или с другой кассы, пока страница была закрыта
+  await fetchPublicSettings({ fresh: true });
+  await reloadQueue();
+  await refreshQueueProducts();
 });
 
 const print = async () => {
@@ -149,6 +203,11 @@ const print = async () => {
   }
   isPrinting.value = true;
   try {
+    if (!(await refreshQueueProducts())) {
+      uiStore.addToast("Нет связи с сервером — не удалось проверить актуальные цены, печать отменена", "error");
+      return;
+    }
+    if (queue.value.length === 0) return;
     await printLabelBatch(
       queue.value.map((item) => ({
         product: {
@@ -173,24 +232,25 @@ const print = async () => {
 </script>
 
 <template>
-  <div class="p-4 animate-fade-in">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <div>
+  <div class="p-3 p-md-4 animate-fade-in">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 mb-md-4">
+      <div class="me-auto">
         <h1 class="h3 fw-bold mb-1">Печать этикеток</h1>
-        <p class="text-muted small">
+        <p class="text-muted small mb-0">
           Товаров в очереди: {{ queue.length }} · этикеток всего:
           {{ totalLabels }}
+          <span v-if="isRefreshing" class="spinner-border spinner-border-sm ms-1 align-middle" role="status"></span>
         </p>
       </div>
       <div class="d-flex gap-2">
         <button
-          class="btn btn-primary rounded-pill px-4"
+          class="btn btn-primary rounded-pill px-3 px-md-4 text-nowrap"
           @click="showProductPicker = true"
         >
-          <i class="bi bi-plus-lg me-1"></i>Добавить товар
+          <i class="bi bi-plus-lg me-1"></i>Добавить<span class="d-none d-sm-inline"> товар</span>
         </button>
         <button
-          class="btn btn-outline-danger rounded-pill px-3"
+          class="btn btn-outline-danger rounded-pill px-3 text-nowrap"
           :disabled="queue.length === 0"
           @click="clearQueue"
         >
@@ -208,43 +268,49 @@ const print = async () => {
       </div>
     </div>
 
-    <div v-else class="row g-4">
+    <div v-else class="row g-3 g-md-4">
       <div class="col-lg-8">
-        <div class="card border-0 shadow-sm rounded-4 p-0">
-          <table class="table mb-0 align-middle">
+        <div class="card border-0 shadow-sm rounded-4 p-0 overflow-hidden">
+          <!-- Название и цена — только для показа: перед печатью они всё
+               равно подтягиваются из базы (refreshQueueProducts), ручная
+               правка молча терялась бы. На телефоне артикул и цена — под
+               названием, колонки скрыты. -->
+          <table class="table mb-0 align-middle queue-table">
             <thead class="bg-light">
               <tr style="font-size: 0.7rem; color: #64748b; text-transform: uppercase;">
-                <th class="ps-4">Название</th>
-                <th width="120">Артикул</th>
-                <th width="130">Цена</th>
-                <th width="100" class="text-center">Копий</th>
-                <th width="50"></th>
+                <th class="ps-3 ps-md-4">Название</th>
+                <th class="d-none d-md-table-cell" width="140">Артикул</th>
+                <th class="d-none d-md-table-cell text-end" width="120">Цена</th>
+                <th width="90" class="text-center">Копий</th>
+                <th width="44"></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(item, index) in queue" :key="item.id + '-' + index">
-                <td class="ps-4">
-                  <input v-model="item.name" type="text" class="form-control form-control-sm border-0 bg-light rounded-3" />
+                <td class="ps-3 ps-md-4">
+                  <div class="fw-semibold small queue-name">{{ item.name }}</div>
+                  <div class="d-md-none text-muted" style="font-size: 0.72rem;">
+                    <span class="font-monospace">{{ item.sku || "—" }}</span>
+                    · <span class="fw-bold text-dark">{{ formatLabelPrice(item) }}</span>
+                  </div>
                 </td>
-                <td>
+                <td class="d-none d-md-table-cell">
                   <span class="small font-monospace text-muted">{{ item.sku }}</span>
                 </td>
-                <td>
-                  <div class="input-group input-group-sm">
-                    <input v-model.number="item.price" type="number" step="0.01" class="form-control border-0 bg-light" />
-                    <span class="input-group-text border-0 bg-light" style="font-size: 0.65rem;">сом</span>
-                  </div>
+                <td class="d-none d-md-table-cell text-end fw-bold small text-nowrap">
+                  {{ formatLabelPrice(item) }}
                 </td>
                 <td>
                   <input
                     v-model.number="item.qty"
                     type="number"
                     min="1"
+                    inputmode="numeric"
                     class="form-control form-control-sm border-0 bg-light rounded-pill text-center font-monospace"
                   />
                 </td>
-                <td class="text-center">
-                  <button class="btn btn-sm btn-link text-danger p-1" @click="removeItem(index)">
+                <td class="text-center pe-2">
+                  <button class="btn btn-sm btn-link text-danger p-1" title="Убрать из очереди" @click="removeItem(index)">
                     <i class="bi bi-x-circle"></i>
                   </button>
                 </td>
@@ -255,11 +321,11 @@ const print = async () => {
       </div>
 
       <div class="col-lg-4">
-        <div class="card border-0 shadow-sm rounded-4 p-4">
+        <div class="card border-0 shadow-sm rounded-4 p-3 p-md-4">
           <h6 class="fw-bold mb-3 border-bottom pb-2">Параметры печати</h6>
 
           <div class="mb-3">
-            <label class="form-label small fw-bold d-flex justify-content-between align-items-center">
+            <label class="form-label small fw-bold d-flex flex-wrap justify-content-between align-items-center gap-1">
               <span>Шаблон</span>
               <button
                 v-if="selectedTemplateId"
@@ -341,3 +407,18 @@ const print = async () => {
     />
   </div>
 </template>
+
+<style scoped>
+/* Длинное название — не больше двух строк, полное видно в редакторе товара */
+.queue-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.queue-table td {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+</style>

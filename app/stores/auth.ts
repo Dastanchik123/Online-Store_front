@@ -57,10 +57,6 @@ export const useAuthStore = defineStore("auth", {
       this.isAuthenticated = !!user;
       if (user) {
         this.fetchPermissions();
-        // Автоматически настраиваем кассу (terminal_id) для сотрудника
-        if (import.meta.client && user.terminal_id && (window as any).electronAPI) {
-          (window as any).electronAPI.setTerminalId(user.terminal_id);
-        }
       }
     },
 
@@ -80,6 +76,10 @@ export const useAuthStore = defineStore("auth", {
         localStorage.removeItem("auth_token");
         localStorage.removeItem("user");
         localStorage.removeItem("permissions");
+        // Кэш ответов API прошлого пользователя (см. useApi.ts)
+        clearApiCache();
+        // и сохранённые service worker'ом страницы (pwa/sw.ts)
+        clearPwaUserCaches();
       }
     },
 

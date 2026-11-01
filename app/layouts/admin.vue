@@ -16,8 +16,25 @@ const closeSidebar = () => {
 
 let adminOrdersSubscribed = false;
 
+// Счётчик открытых алертов (возврат лишней оплаты, минус по остатку...)
+const openAlerts = ref(0);
+let alertsTimer: ReturnType<typeof setInterval> | null = null;
+const ALERTS_REFRESH_MS = 60_000;
+
+const refreshAlertsCount = async () => {
+  if (!authStore.hasPermission("alerts.manage")) return;
+  try {
+    const res: any = await useApi().apiFetch("/alerts/count");
+    openAlerts.value = res?.open_count ?? 0;
+  } catch {
+    // счётчик не критичен — тихо пропускаем
+  }
+};
+
 onMounted(() => {
   fetchPublicSettings();
+  refreshAlertsCount();
+  alertsTimer = setInterval(refreshAlertsCount, ALERTS_REFRESH_MS);
 
   if (import.meta.client && $echo) {
     ($echo as any)
@@ -30,6 +47,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (alertsTimer) clearInterval(alertsTimer);
   if (import.meta.client && $echo && adminOrdersSubscribed) {
     ($echo as any).leave("admin.orders");
     adminOrdersSubscribed = false;
@@ -105,7 +123,7 @@ onUnmounted(() => {
           >
           <NuxtLink
             to="/purchaser"
-            v-if="authStore.isPurchaser || authStore.isAdmin"
+            v-if="authStore.hasPermission('purchaser.access')"
             @click="closeSidebar"
             ><i class="bi bi-briefcase me-2"></i>Панель Закупщика</NuxtLink
           >
@@ -119,7 +137,7 @@ onUnmounted(() => {
             to="/admin/pos-sales"
             v-if="authStore.hasPermission('pos.access')"
             @click="closeSidebar"
-            ><i class="bi bi-shop me-2"></i>Оффлайн Продажи</NuxtLink
+            ><i class="bi bi-shop me-2"></i>Продажи кассы</NuxtLink
           >
           <NuxtLink
             to="/admin/self-service-sales"
@@ -132,6 +150,15 @@ onUnmounted(() => {
             v-if="authStore.hasPermission('orders.view')"
             @click="closeSidebar"
             ><i class="bi bi-cart-check me-2"></i>Заказы</NuxtLink
+          >
+          <NuxtLink
+            to="/admin/alerts"
+            v-if="authStore.hasPermission('alerts.manage')"
+            @click="closeSidebar"
+            ><i class="bi bi-bell me-2"></i>Уведомления
+            <span v-if="openAlerts > 0" class="badge bg-danger rounded-pill ms-1">{{
+              openAlerts
+            }}</span></NuxtLink
           >
           <NuxtLink
             to="/admin/products"
@@ -199,7 +226,8 @@ onUnmounted(() => {
           class="nav-section mb-3"
           v-if="
             authStore.hasPermission('marketing.manage') ||
-            authStore.hasPermission('blog.manage')
+            authStore.hasPermission('blog.manage') ||
+            authStore.hasPermission('products.edit')
           "
         >
           <div class="section-title">МАРКЕТИНГ</div>
@@ -217,7 +245,7 @@ onUnmounted(() => {
           >
           <NuxtLink
             to="/admin/hot-products"
-            v-if="authStore.hasPermission('marketing.manage')"
+            v-if="authStore.hasPermission('products.edit')"
             @click="closeSidebar"
             ><i class="bi bi-fire me-2"></i
             >{{ settings.pos_hot_products_title || "Горячие товары" }}</NuxtLink
@@ -318,6 +346,7 @@ onUnmounted(() => {
 .admin-layout {
   display: flex;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   background-color: #f8fafc;
 }
@@ -331,6 +360,8 @@ onUnmounted(() => {
 .mobile-header {
   flex-shrink: 0;
   z-index: 1000;
+  /* py-3 + статус-бар установленного PWA на iOS (см. Header.vue) */
+  padding-top: calc(1rem + env(safe-area-inset-top, 0px)) !important;
 }
 
 .sidebar {

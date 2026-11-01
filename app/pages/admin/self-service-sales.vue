@@ -80,6 +80,20 @@ const openDetails = (order: any) => {
   showModal.value = true;
 };
 
+// Повторная печать термочека (тот же шаблон, что печатает киоск, с QR
+// электронной копии). Чек есть только у оплаченного заказа.
+const { printReceipt } = usePrinter();
+const isPrinting = ref(false);
+const reprintReceipt = async () => {
+  if (!selectedOrder.value || isPrinting.value) return;
+  isPrinting.value = true;
+  try {
+    await printReceipt(selectedOrder.value, "thermal");
+  } finally {
+    isPrinting.value = false;
+  }
+};
+
 const formatPrice = (price: any) => parseFloat(price || 0).toLocaleString("ru-RU") + " сом";
 
 const changePage = (page: number) => {
@@ -303,7 +317,16 @@ watch(() => filters.value.payment_status, () => { filters.value.page = 1; fetchS
             </div>
           </div>
         </div>
-        <div class="modal-footer border-0 p-4 text-center">
+        <div class="modal-footer border-0 p-4 justify-content-center gap-2">
+          <button
+            v-if="selectedOrder.payment_status === 'paid'"
+            @click="reprintReceipt"
+            :disabled="isPrinting"
+            class="btn btn-primary rounded-pill px-4"
+          >
+            <span v-if="isPrinting" class="spinner-border spinner-border-sm me-2"></span>
+            <i v-else class="bi bi-printer me-2"></i>Печать чека
+          </button>
           <button @click="showModal = false" class="btn btn-light rounded-pill px-5">Закрыть</button>
         </div>
       </div>

@@ -22,11 +22,13 @@ const router = useRouter();
 const { toggleWishlist, isInWishlist } = useWishlist();
 const { getImageUrl } = useImageUrl();
 
+// Без округления до целых: цемент по 7.7 сом/кг показывался как 8, а по 7.4 —
+// как 7. Копейки показываем, только если они есть (100 → «100», 7.7 → «7,7»)
 const formatPrice = (price) => {
   if (!price) return "0";
   return parseFloat(price).toLocaleString("ru-RU", {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   });
 };
 
@@ -37,6 +39,16 @@ const onImgLoad = (e) => e.target.classList.add("is-loaded");
 const onImgError = () => {
   imgFailed.value = true;
 };
+
+// При SSR картинка часто успевает загрузиться до гидратации — @load тогда
+// уже не придёт, и фото так и осталось бы прозрачным (img-loading)
+const imgEl = ref(null);
+onMounted(() => {
+  const el = imgEl.value;
+  if (!el?.complete) return;
+  if (el.naturalWidth > 0) el.classList.add("is-loaded");
+  else onImgError();
+});
 
 const discountPercent = computed(() => {
   if (!props.product.sale_price || !props.product.price) return 0;
@@ -50,6 +62,19 @@ const cartItem = computed(() =>
 );
 const cartQty = computed(() => parseFloat(cartItem.value?.quantity) || 0);
 const qtyBusy = ref(false);
+
+// Флаг in_stock в базе может отстать от остатка (продажа в минус на кассе),
+// поэтому смотрим и на сам остаток: 0 или меньше — заказать нельзя
+const stockQty = computed(() => {
+  const q = parseFloat(props.product.stock_quantity);
+  return Number.isFinite(q) ? q : null;
+});
+const isAvailable = computed(
+  () => !!props.product.in_stock && (stockQty.value === null || stockQty.value > 0),
+);
+const canIncrement = computed(
+  () => isAvailable.value && (stockQty.value === null || cartQty.value < stockQty.value),
+);
 
 const handleAddToCart = async () => {
   if (!authStore.isAuthenticated) {
@@ -133,6 +158,7 @@ const handleBuyNow = async () => {
         <div class="pc-img-wrap ratio ratio-1x1">
           <img
             v-if="product.image && !imgFailed"
+            ref="imgEl"
             :src="getProductImage(product)"
             :alt="product.name"
             class="pc-img img-loading"
@@ -152,7 +178,7 @@ const handleBuyNow = async () => {
           </div>
 
           <!-- Нет в наличии -->
-          <div v-if="!product.in_stock" class="pc-unavailable">
+          <div v-if="!isAvailable" class="pc-unavailable">
             <span>Нет в наличии</span>
           </div>
 
@@ -188,7 +214,7 @@ const handleBuyNow = async () => {
         <button
           v-if="cartQty === 0"
           class="pc-cart-btn"
-          :disabled="!product.in_stock"
+          :disabled="!isAvailable"
           @click="handleAddToCart"
         >
           <i class="bi bi-cart2"></i> В корзину
@@ -201,13 +227,13 @@ const handleBuyNow = async () => {
             <span v-if="!qtyBusy">{{ cartQty }}</span>
             <span v-else class="pc-qty-spinner"></span>
           </span>
-          <button class="pc-qty-btn" :disabled="qtyBusy" @click="incrementQty">
+          <button class="pc-qty-btn" :disabled="qtyBusy || !canIncrement" @click="incrementQty">
             <i class="bi bi-plus"></i>
           </button>
         </div>
         <button
           class="pc-buynow-btn"
-          :disabled="!product.in_stock"
+          :disabled="!isAvailable"
           @click="handleBuyNow"
         >
           Купить в 1 клик
@@ -222,6 +248,7 @@ const handleBuyNow = async () => {
           <div class="ratio ratio-1x1 rounded-3 overflow-hidden pc-img-wrap">
             <img
               v-if="product.image && !imgFailed"
+              ref="imgEl"
               :src="getProductImage(product)"
               :alt="product.name"
               class="pc-img img-loading"
@@ -247,7 +274,7 @@ const handleBuyNow = async () => {
               <button
                 v-if="cartQty === 0"
                 class="btn btn-primary btn-sm rounded-pill fw-bold"
-                :disabled="!product.in_stock"
+                :disabled="!isAvailable"
                 @click="handleAddToCart"
               >
                 <i class="bi bi-cart-plus me-1"></i>В корзину
@@ -260,11 +287,11 @@ const handleBuyNow = async () => {
                   <span v-if="!qtyBusy">{{ cartQty }}</span>
                   <span v-else class="pc-qty-spinner"></span>
                 </span>
-                <button class="pc-qty-btn" :disabled="qtyBusy" @click="incrementQty">
+                <button class="pc-qty-btn" :disabled="qtyBusy || !canIncrement" @click="incrementQty">
                   <i class="bi bi-plus"></i>
                 </button>
               </div>
-              <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold" :disabled="!product.in_stock" @click="handleBuyNow">
+              <button class="btn btn-outline-secondary btn-sm rounded-pill fw-bold" :disabled="!isAvailable" @click="handleBuyNow">
                 Купить сейчас
               </button>
               <NuxtLink :to="`/product/${product.id}`" class="btn btn-light btn-sm rounded-pill stretched-link">
@@ -322,11 +349,16 @@ const handleBuyNow = async () => {
   background: #f5f5f5;
 }
 
-/* Скидка */
+/* Скидка. Бейдж — прямой потомок .ratio, а Bootstrap растягивает всех
+   детей .ratio на 100% (top: 0, width/height: 100%) — сбрасываем,
+   иначе плашка закрывает всё фото */
 .pc-discount {
   position: absolute;
+  top: auto;
   bottom: 8px;
   left: 8px;
+  width: auto;
+  height: auto;
   z-index: 3;
   background: #ff3f6c;
   color: #fff;

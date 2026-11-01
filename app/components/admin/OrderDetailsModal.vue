@@ -7,7 +7,9 @@ const props = defineProps({
 const emit = defineEmits(["close", "updated"]);
 
 const uiStore = useUiStore();
-const { updateOrder, downloadOrderThermalReceipt } = useOrders();
+const { updateOrder } = useOrders();
+// Чек — тем же шаблоном, что и на кассе (usePrinter)
+const { printReceipt } = usePrinter();
 
 const isUpdating = ref(false);
 const localOrder = ref(null);
@@ -35,7 +37,8 @@ const updateOrderStatus = async () => {
     emit("close");
   } catch (error) {
     console.error(error);
-    uiStore.error("Ошибка при обновлении статуса");
+    // Сервер объясняет, почему нельзя (например, оплата подтверждена банком)
+    uiStore.error(error.data?.message || "Ошибка при обновлении статуса");
   } finally {
     isUpdating.value = false;
   }
@@ -73,11 +76,17 @@ const getPaymentStatusText = (status) => {
   return texts[status] || status;
 };
 
+// Способы, которые ставит только банк (QR GoPay) — см. Order::BANK_PAYMENT_METHODS
+const BANK_PAYMENT_METHODS = ["mbank", "qr", "mixed"];
+
 const getPaymentMethodText = (method) => {
   const texts = {
     cash: "Оплата при получении",
     transfer: "Перевод/MBank",
     card: "Картой",
+    mbank: "QR (MBank)",
+    qr: "QR (GoPay)",
+    mixed: "Наличные + QR",
   };
   return texts[method] || method || "Не указан";
 };
@@ -123,6 +132,7 @@ const getPaymentMethodText = (method) => {
             <select
               v-model="localOrder.payment_status"
               class="form-select border-0 shadow-sm rounded-3 mb-3"
+              :disabled="localOrder.paid_by_bank && localOrder.payment_status === 'paid'"
             >
               <option value="pending">⏳ Ожидает</option>
               <option value="paid">✅ Оплачено</option>
@@ -134,11 +144,30 @@ const getPaymentMethodText = (method) => {
             <select
               v-model="localOrder.payment_method"
               class="form-select border-0 shadow-sm rounded-3"
+              :disabled="localOrder.paid_by_bank"
             >
               <option :value="null">Не указан</option>
               <option value="cash">Наличные / Терминал</option>
               <option value="transfer">Перевод MBank</option>
+              <!-- QR ставит только банк — показываем, но выбрать нельзя -->
+              <option
+                v-for="m in BANK_PAYMENT_METHODS"
+                :key="m"
+                :value="m"
+                disabled
+                v-show="localOrder.payment_method === m"
+              >
+                {{ getPaymentMethodText(m) }}
+              </option>
             </select>
+            <div
+              v-if="localOrder.paid_by_bank"
+              class="text-success mt-2"
+              style="font-size: 0.7rem"
+            >
+              <i class="bi bi-bank me-1"></i>
+              Оплачено через банк (QR GoPay) — изменить нельзя.
+            </div>
           </div>
         </div>
       </div>
@@ -244,7 +273,7 @@ const getPaymentMethodText = (method) => {
       <div class="d-flex justify-content-between w-100">
         <button
           class="btn btn-outline-secondary rounded-pill px-4"
-          @click="downloadOrderThermalReceipt(localOrder.id)"
+          @click="printReceipt(localOrder.id, 'thermal')"
         >
           <i class="bi bi-printer me-2"></i>Печать чека
         </button>

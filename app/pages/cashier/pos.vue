@@ -9,6 +9,23 @@ const ui = useUiStore();
 const { printReceipt, initPrinter, isConnected } = usePrinter();
 const { settings, fetchPublicSettings } = useSettings();
 const { deviceType, setDeviceType } = useDeviceMode();
+const { isServerReachable, checkNow: checkServerNow } = useServerConnection();
+
+// Ключ идемпотентности продажи — один на один и тот же чек. Если ответ на
+// «Оплатить» потерялся (обрыв связи), повтор с тем же содержимым идёт с тем
+// же ключом, и сервер вернёт уже проведённую продажу вместо второй.
+// Изменили чек — это уже другая продажа, ключ новый.
+let pendingSale = null; // { key, payload }
+const isCheckingServer = ref(false);
+
+const recheckServer = async () => {
+  isCheckingServer.value = true;
+  try {
+    await checkServerNow();
+  } finally {
+    isCheckingServer.value = false;
+  }
+};
 
 const vkbdActive = ref(null);
 const showDeviceModal = ref(false);
@@ -36,10 +53,12 @@ const hotPanelEl = ref(null);
 const barcodeBuffer = ref("");
 const lastKeyTime = ref(0);
 
-const hotGroups = computed(() => {
-  const groups = hotProducts.value.map((p) => p.hot_group).filter((g) => g);
-  return [...new Set(groups)];
-});
+const hotGroups = computed(() =>
+  orderHotGroups(
+    hotProducts.value.map((p) => p.hot_group),
+    settings.value?.pos_hot_groups,
+  ),
+);
 
 const filteredHotProducts = computed(() => {
   if (!activeGroup.value) return [];
@@ -58,8 +77,8 @@ const toggleGroup = (group) => {
 };
 
 const cashAmount = ref(0);
-const transferAmount = ref(0);
-// Кассир вручную разбил оплату (наличные/перевод) — дальнейшие пересчёты
+const qrAmount = ref(0);
+// Кассир вручную разбил оплату (наличные/QR) — дальнейшие пересчёты
 // суммы (правка цены/кол-ва товара, купон) не должны стирать этот ввод.
 const paymentTouched = ref(false);
 const isDebt = ref(false);
@@ -75,9 +94,10 @@ const numpadBuffer = ref("");
 let lastPlusTime = 0;
 
 const couponCode = ref("");
-const couponDiscount = ref(0);
 const isCouponValidating = ref(false);
 const appliedCoupon = ref(null);
+// Ручная скидка кассира в сомах (право pos.discount / pos.discount_unlimited)
+const manualDiscount = ref(0);
 
 const scrollActiveIntoView = async (containerRef, selector, index) => {
   if (index < 0) return;
@@ -108,11 +128,19 @@ const handleGlobalKeyDown = async (e) => {
     return;
   }
 
-  if (weightModalProduct.value) {
-    if (key === "Escape") {
-      e.preventDefault();
-      closeWeightModal();
-    }
+  // Пока ждём оплату по QR — касса заблокирована: чек уже создан на сервере
+  if (qrSale.value) {
+    return;
+  }
+
+  // Окно «В долг» обрабатывает клавиши само (Esc, Enter, стрелки)
+  if (showDebtModal.value) {
+    return;
+  }
+
+  if (key === "F8") {
+    e.preventDefault();
+    openDebtModal();
     return;
   }
 
@@ -272,10 +300,10 @@ const handleGlobalKeyDown = async (e) => {
   }
   if (key === "F6") {
     e.preventDefault();
-    activeField.value = "transfer";
+    activeField.value = "qr";
     isFocused.value = true;
     numpadBuffer.value = "";
-    document.querySelector(".transfer-input-field")?.focus();
+    document.querySelector(".qr-input-field")?.focus();
     return;
   }
 
@@ -306,7 +334,7 @@ const handleGlobalKeyDown = async (e) => {
     if (activeCartIndex.value === -1) return;
     e.preventDefault();
     if (activeField.value === "quantity") {
-      activeField.value = "price";
+      if (canChangePrice.value) activeField.value = "price";
     } else if (activeField.value === "price") {
       activeField.value = "quantity";
     }
@@ -340,10 +368,10 @@ const handleGlobalKeyDown = async (e) => {
     e.preventDefault();
     const now = Date.now();
     if (now - lastPlusTime < 300) {
-      activeField.value = "transfer";
+      activeField.value = "qr";
       isFocused.value = true;
       numpadBuffer.value = "";
-      document.querySelector(".transfer-input-field")?.focus();
+      document.querySelector(".qr-input-field")?.focus();
       lastPlusTime = 0;
     } else {
       activeField.value = "cash";
@@ -366,7 +394,12 @@ const handleGlobalKeyDown = async (e) => {
       }
       return;
     }
-    if (cart.value.length > 0) {
+    // Enter в поиске товара/клиента или в купоне — это ввод в поле, а не
+    // «пробить чек»: иначе продажа уходила, пока кассир ещё набирал товар
+    const inTextField = document.activeElement?.closest(
+      ".search-section, .customer-search-input, #coupon-input",
+    );
+    if (cart.value.length > 0 && !inTextField) {
       e.preventDefault();
       finalizeSale();
     }
@@ -394,13 +427,27 @@ onMounted(async () => {
   fetchPublicSettings();
 
   if (import.meta.client) {
-    const savedCart = localStorage.getItem("pos_cart");
-    if (savedCart) {
-      cart.value = JSON.parse(savedCart);
-    }
-      await initPrinter();
+    try {
+      const savedCart = localStorage.getItem("pos_cart");
+      if (savedCart) {
+        cart.value = JSON.parse(savedCart);
+      }
+    } catch {}
+    await initPrinter();
   }
 });
+
+// Чек переживает перезагрузку страницы (например, после обрыва связи):
+// раньше pos_cart только читался и нигде не записывался
+watch(
+  cart,
+  (value) => {
+    try {
+      localStorage.setItem("pos_cart", JSON.stringify(value));
+    } catch {}
+  },
+  { deep: true },
+);
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleGlobalKeyDown);
@@ -419,24 +466,107 @@ const totalPrice = computed(() => {
   return cart.value.reduce((sum, item) => sum + item.price * item.quantity, 0);
 });
 
-// Сумма продажи к оплате (после скидки по купону) — перевод/карта не может
-// превышать её: в отличие от наличных, сдачу с перевода не дают.
+const roundMoney = (value) => Math.round(value * 100) / 100;
+
+// Скидка по купону пересчитывается от текущей суммы чека по той же
+// формуле, что на сервере (PosController::resolveDiscounts) — иначе итог
+// на экране и в проведённом заказе разойдутся.
+const couponDiscount = computed(() => {
+  const coupon = appliedCoupon.value;
+  if (!coupon) return 0;
+  const value = Number(coupon.value) || 0;
+  const discount =
+    coupon.type === "percent" ? (totalPrice.value * value) / 100 : value;
+  return roundMoney(Math.min(discount, totalPrice.value));
+});
+
+const canGiveDiscount = computed(
+  () =>
+    authStore.hasPermission("pos.discount") ||
+    authStore.hasPermission("pos.discount_unlimited"),
+);
+const hasUnlimitedDiscount = computed(() =>
+  authStore.hasPermission("pos.discount_unlimited"),
+);
+// Лимит из настроек магазина; 10% — тот же дефолт, что на сервере
+const maxDiscountPercent = computed(() => {
+  const raw = settings.value?.pos_max_discount_percent;
+  const value = Number(raw);
+  return raw === undefined || raw === null || raw === "" || !Number.isFinite(value)
+    ? 10
+    : value;
+});
+// Максимум ручной скидки в сомах для текущего чека: не больше лимита
+// и не больше того, что осталось после купона
+const maxManualDiscount = computed(() => {
+  const leftAfterCoupon = Math.max(totalPrice.value - couponDiscount.value, 0);
+  const limit = hasUnlimitedDiscount.value
+    ? leftAfterCoupon
+    : Math.min((totalPrice.value * maxDiscountPercent.value) / 100, leftAfterCoupon);
+  return roundMoney(limit);
+});
+
+const totalDiscount = computed(() =>
+  roundMoney(
+    Math.min(
+      couponDiscount.value + (Number(manualDiscount.value) || 0),
+      totalPrice.value,
+    ),
+  ),
+);
+
+// Сумма продажи к оплате (после скидок) — QR-часть не может
+// превышать её: в отличие от наличных, сдачу с QR не дают.
 const payableAmount = computed(() =>
-  Math.max(totalPrice.value - couponDiscount.value, 0),
+  Math.max(totalPrice.value - totalDiscount.value, 0),
 );
 
 const paidAmount = computed(() => {
   return (
     (parseFloat(cashAmount.value) || 0) +
-    (parseFloat(transferAmount.value) || 0)
+    (parseFloat(qrAmount.value) || 0)
   );
 });
 
 const changeAmount = computed(() => {
   if (isDebt.value) return 0;
-  const change = paidAmount.value - (totalPrice.value - couponDiscount.value);
+  const change = paidAmount.value - (totalPrice.value - totalDiscount.value);
   return change > 0 ? change : 0;
 });
+
+// Продажа в долг оформляется в отдельном окне (PosDebtSaleModal): клиент,
+// первый взнос и срок вводятся там, касса только проводит продажу
+const showDebtModal = ref(false);
+const debtAllowed = computed(() => settings.value?.pos_allow_debt === "1");
+
+const openDebtModal = () => {
+  if (!debtAllowed.value || isSubmitting.value) return;
+  if (cart.value.length === 0) {
+    ui.addToast("Сначала добавьте товары в чек", "warning");
+    return;
+  }
+  showDebtModal.value = true;
+};
+
+const closeDebtModal = () => {
+  showDebtModal.value = false;
+  // Наличные снова «вся сумма чека» (watch(isDebt))
+  isDebt.value = false;
+};
+
+const confirmDebtSale = async ({ customer, cash, qr, dueDate: due }) => {
+  selectedUser.value = customer;
+  isDebt.value = true;
+  // watch(isDebt) обнуляет оплату — суммы взноса ставим после него
+  await nextTick();
+  cashAmount.value = cash;
+  qrAmount.value = qr;
+  dueDate.value = due || "";
+
+  if (await finalizeSale()) {
+    showDebtModal.value = false;
+  }
+};
 
 const { getProducts: getProductsSearch, getAllProducts } = usePos();
 const { getProducts } = useProducts();
@@ -502,7 +632,10 @@ const searchProducts = async () => {
 
 const { searchUsers: apiSearchUsers, redeemCheckoutQr } = usePos();
 const searchUsers = async () => {
-  if (userSearchQuery.value.length < 2) return;
+  if (userSearchQuery.value.length < 2) {
+    users.value = [];
+    return;
+  }
   isUserSearching.value = true;
   try {
     const data = await apiSearchUsers(userSearchQuery.value);
@@ -519,6 +652,10 @@ const vkbdFieldMap = computed(() => ({
   customer: userSearchQuery,
   coupon: couponCode,
 }));
+
+// В шаблоне нет глобального setTimeout (_ctx.setTimeout is not a function):
+// отложенное закрытие после blur — чтобы успел сработать клик по подсказке
+const afterBlur = (fn) => setTimeout(fn, 200);
 
 const vkbdInputHandlers = {
   search: () => searchProducts(),
@@ -551,37 +688,20 @@ const handleVkbdEnter = () => {
   if (typeof document !== "undefined") document.activeElement?.blur();
 };
 
-// Весовой товар нельзя добавить кликом/Enter с quantity=1 — вес обычно
-// приходит из штрихкода упаковки; если кассир добавляет вручную (нет
-// весов с принтером под рукой), запрашиваем вес явной модалкой.
-const weightModalProduct = ref(null);
-const weightModalValue = ref("");
-const weightModalInputEl = ref(null);
-
-const openWeightModal = (product) => {
-  weightModalProduct.value = product;
-  weightModalValue.value = "";
-  nextTick(() => weightModalInputEl.value?.focus());
-};
-
-const closeWeightModal = () => {
-  weightModalProduct.value = null;
-  weightModalValue.value = "";
-};
-
-const confirmWeightModal = () => {
-  const weightKg = parseFloat(String(weightModalValue.value).replace(",", "."));
-  if (!weightKg || weightKg <= 0) {
-    ui.addToast("Введите вес больше нуля", "error");
-    return;
-  }
-  addWeightedToCart(weightModalProduct.value, Math.round(weightKg * 1000) / 1000, null);
-  closeWeightModal();
-};
+// Весовой товар вручную (кликом/поиском, без штрихкода весов) добавляется
+// как 1 кг — кассир правит вес в строке чека. Нужно право pos.manual_weight;
+// со штрихкодом весов вес берётся из штрихкода (processBarcode).
+const canEnterWeightManually = computed(() => authStore.hasPermission("pos.manual_weight"));
+// Продажа не по цене каталога — право роли pos.change_price
+const canChangePrice = computed(() => authStore.hasPermission("pos.change_price"));
 
 const addToCart = (product) => {
   if (product.is_weighted) {
-    openWeightModal(product);
+    if (!canEnterWeightManually.value) {
+      ui.addToast(`«${product.name}»: отсканируйте штрихкод с весов — вводить вес вручную вам не разрешено`, "warning");
+      return;
+    }
+    addWeightedToCart(product, 1, null);
     return;
   }
 
@@ -678,17 +798,18 @@ const redeemCheckoutToken = async (token) => {
   }
 };
 
-// Весовой товар: вес закодирован в самом штрихкоде — суммируем в одну
-// строку корзины по product_id (второй кусок того же сыра на другой вес
-// не должен создавать вторую строку), цена всегда берётся из каталога
-// (product.price/sale_price), а не как-то производится из штрихкода.
+// Весовой товар, цена всегда из каталога. Со штрихкодом весов — каждый кусок
+// отдельной строкой со своим штрихкодом: сервер сверяет вес строки со
+// штрихкодом, поэтому складывать куски в одну строку нельзя. Ручной вес
+// (без штрихкода) — одна строка на товар, повторное добавление +1 кг.
 const addWeightedToCart = (product, weightKg, rawBarcode) => {
-  const existing = cart.value.find((item) => item.product_id === product.id && item.is_weighted);
+  const existing = rawBarcode
+    ? null
+    : cart.value.find((item) => item.product_id === product.id && item.is_weighted && !item.barcode);
   const unitPrice = product.sale_price || product.price;
 
   if (existing) {
     existing.quantity = Math.round((existing.quantity + weightKg) * 1000) / 1000;
-    existing.barcode = rawBarcode;
   } else {
     cart.value.push({
       id: crypto.randomUUID(),
@@ -792,7 +913,8 @@ const submitCancelIdentifier = () => {
   }
 
   const item = cart.value[index];
-  if (item.quantity > 1) {
+  // Весовую строку убираем целиком: «минус 1» к весу смысла не имеет
+  if (item.quantity > 1 && !item.is_weighted) {
     item.quantity--;
   } else {
     cart.value.splice(index, 1);
@@ -801,7 +923,18 @@ const submitCancelIdentifier = () => {
   closeCancelModal();
 };
 
+// Вес строки из штрихкода весов менять нельзя — сервер сверяет его со
+// штрихкодом. Другой вес = другой кусок = новый скан.
+const isQuantityLocked = (item) => {
+  if (item?.is_weighted && item?.barcode) {
+    ui.addToast("Вес взят со штрихкода весов — изменить его нельзя. Отсканируйте другой кусок.", "warning");
+    return true;
+  }
+  return false;
+};
+
 const updateQuantity = (item, delta) => {
+  if (isQuantityLocked(item)) return;
   // Для дробной единицы (метр/кг) шаг мельче, чем для штучной/упаковочной продажи
   const step = item.is_package || item.unit === "шт" ? 1 : 0.1;
   const newQty = Math.round((item.quantity + delta * step) * 1000) / 1000;
@@ -817,28 +950,29 @@ const selectUser = (user) => {
 };
 
 const handleCashInput = () => {
+  // В долг взнос не добивается до суммы чека — остаток уходит в долг
   if (isDebt.value) return;
   paymentTouched.value = true;
   const currentCash = parseFloat(cashAmount.value) || 0;
   const total = payableAmount.value;
   if (currentCash < total) {
-    transferAmount.value = parseFloat((total - currentCash).toFixed(2));
+    qrAmount.value = parseFloat((total - currentCash).toFixed(2));
   } else {
-    transferAmount.value = 0;
+    qrAmount.value = 0;
   }
 };
 
-const handleTransferInput = () => {
+const handleQrInput = () => {
+  // С QR сдачу не дают — сумма не может превышать оплату
+  if (qrAmount.value > payableAmount.value) {
+    qrAmount.value = payableAmount.value;
+  }
   if (isDebt.value) return;
   paymentTouched.value = true;
-  // Перевод/картой сдачу не дают — сумма не может превышать оплату
-  if (transferAmount.value > payableAmount.value) {
-    transferAmount.value = payableAmount.value;
-  }
-  const currentTransfer = parseFloat(transferAmount.value) || 0;
+  const currentQr = parseFloat(qrAmount.value) || 0;
   const total = payableAmount.value;
-  if (currentTransfer < total) {
-    cashAmount.value = parseFloat((total - currentTransfer).toFixed(2));
+  if (currentQr < total) {
+    cashAmount.value = parseFloat((total - currentQr).toFixed(2));
   } else {
     cashAmount.value = 0;
   }
@@ -853,7 +987,7 @@ const appendNumber = (num) => {
   const val = parseFloat(numpadBuffer.value);
   if (!isNaN(val)) {
     if (activeField.value === "quantity") {
-      if (activeCartIndex.value !== -1 && cart.value[activeCartIndex.value]) {
+      if (activeCartIndex.value !== -1 && cart.value[activeCartIndex.value] && !isQuantityLocked(cart.value[activeCartIndex.value])) {
         cart.value[activeCartIndex.value].quantity = val;
       }
     } else if (activeField.value === "price") {
@@ -861,15 +995,15 @@ const appendNumber = (num) => {
         cart.value[activeCartIndex.value].price = val;
       }
     } else {
-      const field = activeField.value === "cash" ? cashAmount : transferAmount;
+      const field = activeField.value === "cash" ? cashAmount : qrAmount;
       field.value = val;
       if (activeField.value === "cash") {
         handleCashInput();
       } else {
-        handleTransferInput();
-        // handleTransferInput могла обрезать сумму до максимума — синхронизируем
+        handleQrInput();
+        // handleQrInput могла обрезать сумму до максимума — синхронизируем
         // отображаемый буфер, иначе цифропад покажет непринятое значение
-        numpadBuffer.value = transferAmount.value.toString();
+        numpadBuffer.value = qrAmount.value.toString();
       }
     }
   }
@@ -880,7 +1014,7 @@ const handleBackspace = () => {
   if (numpadBuffer.value === "" || numpadBuffer.value === "-") {
     numpadBuffer.value = "";
     if (activeField.value === "quantity") {
-      if (activeCartIndex.value !== -1 && cart.value[activeCartIndex.value]) {
+      if (activeCartIndex.value !== -1 && cart.value[activeCartIndex.value] && !isQuantityLocked(cart.value[activeCartIndex.value])) {
         cart.value[activeCartIndex.value].quantity = 0;
       }
     } else if (activeField.value === "price") {
@@ -888,10 +1022,10 @@ const handleBackspace = () => {
         cart.value[activeCartIndex.value].price = 0;
       }
     } else {
-      const field = activeField.value === "cash" ? cashAmount : transferAmount;
+      const field = activeField.value === "cash" ? cashAmount : qrAmount;
       field.value = 0;
       if (activeField.value === "cash") handleCashInput();
-      else handleTransferInput();
+      else handleQrInput();
     }
     return;
   }
@@ -899,7 +1033,7 @@ const handleBackspace = () => {
   const val = parseFloat(numpadBuffer.value);
   if (!isNaN(val)) {
     if (activeField.value === "quantity") {
-      if (activeCartIndex.value !== -1 && cart.value[activeCartIndex.value]) {
+      if (activeCartIndex.value !== -1 && cart.value[activeCartIndex.value] && !isQuantityLocked(cart.value[activeCartIndex.value])) {
         cart.value[activeCartIndex.value].quantity = val;
       }
     } else if (activeField.value === "price") {
@@ -907,10 +1041,10 @@ const handleBackspace = () => {
         cart.value[activeCartIndex.value].price = val;
       }
     } else {
-      const field = activeField.value === "cash" ? cashAmount : transferAmount;
+      const field = activeField.value === "cash" ? cashAmount : qrAmount;
       field.value = val;
       if (activeField.value === "cash") handleCashInput();
-      else handleTransferInput();
+      else handleQrInput();
     }
   }
 };
@@ -918,7 +1052,7 @@ const handleBackspace = () => {
 const handleClear = () => {
   numpadBuffer.value = "";
   if (activeField.value === "quantity") {
-    if (activeCartIndex.value !== -1 && cart.value[activeCartIndex.value]) {
+    if (activeCartIndex.value !== -1 && cart.value[activeCartIndex.value] && !isQuantityLocked(cart.value[activeCartIndex.value])) {
       cart.value[activeCartIndex.value].quantity = 0;
     }
   } else if (activeField.value === "price") {
@@ -926,17 +1060,17 @@ const handleClear = () => {
       cart.value[activeCartIndex.value].price = 0;
     }
   } else {
-    const field = activeField.value === "cash" ? cashAmount : transferAmount;
+    const field = activeField.value === "cash" ? cashAmount : qrAmount;
     field.value = 0;
     if (activeField.value === "cash") handleCashInput();
-    else handleTransferInput();
+    else handleQrInput();
   }
 };
 
 const setQuickAmount = (amount) => {
   if (amount === "full") {
-    cashAmount.value = Math.max(totalPrice.value - couponDiscount.value, 0);
-    transferAmount.value = 0;
+    cashAmount.value = Math.max(totalPrice.value - totalDiscount.value, 0);
+    qrAmount.value = 0;
   } else {
     cashAmount.value = amount;
     handleCashInput();
@@ -963,26 +1097,17 @@ const applyCoupon = async () => {
 
     if (res.valid) {
       appliedCoupon.value = res;
-      if (res.type === "fixed") {
-        couponDiscount.value = Math.min(Number(res.value), totalPrice.value);
-      } else {
-        couponDiscount.value = Math.min(
-          (totalPrice.value * Number(res.value)) / 100,
-          totalPrice.value,
-        );
-      }
       ui.addToast(
         `Купон "${res.code}" применен! Скидка: ${couponDiscount.value} сом`,
         "success",
       );
 
       if (cashAmount.value === totalPrice.value) {
-        cashAmount.value = Math.max(totalPrice.value - couponDiscount.value, 0);
+        cashAmount.value = Math.max(totalPrice.value - totalDiscount.value, 0);
       }
     }
   } catch (e) {
     ui.addToast(e.data?.message || "Неверный код купона", "error");
-    couponDiscount.value = 0;
     appliedCoupon.value = null;
   } finally {
     isCouponValidating.value = false;
@@ -991,19 +1116,177 @@ const applyCoupon = async () => {
 
 const removeCoupon = () => {
   appliedCoupon.value = null;
-  couponDiscount.value = 0;
   couponCode.value = "";
   ui.addToast("Купон удален", "info");
 };
 
+// ── Ожидание QR-оплаты (смешанная оплата: наличные + QR GoPay) ──────────
+// Сервер создал продажу «ожидает оплаты» и QR на QR-часть суммы. Опрашиваем
+// статус; оплату подтверждает банк (вебхук GoPay), кнопка «Проверить
+// оплату» дополнительно спрашивает GoPay напрямую.
+const QR_POLL_MS = 3000;
+const qrSale = ref(null);
+const qrImage = ref("");
+const qrSecondsLeft = ref(0);
+const qrBusy = ref(false);
+let qrPollTimer = null;
+let qrCountdownTimer = null;
+
+const stopQrTimers = () => {
+  if (qrPollTimer) clearInterval(qrPollTimer);
+  if (qrCountdownTimer) clearInterval(qrCountdownTimer);
+  qrPollTimer = null;
+  qrCountdownTimer = null;
+};
+
+const qrExpired = computed(() => !!qrSale.value && qrSecondsLeft.value <= 0);
+const qrTimeLeftLabel = computed(() => {
+  const s = Math.max(qrSecondsLeft.value, 0);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+});
+
+const showQrSale = async (sale) => {
+  qrSale.value = sale;
+  qrImage.value = "";
+  const value = sale?.qr_payment?.qr_value;
+  if (value) {
+    const QRCode = (await import("qrcode")).default;
+    qrImage.value = await QRCode.toDataURL(value, { width: 280, margin: 1 });
+  }
+
+  if (qrCountdownTimer) clearInterval(qrCountdownTimer);
+  const expiresAt = sale?.qr_payment?.expires_at ? new Date(sale.qr_payment.expires_at).getTime() : 0;
+  const tick = () => {
+    qrSecondsLeft.value = expiresAt ? Math.round((expiresAt - Date.now()) / 1000) : 0;
+  };
+  tick();
+  qrCountdownTimer = setInterval(tick, 1000);
+};
+
+const openQrWait = async (sale) => {
+  await showQrSale(sale);
+  if (qrPollTimer) clearInterval(qrPollTimer);
+  qrPollTimer = setInterval(() => pollQrSale(false), QR_POLL_MS);
+};
+
+const closeQrWait = () => {
+  stopQrTimers();
+  qrSale.value = null;
+  qrImage.value = "";
+};
+
+const completeQrSale = async (sale) => {
+  closeQrWait();
+  ui.addToast(`Оплата по QR получена, чек #${sale.order_number}`, "success");
+  const tpl = localStorage.getItem("print_template") || "thermal";
+  await printReceipt(sale, tpl);
+  resetPos();
+};
+
+// true — продажа завершилась (оплачена или отменена), окно закрыто
+const applyQrSale = async (sale) => {
+  if (!sale) return false;
+  // Продажа в долг после QR-взноса проведена (delivered), но оплата по
+  // заказу остаётся «ожидает» — остаток в долге
+  if (sale.payment_status === "paid" || sale.status === "delivered") {
+    await completeQrSale(sale);
+    return true;
+  }
+  if (sale.status === "cancelled") {
+    closeQrWait();
+    ui.addToast("Продажа отменена", "info");
+    return true;
+  }
+  return false;
+};
+
+const pollQrSale = async (askProvider) => {
+  if (!qrSale.value) return;
+  try {
+    const { getSaleStatus } = usePos();
+    await applyQrSale(await getSaleStatus(qrSale.value.id, askProvider));
+  } catch (e) {
+    // Сеть — баннер «Нет связи» уже показан, опрос продолжится сам
+    if (askProvider && !isNetworkError(e)) {
+      ui.addToast(e.data?.message || "Не удалось проверить оплату", "error");
+    }
+  }
+};
+
+const checkQrPayment = async () => {
+  qrBusy.value = true;
+  try {
+    await pollQrSale(true);
+    if (qrSale.value) ui.addToast("Оплата пока не поступила", "info");
+  } finally {
+    qrBusy.value = false;
+  }
+};
+
+const renewQr = async () => {
+  if (!qrSale.value) return;
+  qrBusy.value = true;
+  try {
+    const { regenerateSaleQr } = usePos();
+    await showQrSale(await regenerateSaleQr(qrSale.value.id));
+  } catch (e) {
+    // 409 — старый QR успели оплатить: продажа уже проведена
+    if (!(await applyQrSale(e.data?.order))) {
+      ui.addToast(e.data?.message || "Не удалось создать новый QR", "error");
+    }
+  } finally {
+    qrBusy.value = false;
+  }
+};
+
+const cancelQrSale = async () => {
+  if (!qrSale.value) return;
+  const cash = Number(qrSale.value.cash_received) || 0;
+  const confirmed = await ui.showConfirm(
+    "Отменить продажу?",
+    cash > 0
+      ? `QR будет отменён. Верните покупателю ${cash} сом наличными, если он их уже отдал.`
+      : "QR будет отменён, товар останется в корзине.",
+  );
+  if (!confirmed) return;
+
+  qrBusy.value = true;
+  try {
+    const { cancelSale } = usePos();
+    await cancelSale(qrSale.value.id);
+    closeQrWait();
+    // Корзину не очищаем — кассир может провести чек заново наличными
+    ui.addToast("Продажа отменена, корзина сохранена", "info");
+  } catch (e) {
+    if (!(await applyQrSale(e.data?.order))) {
+      ui.addToast(e.data?.message || "Не удалось отменить продажу", "error");
+    }
+  } finally {
+    qrBusy.value = false;
+  }
+};
+
+onBeforeUnmount(stopQrTimers);
+
 const finalizeSale = async () => {
+  if (qrSale.value) return;
   if (cart.value.length === 0) {
     ui.addToast("Корзина пуста", "warning");
     return;
   }
 
-  const total =
-    Math.round((totalPrice.value - couponDiscount.value) * 100) / 100;
+  const manual = Number(manualDiscount.value) || 0;
+  if (manual < 0 || manual > maxManualDiscount.value + 0.001) {
+    ui.addToast(
+      hasUnlimitedDiscount.value
+        ? "Скидка не может быть больше суммы чека"
+        : `Скидка больше допустимой: максимум ${maxDiscountPercent.value}% (${maxManualDiscount.value} сом)`,
+      "warning",
+    );
+    return;
+  }
+
+  const total = roundMoney(totalPrice.value - totalDiscount.value);
   const paid = Math.round(paidAmount.value * 100) / 100;
 
   for (const item of cart.value) {
@@ -1029,6 +1312,14 @@ const finalizeSale = async () => {
     return;
   }
 
+  if (isDebt.value && paid >= total) {
+    ui.addToast(
+      "Внесённая сумма покрывает весь чек — долга нет. Снимите «В долг» или уменьшите первый взнос.",
+      "warning",
+    );
+    return;
+  }
+
   isSubmitting.value = true;
 
   if (typeof document !== "undefined") {
@@ -1039,27 +1330,36 @@ const finalizeSale = async () => {
   isFocused.value = false;
   numpadBuffer.value = "";
 
-  console.log("SALE DEBUG:", {
-    total: total,
-    paid: paid,
-    cash: cashAmount.value,
-    transfer: transferAmount.value,
-    isDebt: isDebt.value,
-  });
+  const salePayload = {
+    items: cart.value,
+    user_id: selectedUser.value?.id,
+    user_uuid: selectedUser.value?.uuid,
+    staff_uuid: authStore.user?.uuid,
+    cash_amount: Number(cashAmount.value),
+    qr_amount: Number(qrAmount.value),
+    is_debt: isDebt.value,
+    due_date: isDebt.value && dueDate.value ? dueDate.value : null,
+    coupon_code: appliedCoupon.value?.code || null,
+    manual_discount: manual,
+  };
+  const payloadJson = JSON.stringify(salePayload);
+  if (!pendingSale || pendingSale.payload !== payloadJson) {
+    pendingSale = { key: crypto.randomUUID(), payload: payloadJson };
+  }
 
   try {
     const { createPosSale } = usePos();
-    const res = await createPosSale({
-      items: cart.value,
-      user_id: selectedUser.value?.id,
-      user_uuid: selectedUser.value?.uuid,
-      staff_uuid: authStore.user?.uuid,
-      cash_amount: Number(cashAmount.value),
-      transfer_amount: Number(transferAmount.value),
-      is_debt: isDebt.value,
-      due_date: isDebt.value && dueDate.value ? dueDate.value : null,
-      discount: Number(couponDiscount.value),
+    const res = await createPosSale(salePayload, {
+      idempotencyKey: pendingSale.key,
     });
+    pendingSale = null;
+
+    // Есть QR-часть — продажа ждёт подтверждения банка: показываем QR
+    // покупателю, чек печатается только после оплаты
+    if (res?.awaiting_payment) {
+      await openQrWait(res);
+      return true;
+    }
 
     // Продажа оформлена
 
@@ -1072,10 +1372,20 @@ const finalizeSale = async () => {
     }
 
     resetPos();
+    return true;
   } catch (e) {
     console.error("SALE ERROR:", e);
-    const errorMsg = e.data?.message || e.message || "Ошибка сервера";
-    ui.addToast(errorMsg, "error");
+    if (isNetworkError(e)) {
+      // Ключ (pendingSale) сохраняем: продажа могла пройти, а потеряться
+      // только ответ — повтор того же чека её не задвоит
+      ui.addToast(
+        "Нет связи с сервером — продажа не подтверждена. Когда связь появится, нажмите «Завершить» ещё раз: повтор не создаст вторую продажу.",
+        "error",
+      );
+    } else {
+      const errorMsg = e.data?.message || e.message || "Ошибка сервера";
+      ui.addToast(errorMsg, e.status === 409 ? "warning" : "error");
+    }
   } finally {
     isSubmitting.value = false;
   }
@@ -1085,13 +1395,14 @@ const resetPos = () => {
   cart.value = [];
   selectedUser.value = null;
   cashAmount.value = 0;
-  transferAmount.value = 0;
+  qrAmount.value = 0;
   paymentTouched.value = false;
   isDebt.value = false;
   dueDate.value = "";
   couponCode.value = "";
-  couponDiscount.value = 0;
   appliedCoupon.value = null;
+  manualDiscount.value = 0;
+  pendingSale = null;
 };
 
 const clearCart = () => {
@@ -1102,21 +1413,29 @@ const clearCart = () => {
 
 watch(totalPrice, (newTotal) => {
   if (!isDebt.value) {
-    couponDiscount.value = Math.min(couponDiscount.value, newTotal);
-    // Кассир уже вручную разбил оплату (наличные/перевод) — правка цены
+    // Кассир уже вручную разбил оплату (наличные/QR) — правка цены
     // или количества товара не должна стирать этот ввод, только сумму
     // "наличными" по умолчанию до первого ручного ввода.
     if (!paymentTouched.value) {
-      cashAmount.value = Math.max(newTotal - couponDiscount.value, 0);
-      transferAmount.value = 0;
+      cashAmount.value = Math.max(newTotal - totalDiscount.value, 0);
+      qrAmount.value = 0;
     }
   }
 });
 
-watch(couponDiscount, (newDiscount) => {
+watch(totalDiscount, (newDiscount) => {
   if (!isDebt.value && !paymentTouched.value) {
     cashAmount.value = Math.max(totalPrice.value - newDiscount, 0);
   }
+});
+
+// В долг: по умолчанию покупатель не платит ничего — первый взнос кассир
+// вводит сам. Иначе в поле оставалась полная сумма чека, и продажа
+// проходила как оплаченная наличными без долга.
+watch(isDebt, (debt) => {
+  paymentTouched.value = false;
+  qrAmount.value = 0;
+  cashAmount.value = debt ? 0 : payableAmount.value;
 });
 </script>
 
@@ -1125,6 +1444,30 @@ watch(couponDiscount, (newDiscount) => {
     class="pos-container-fluid p-0 animate-fade-in overflow-hidden"
     style="height: 100vh"
   >
+    <div
+      v-if="!isServerReachable"
+      class="server-offline-banner position-fixed top-0 start-0 end-0 bg-danger text-white d-flex align-items-center justify-content-center gap-3 py-2 px-3 small fw-bold shadow"
+      role="alert"
+      aria-live="assertive"
+    >
+      <i class="bi bi-wifi-off fs-5"></i>
+      <span>
+        Нет связи с сервером — продажи не проводятся. Проверяем подключение…
+      </span>
+      <button
+        type="button"
+        class="btn btn-sm btn-light fw-bold"
+        :disabled="isCheckingServer"
+        @click="recheckServer"
+      >
+        <span
+          v-if="isCheckingServer"
+          class="spinner-border spinner-border-sm me-1"
+        ></span>
+        Проверить
+      </button>
+    </div>
+
     <div class="d-flex h-100 overflow-hidden position-relative">
       <div
         class="sidebar-glass d-flex flex-column py-3"
@@ -1372,10 +1715,10 @@ watch(couponDiscount, (newDiscount) => {
                         searchProducts();
                       "
                       @blur="
-                        setTimeout(() => {
+                        afterBlur(() => {
                           isSearchFocused = false;
                           if (vkbdActive === 'search') vkbdActive = null;
-                        }, 200)
+                        })
                       "
                       type="text"
                       class="form-control border-0 py-2 fs-6 shadow-none"
@@ -1540,12 +1883,12 @@ watch(couponDiscount, (newDiscount) => {
                           >
                             <div
                               v-if="
-                                settings.pos_allow_price_change !== '1' ||
+                                !canChangePrice ||
                                 activeField !== 'price' ||
                                 activeCartIndex !== index
                               "
                               @dblclick="
-                                if (settings.pos_allow_price_change === '1') {
+                                if (canChangePrice) {
                                   activeField = 'price';
                                   activeCartIndex = index;
                                   isFocused = true;
@@ -1556,9 +1899,9 @@ watch(couponDiscount, (newDiscount) => {
                               :class="{
                                 'text-primary':
                                   activeCartIndex === index &&
-                                  settings.pos_allow_price_change === '1',
+                                  canChangePrice,
                                 'cursor-pointer':
-                                  settings.pos_allow_price_change === '1',
+                                  canChangePrice,
                               }"
                             >
                               {{ item.price }} сом
@@ -1675,9 +2018,10 @@ watch(couponDiscount, (newDiscount) => {
                           @input="searchUsers"
                           @focus="vkbdActive = 'customer'"
                           @blur="
-                            setTimeout(() => {
+                            afterBlur(() => {
                               if (vkbdActive === 'customer') vkbdActive = null;
-                            }, 200)
+                              users = [];
+                            })
                           "
                           type="text"
                           class="form-control customer-search-input border-0 py-3 shadow-none bg-transparent"
@@ -1757,9 +2101,9 @@ watch(couponDiscount, (newDiscount) => {
                       @keyup.enter="applyCoupon"
                       @focus="vkbdActive = 'coupon'"
                       @blur="
-                        setTimeout(() => {
+                        afterBlur(() => {
                           if (vkbdActive === 'coupon') vkbdActive = null;
-                        }, 200)
+                        })
                       "
                     />
                     <button
@@ -1773,6 +2117,48 @@ watch(couponDiscount, (newDiscount) => {
                       ></span>
                       <i v-else class="bi bi-arrow-right-circle-fill"></i>
                     </button>
+                  </div>
+                </div>
+
+                <div v-if="canGiveDiscount" class="payment-section-box mb-4">
+                  <label
+                    for="manual-discount-input"
+                    class="form-label x-small fw-bold text-muted text-uppercase mb-2 ps-1"
+                  >
+                    Скидка кассира
+                    <span class="text-lowercase fw-normal">
+                      (до {{ maxManualDiscount.toLocaleString() }} сом{{
+                        hasUnlimitedDiscount ? "" : `, ${maxDiscountPercent}%`
+                      }})
+                    </span>
+                  </label>
+                  <div
+                    class="coupon-input-group rounded-4 overflow-hidden border d-flex"
+                    :class="{
+                      'border-danger':
+                        Number(manualDiscount) > maxManualDiscount + 0.001,
+                    }"
+                  >
+                    <span
+                      class="ps-3 text-primary d-flex align-items-center bg-light border-end"
+                      ><i class="bi bi-percent"></i
+                    ></span>
+                    <input
+                      id="manual-discount-input"
+                      v-model.number="manualDiscount"
+                      type="number"
+                      min="0"
+                      :max="maxManualDiscount"
+                      step="1"
+                      inputmode="decimal"
+                      class="form-control border-0 py-2 px-3 shadow-none bg-transparent small fw-bold"
+                      placeholder="0"
+                      @focus="isFocused = false"
+                    />
+                    <span
+                      class="pe-3 d-flex align-items-center small fw-bold text-muted"
+                      >сом</span
+                    >
                   </div>
                 </div>
 
@@ -1790,9 +2176,19 @@ watch(couponDiscount, (newDiscount) => {
                     v-if="couponDiscount > 0"
                     class="d-flex justify-content-between align-items-center mb-0 text-success opacity-75"
                   >
-                    <span class="x-small fw-bold">СКИДКА:</span>
+                    <span class="x-small fw-bold">СКИДКА ПО КУПОНУ:</span>
                     <span class="small fw-bold"
                       >-{{ couponDiscount.toLocaleString() }} сом</span
+                    >
+                  </div>
+
+                  <div
+                    v-if="Number(manualDiscount) > 0"
+                    class="d-flex justify-content-between align-items-center mb-0 text-success opacity-75"
+                  >
+                    <span class="x-small fw-bold">СКИДКА КАССИРА:</span>
+                    <span class="small fw-bold"
+                      >-{{ Number(manualDiscount).toLocaleString() }} сом</span
                     >
                   </div>
 
@@ -1802,7 +2198,7 @@ watch(couponDiscount, (newDiscount) => {
                     <span class="h5 fw-bold mb-0 text-dark">К ОПЛАТЕ:</span>
                     <div class="text-end">
                       <span class="h2 fw-black mb-0 text-primary">
-                        {{ (totalPrice - couponDiscount).toLocaleString() }}
+                        {{ payableAmount.toLocaleString() }}
                       </span>
                       <span class="small fw-bold text-primary ms-1">сом</span>
                     </div>
@@ -1861,25 +2257,25 @@ watch(couponDiscount, (newDiscount) => {
                       <div
                         class="payment-card-premium p-2 rounded-4 transition-all cursor-pointer border"
                         :class="{
-                          active: activeField === 'transfer',
-                          completed: transferAmount > 0,
+                          active: activeField === 'qr',
+                          completed: qrAmount > 0,
                         }"
-                        @click="activeField = 'transfer'"
+                        @click="activeField = 'qr'"
                       >
                         <div
                           class="d-flex justify-content-between align-items-center mb-1"
                         >
                           <span class="x-small fw-bold text-muted opacity-50"
-                            >ПЕРЕВОД
+                            >QR GoPay
                             <span
                               class="badge bg-primary-subtle text-primary ms-1"
                               >F6</span
                             ></span
                           >
                           <i
-                            class="bi bi-credit-card"
+                            class="bi bi-qr-code"
                             :class="
-                              activeField === 'transfer'
+                              activeField === 'qr'
                                 ? 'text-white'
                                 : 'text-primary'
                             "
@@ -1888,14 +2284,14 @@ watch(couponDiscount, (newDiscount) => {
                         <div class="payment-amount-display">
                           <input
                             type="number"
-                            v-model.number="transferAmount"
+                            v-model.number="qrAmount"
                             @focus="
-                              activeField = 'transfer';
+                              activeField = 'qr';
                               isFocused = true;
                               numpadBuffer = '';
                             "
                             @blur="isFocused = false"
-                            class="form-control transfer-input-field border-0 p-0 fw-black fs-4 bg-transparent shadow-none"
+                            class="form-control qr-input-field border-0 p-0 fw-black fs-4 bg-transparent shadow-none"
                             placeholder="0"
                             readonly
                           />
@@ -1944,7 +2340,7 @@ watch(couponDiscount, (newDiscount) => {
                             </template>
                             <template v-else>
                               {{
-                                activeField === "cash" ? "НАЛИЧНЫЕ" : "ПЕРЕВОД"
+                                activeField === "cash" ? "НАЛИЧНЫЕ" : "QR GoPay"
                               }}
                             </template>
                           </div>
@@ -2036,37 +2432,22 @@ watch(couponDiscount, (newDiscount) => {
 
                     <div
                       :class="changeAmount > 0 ? 'col-6' : 'col-12'"
-                      v-if="settings.pos_allow_debt === '1'"
+                      v-if="debtAllowed"
                     >
                       <button
-                        class="btn w-100 rounded-4 border p-2 position-relative transition-all d-flex align-items-center justify-content-center gap-2"
-                        :class="
-                          isDebt
-                            ? 'btn-primary bg-primary-subtle text-primary border-primary border-opacity-25'
-                            : 'btn-light border-light-subtle text-muted'
-                        "
-                        @click="isDebt = !isDebt"
+                        class="btn btn-light w-100 rounded-4 border border-light-subtle text-muted p-2 transition-all d-flex align-items-center justify-content-center gap-2"
+                        :disabled="cart.length === 0 || isSubmitting"
+                        @click="openDebtModal"
                       >
-                        <i
-                          class="bi"
-                          :class="
-                            isDebt
-                              ? 'bi-calendar-check-fill'
-                              : 'bi-calendar-plus'
-                          "
-                        ></i>
+                        <i class="bi bi-journal-plus"></i>
                         <span class="x-small fw-bold text-uppercase"
                           >В ДОЛГ</span
                         >
+                        <span
+                          class="badge bg-primary-subtle text-primary"
+                          >F8</span
+                        >
                       </button>
-                    </div>
-
-                    <div class="col-12" v-if="isDebt">
-                      <input
-                        type="date"
-                        v-model="dueDate"
-                        class="form-control form-control-sm rounded-3 border-primary border-opacity-10 bg-light-subtle"
-                      />
                     </div>
                   </div>
                 </div>
@@ -2226,46 +2607,83 @@ watch(couponDiscount, (newDiscount) => {
       </div>
     </div>
 
-    <div v-if="weightModalProduct" class="modal-backdrop fade show"></div>
+    <PosDebtSaleModal
+      :show="showDebtModal"
+      :total="payableAmount"
+      :initial-customer="selectedUser"
+      :submitting="isSubmitting"
+      @close="closeDebtModal"
+      @confirm="confirmDebtSale"
+    />
+
+    <!-- Ожидание оплаты по QR (смешанная оплата) -->
+    <div v-if="qrSale" class="modal-backdrop fade show" style="z-index: 2050"></div>
     <div
-      v-if="weightModalProduct"
+      v-if="qrSale"
       class="modal fade show d-block"
       tabindex="-1"
-      @click.self="closeWeightModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="qrSaleTitle"
+      style="z-index: 2060"
     >
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 rounded-4 shadow-lg">
-          <div class="modal-header border-0 p-4">
-            <h5 class="modal-title fw-bold">
-              <i class="bi bi-basket2 me-2"></i>Вес товара
+          <div class="modal-header border-0 p-4 pb-2">
+            <h5 id="qrSaleTitle" class="modal-title fw-bold">
+              <i class="bi bi-qr-code me-2"></i>Оплата по QR — чек #{{ qrSale.order_number }}
             </h5>
-            <button type="button" class="btn-close" @click="closeWeightModal"></button>
           </div>
-          <div class="modal-body p-4 pt-0">
-            <p class="text-muted small mb-3">
-              {{ weightModalProduct?.name }} — введите вес вручную (нет весов со
-              сканером под рукой). Штрихкод с упаковки добавит вес автоматически.
-            </p>
-            <div class="input-group input-group-lg">
-              <input
-                ref="weightModalInputEl"
-                v-model="weightModalValue"
-                type="text"
-                inputmode="decimal"
-                class="form-control rounded-start-4 text-center"
-                placeholder="0.000"
-                @keyup.enter="confirmWeightModal"
+          <div class="modal-body p-4 pt-0 text-center">
+            <div class="h2 fw-black text-primary mb-1">
+              {{ Number(qrSale.qr_payment?.amount || 0).toLocaleString() }} сом
+            </div>
+            <div v-if="Number(qrSale.cash_received) > 0" class="small text-muted mb-3">
+              + наличными {{ Number(qrSale.cash_received).toLocaleString() }} сом
+            </div>
+
+            <div v-if="!qrExpired" class="my-3">
+              <img
+                v-if="qrImage"
+                :src="qrImage"
+                alt="QR-код для оплаты в приложении банка"
+                width="280"
+                height="280"
+                class="rounded-3 border"
               />
-              <span class="input-group-text rounded-end-4">{{ weightModalProduct?.unit || "кг" }}</span>
+              <div v-else class="spinner-border text-primary my-5" role="status"></div>
+              <div class="small text-muted mt-2">
+                Покупатель сканирует QR в приложении банка. Осталось
+                <span class="fw-bold">{{ qrTimeLeftLabel }}</span>
+              </div>
+            </div>
+            <div v-else class="alert alert-warning my-3 mb-0">
+              Время QR истекло. Создайте новый QR или отмените продажу.
+            </div>
+
+            <div class="d-flex align-items-center justify-content-center gap-2 small text-muted mt-3">
+              <span class="spinner-grow spinner-grow-sm text-primary"></span>
+              Ждём подтверждения банка…
             </div>
           </div>
-          <div class="modal-footer border-0 p-4 pt-0">
-            <button class="btn btn-light rounded-pill px-4" @click="closeWeightModal">
-              Отмена (Esc)
+          <div class="modal-footer border-0 p-4 pt-0 d-flex flex-wrap gap-2 justify-content-between">
+            <button class="btn btn-outline-danger rounded-pill px-4" :disabled="qrBusy" @click="cancelQrSale">
+              Отменить продажу
             </button>
-            <button class="btn btn-primary rounded-pill px-4" @click="confirmWeightModal">
-              Добавить
-            </button>
+            <div class="d-flex gap-2">
+              <button
+                v-if="qrExpired"
+                class="btn btn-primary rounded-pill px-4"
+                :disabled="qrBusy"
+                @click="renewQr"
+              >
+                Новый QR
+              </button>
+              <button class="btn btn-light rounded-pill px-4" :disabled="qrBusy" @click="checkQrPayment">
+                <span v-if="qrBusy" class="spinner-border spinner-border-sm me-1"></span>
+                Проверить оплату
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2278,10 +2696,16 @@ watch(couponDiscount, (newDiscount) => {
   background-color: #f1f5f9;
 }
 
+/* Поверх всего интерфейса кассы, включая боковую панель (z-index 1050) */
+.server-offline-banner {
+  z-index: 2000;
+}
+
 .sidebar-glass {
   background: #0f1016 !important;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 

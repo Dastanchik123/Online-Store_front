@@ -42,17 +42,13 @@ export const useAuth = () => {
         authStore.setUser(response.user);
         authStore.setToken(response.token);
 
-        // Save session to Electron SQLite for offline access & background sync
-        if ((window as any).electronAPI?.authSaveSession) {
-          const pub = useRuntimeConfig().public;
-          (window as any).electronAPI.authSaveSession({
+        // Electron: встроенные форматы этикеток → settings.label_templates_all
+        // (делает только admin, для остальных ролей main-процесс сам пропустит)
+        if ((window as any).electronAPI?.syncLabelTemplates) {
+          (window as any).electronAPI.syncLabelTemplates({
             token: response.token,
-            user: response.user,
-            apiBase: resolveApiBase(pub.apiBase as string),
-            wsHost: pub.wsHost,
-            wsPort: pub.wsPort,
-            wsKey: pub.wsKey,
-            wsTLS: !!pub.wsTLS,
+            apiBase: resolveApiBase(useRuntimeConfig().public.apiBase as string),
+            role: response.user?.role,
           }).catch(console.error);
         }
       }
@@ -61,6 +57,46 @@ export const useAuth = () => {
     } catch (error) {
       throw error;
     }
+  };
+
+  // Вход покупателя по номеру: шаг 1 — SMS с кодом
+  const sendPhoneCode = async (phone: string) => {
+    return await api.apiFetch("/auth/phone/send-code", {
+      method: "POST",
+      body: { phone },
+    });
+  };
+
+  // Шаг 2 — код из SMS. Новый номер сам создаёт покупателя (needs_name)
+  const verifyPhoneCode = async (phone: string, code: string) => {
+    const response: any = await api.apiFetch("/auth/phone/verify", {
+      method: "POST",
+      body: { phone, code },
+    });
+
+    if (import.meta.client && response.token) {
+      localStorage.setItem("auth_token", response.token);
+      localStorage.setItem("user", JSON.stringify(response.user));
+      authStore.setToken(response.token);
+      authStore.setUser(response.user);
+    }
+
+    return response;
+  };
+
+  // Шаг 3 (только новый покупатель) — имя
+  const saveName = async (name: string) => {
+    const response: any = await api.apiFetch("/user/profile", {
+      method: "POST",
+      body: { name },
+    });
+
+    if (import.meta.client && response.user) {
+      localStorage.setItem("user", JSON.stringify(response.user));
+      authStore.setUser(response.user);
+    }
+
+    return response;
   };
 
   const logout = async () => {
@@ -74,9 +110,6 @@ export const useAuth = () => {
       if (import.meta.client) {
         localStorage.removeItem("auth_token");
         localStorage.removeItem("user");
-        if ((window as any).electronAPI?.authClearSession) {
-          (window as any).electronAPI.authClearSession().catch(console.error);
-        }
       }
       authStore.clearAuth();
       navigateTo("/auth/login");
@@ -106,6 +139,9 @@ export const useAuth = () => {
   return {
     register,
     login,
+    sendPhoneCode,
+    verifyPhoneCode,
+    saveName,
     logout,
     getUser,
     isAuthenticated,

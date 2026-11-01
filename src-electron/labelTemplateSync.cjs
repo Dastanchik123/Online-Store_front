@@ -2,11 +2,10 @@
 // общий Laravel settings.label_templates_all.
 //
 // POST /settings там защищён middleware 'superadmin' (role === 'admin'),
-// поэтому синк возможен только сразу после входа администратора — вызывается
-// из auth-save-session в electron-main.cjs. Для кассиров просто no-op: они
-// продолжают работать с тем, что уже пришло в label_templates_all с бэкенда
-// (realtime-пуш через Setting::saved → PosSyncUpdated('settings') разнесёт
-// обновление по остальным терминалам без их участия).
+// поэтому синк возможен только сразу после входа администратора — фронт
+// вызывает IPC label-templates-sync после логина (см. useAuth.ts). Для
+// кассиров просто no-op: они работают с тем, что лежит в label_templates_all
+// на бэкенде.
 const axios = require('axios');
 
 function mergeBuiltinTemplates(existingList, builtins) {

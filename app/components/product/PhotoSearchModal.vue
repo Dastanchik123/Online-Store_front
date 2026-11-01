@@ -13,12 +13,34 @@ const previewUrl = ref("");
 const isLoading = ref(false);
 const errorMessage = ref("");
 const items = ref([]);
+const similarProducts = ref([]);
 
 const reset = () => {
   previewUrl.value = "";
   errorMessage.value = "";
   items.value = [];
+  similarProducts.value = [];
   isLoading.value = false;
+};
+
+// Снимок с телефона весит 3–8 МБ, а для сравнения картинок хватает
+// 1024px — ужимаем в браузере, на мобильном интернете это в разы быстрее
+const MAX_SIDE = 1024;
+const compressPhoto = async (file) => {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    return blob && blob.size < file.size ? new File([blob], "photo.jpg", { type: "image/jpeg" }) : file;
+  } catch {
+    // Старый браузер или формат, который не читается (например HEIC) — шлём как есть
+    return file;
+  }
 };
 
 const close = () => {
@@ -36,21 +58,22 @@ const onFileSelected = async (event) => {
 
   errorMessage.value = "";
   items.value = [];
+  similarProducts.value = [];
   previewUrl.value = URL.createObjectURL(file);
   isLoading.value = true;
 
   try {
-    const res = await recognizeProductPhoto(file);
-    if (res?.error && (!res.items || res.items.length === 0)) {
-      errorMessage.value = res.error;
-    }
+    const res = await recognizeProductPhoto(await compressPhoto(file));
+    similarProducts.value = res?.similar_products || [];
     items.value = res?.items || [];
-    if (items.value.length === 0 && !errorMessage.value) {
-      errorMessage.value = "Не удалось распознать товар на фото. Попробуйте сделать фото ближе и при хорошем освещении.";
+    if (similarProducts.value.length === 0 && items.value.length === 0) {
+      errorMessage.value =
+        res?.error ||
+        "Похожих товаров не нашли. Сфотографируйте товар крупнее, на однотонном фоне, или найдите его по названию.";
     }
   } catch (e) {
     console.error("Photo recognition failed", e);
-    errorMessage.value = "Не удалось распознать фото. Проверьте соединение и попробуйте снова.";
+    errorMessage.value = "Не удалось отправить фото. Проверьте соединение и попробуйте снова.";
   } finally {
     isLoading.value = false;
     event.target.value = "";
@@ -64,7 +87,7 @@ const getProductImage = (product) => {
 
 const goToProduct = (product) => {
   close();
-  router.push(`/product/${product.slug || product.id}`);
+  router.push(`/product/${product.id}`);
 };
 
 // Если по фото не нашлось карточек товара напрямую — переходим в каталог
@@ -100,12 +123,33 @@ const searchByQuery = (query) => {
 
         <div v-if="isLoading" class="text-center py-4">
           <div class="spinner-border text-primary mb-2" role="status"></div>
-          <p class="text-muted small mb-0">Распознаём товар...</p>
+          <p class="text-muted small mb-0">Ищем похожие товары…</p>
+          <p class="text-muted small mb-0">Первый поиск может занять до минуты</p>
         </div>
 
         <template v-else>
           <div v-if="errorMessage" class="alert alert-warning small mt-3 mb-0">
             {{ errorMessage }}
+          </div>
+
+          <div v-if="similarProducts.length" class="mt-3">
+            <h6 class="fw-bold mb-2">Похожие товары</h6>
+            <div
+              v-for="product in similarProducts"
+              :key="product.id"
+              class="matched-product d-flex align-items-center gap-3 p-2 border rounded mb-2 cursor-pointer"
+              @click="goToProduct(product)"
+            >
+              <img :src="getProductImage(product)" class="matched-thumb" alt="" />
+              <div class="flex-grow-1 overflow-hidden">
+                <div class="fw-medium text-truncate">{{ product.name }}</div>
+                <div class="text-muted small">
+                  {{ product.sale_price || product.price }} сом
+                  <span v-if="product.category?.name"> · {{ product.category.name }}</span>
+                </div>
+              </div>
+              <i class="bi bi-chevron-right text-muted"></i>
+            </div>
           </div>
 
           <div v-for="(item, idx) in items" :key="idx" class="recognized-item mt-3">

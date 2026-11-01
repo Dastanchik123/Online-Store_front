@@ -18,8 +18,8 @@
   }
 
   .header-card {
-    padding: 1.5rem !important;
-    margin-bottom: 1.5rem !important;
+    padding: 1rem !important;
+    margin-bottom: 1rem !important;
   }
 
   .header-card h1 {
@@ -105,6 +105,327 @@
   }
 }
 
+
+/* ── Общая адаптивная раскладка админ-страниц ───────────────────────
+   Десктоп/планшет — плотная таблица в стиле страницы «Товары» (сетка
+   ячеек, липкая шапка, строки в одну линию). Телефон (< 768px) — вместо
+   таблицы список карточек .adm-mlist: шесть-восемь колонок в 360px не
+   помещаются, а горизонтальный скролл неудобен пальцем. */
+
+.adm-page {
+  background-color: #f8fafc;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Шапка страницы: заголовок слева, кнопки справа; на телефоне кнопки
+   уходят на новую строку и делят её поровну */
+.adm-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.adm-head-title {
+  margin-right: auto;
+  min-width: 0;
+}
+.adm-head-title h1,
+.adm-head-title .h1,
+.adm-head-title h2,
+.adm-head-title h3,
+.adm-head-title h4,
+.adm-head-title h5 {
+  font-weight: 800;
+  margin-bottom: 0.15rem;
+}
+.adm-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* Сетка фильтров: сама подбирает число колонок под ширину */
+.adm-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.5rem 0.75rem;
+  align-items: end;
+}
+.adm-filters .form-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.2rem;
+}
+.adm-filters .adm-filter-wide {
+  grid-column: span 2;
+}
+
+/* Плотная таблица (как «Товары») */
+.adm-table-wrap {
+  overflow: auto;
+  background: #fff;
+  -webkit-overflow-scrolling: touch;
+}
+.adm-table {
+  width: 100%;
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.82rem;
+}
+.adm-table th,
+.adm-table td {
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.35rem 0.6rem;
+  vertical-align: middle;
+}
+.adm-table th:last-child,
+.adm-table td:last-child {
+  border-right: 0;
+}
+.adm-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+  border-bottom: 2px solid #cbd5e1;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+}
+.adm-table tbody tr:hover > td {
+  background: #f8fafc;
+}
+.adm-table .adm-num {
+  width: 44px;
+  background: #f8fafc;
+  color: #94a3b8;
+  text-align: center;
+  white-space: nowrap;
+}
+.adm-table .adm-nowrap {
+  white-space: nowrap;
+}
+.adm-table .adm-clip {
+  max-width: 1px; /* вместе с width:auto ячейка берёт остаток и режется многоточием */
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Кнопки-иконки в строке */
+.adm-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  background: #f1f5f9;
+  color: #334155;
+  transition: background 0.15s, color 0.15s;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.adm-ico:hover { background: #e2e8f0; }
+.adm-ico.primary { background: #e0f2fe; color: #0369a1; }
+.adm-ico.primary:hover { background: #0369a1; color: #fff; }
+.adm-ico.success { background: #dcfce7; color: #15803d; }
+.adm-ico.success:hover { background: #15803d; color: #fff; }
+.adm-ico.warning { background: #fef3c7; color: #b45309; }
+.adm-ico.warning:hover { background: #b45309; color: #fff; }
+.adm-ico.danger { background: #fee2e2; color: #dc2626; }
+.adm-ico.danger:hover { background: #dc2626; color: #fff; }
+.adm-ico:disabled { opacity: 0.5; pointer-events: none; }
+
+/* Мобильные карточки */
+.adm-mlist {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+.adm-mcard {
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.adm-mcard:last-child { border-bottom: 0; }
+.adm-mcard.clickable { cursor: pointer; }
+.adm-mcard.clickable:active { background: #f1f5f9; }
+.adm-mline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.adm-mtitle {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.adm-mtitle.wrap {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.adm-mval {
+  flex-shrink: 0;
+  font-weight: 800;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+.adm-msub {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.74rem;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.adm-mactions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.adm-mactions .adm-ico {
+  width: 32px;
+  height: 32px;
+}
+
+.adm-empty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: #94a3b8;
+}
+
+/* Плитки-показатели (балансы, итоги) */
+.adm-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.adm-stat {
+  background: #fff;
+  border-radius: 1rem;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.adm-stat-ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.adm-stat-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+}
+.adm-stat-value {
+  font-weight: 800;
+  font-size: 1.1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Модалки на телефоне — на весь экран с прокруткой тела, а не обрезанные */
+@media (max-width: 575.98px) {
+  .modal-dialog:not(.modal-sm) {
+    margin: 0.5rem;
+  }
+  .modal-dialog-scrollable .modal-content {
+    max-height: calc(100dvh - 1rem);
+  }
+  .modal-body,
+  .modal-header,
+  .modal-footer {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .adm-page {
+    padding: 0.75rem !important;
+  }
+  .adm-head-title h1,
+  .adm-head-title .h1,
+  .adm-head-title h2,
+  .adm-head-title h3 {
+    font-size: 1.25rem;
+  }
+  .adm-head-actions {
+    width: 100%;
+  }
+  .adm-head-actions > .btn,
+  .adm-head-actions > a.btn {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    font-size: 0.85rem;
+  }
+  .adm-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+  .adm-filters .adm-filter-full {
+    grid-column: 1 / -1;
+  }
+  .adm-stats {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+  .adm-stat {
+    padding: 0.6rem 0.7rem;
+    gap: 0.5rem;
+  }
+  .adm-stat-ico {
+    width: 32px;
+    height: 32px;
+    font-size: 0.95rem;
+  }
+  .adm-stat-value {
+    font-size: 0.95rem;
+  }
+}
 
 .avatar-sm {
   width: 32px;

@@ -43,7 +43,7 @@ const formatPrice = (price) => {
   return (
     parseFloat(price).toLocaleString("ru-RU", {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 2,
     }) + " сом"
   );
 };
@@ -188,7 +188,10 @@ onMounted(() => {
                 </div>
                 <div>
                   <h4 class="mb-1 fw-bold">{{ user?.name }}</h4>
-                  <p class="text-muted mb-0">{{ user?.email }}</p>
+                  <!-- Покупатели входят по номеру — email у них может не быть -->
+                  <p class="text-muted mb-0">
+                    {{ user?.phone || user?.email }}
+                  </p>
                 </div>
               </div>
 

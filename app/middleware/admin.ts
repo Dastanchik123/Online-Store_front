@@ -11,7 +11,7 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
   
   if (import.meta.client) {
     if (!authStore.isAuth) {
-      return navigateTo("/auth/login");
+      return navigateTo("/auth/staff");
     }
 
     if (!authStore.isAdmin) {

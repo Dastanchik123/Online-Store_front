@@ -143,14 +143,16 @@ const pickProduct = (product) => {
           <template v-else>
             <table class="table table-hover align-middle mb-0 picker-table">
               <thead class="bg-light sticky-top">
+                <!-- Телефон: без №, артикула (он под названием) и закупочной
+                     цены — иначе таблица уезжала за край окна -->
                 <tr>
-                  <th class="ps-3" width="48">№</th>
-                  <th>Артикул</th>
-                  <th>Товар</th>
-                  <th class="text-end">Цена зак.</th>
-                  <th class="text-end">Цена продажи</th>
+                  <th class="ps-3 d-none d-md-table-cell" width="48">№</th>
+                  <th class="d-none d-md-table-cell">Артикул</th>
+                  <th class="ps-3 ps-md-2">Товар</th>
+                  <th class="text-end d-none d-md-table-cell">Цена зак.</th>
+                  <th class="text-end">Цена<span class="d-none d-md-inline"> продажи</span></th>
                   <th class="text-center">Остаток</th>
-                  <th class="text-center" width="90"></th>
+                  <th class="text-center d-none d-sm-table-cell" width="90"></th>
                 </tr>
               </thead>
               <tbody>
@@ -161,16 +163,26 @@ const pickProduct = (product) => {
                   :class="{ 'picker-row-selected': multiSelect && quantityInCart(p.id) }"
                   @click="pickProduct(p)"
                 >
-                  <td class="ps-3 text-muted small">{{ index + 1 }}</td>
-                  <td class="text-muted font-monospace small">{{ p.sku || "—" }}</td>
-                  <td>
+                  <td class="ps-3 text-muted small d-none d-md-table-cell">{{ index + 1 }}</td>
+                  <td class="text-muted font-monospace small d-none d-md-table-cell">{{ p.sku || "—" }}</td>
+                  <td class="ps-3 ps-md-2">
                     <div class="fw-bold text-dark small">{{ p.name }}</div>
+                    <div class="text-muted font-monospace d-md-none" style="font-size: 0.68rem">
+                      {{ p.sku || "—" }}
+                    </div>
                     <div v-if="p.package_unit" class="text-muted" style="font-size: 0.68rem">
                       {{ p.package_unit }} = {{ p.package_size }} {{ p.unit || "шт" }}
                     </div>
+                    <span
+                      v-if="quantityInCart(p.id)"
+                      class="badge bg-primary-subtle text-primary d-sm-none mt-1"
+                      style="font-size: 0.65rem"
+                    >
+                      {{ multiSelect ? "Добавлено" : "В приёме" }}: {{ quantityInCart(p.id) }}
+                    </span>
                   </td>
-                  <td class="text-end small">{{ formatPrice(p.purchase_price) }}</td>
-                  <td class="text-end small">{{ formatPrice(p.price) }}</td>
+                  <td class="text-end small d-none d-md-table-cell">{{ formatPrice(p.purchase_price) }}</td>
+                  <td class="text-end small text-nowrap">{{ formatPrice(p.price) }}</td>
                   <td class="text-center">
                     <span
                       class="badge"
@@ -179,7 +191,7 @@ const pickProduct = (product) => {
                       {{ formatQty(p.stock_quantity) }}
                     </span>
                   </td>
-                  <td class="text-center">
+                  <td class="text-center d-none d-sm-table-cell">
                     <span
                       v-if="quantityInCart(p.id)"
                       class="badge bg-primary-subtle text-primary"
@@ -334,5 +346,41 @@ const pickProduct = (product) => {
 .picker-search .form-control,
 .picker-search .input-group-text {
   background: #f1f5f9;
+}
+
+/* Телефон: колонка категорий шириной 220px не оставляла места товарам —
+   категории становятся горизонтальной лентой над списком */
+@media (max-width: 767.98px) {
+  .picker-wrap {
+    height: 70vh;
+    height: 70dvh;
+  }
+  .picker-columns {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .picker-categories {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 0 6px;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+    scrollbar-width: none;
+  }
+  .cat-btn {
+    flex-shrink: 0;
+    background: #f1f5f9;
+    border-radius: 50px;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.8rem;
+  }
+  .create-btn {
+    margin-top: 0;
+    border-top: none;
+    border-radius: 50px;
+    padding-top: 0.35rem;
+  }
 }
 </style>

@@ -14,7 +14,7 @@ const {
   deleteProduct,
   downloadProductsExcel,
 } = useProducts();
-const { printProductsReport } = usePrinter();
+const { downloadProductsReportPdf } = usePrinter();
 
 const { setQueue } = usePrintQueue();
 const goToPrintLabels = (product) => {
@@ -41,18 +41,19 @@ const products = ref({
 
 const categories = computed(() => productsStore.categories);
 const isLoading = ref(false);
+const isRefreshing = ref(false);
 const isExportingPdf = ref(false);
 // Отчёт формируется прямо в браузере из уже загруженных (с учётом фильтров)
 // товаров — раньше это генерил dompdf на бэке и падал по памяти на полном
 // каталоге (1000+ позиций), см. laravel.log.
-const exportPdf = () => {
+const exportPdf = async () => {
   if (!products.value.data.length) {
     uiStore.error("Нет товаров для отчёта");
     return;
   }
   isExportingPdf.value = true;
   try {
-    printProductsReport(products.value.data);
+    await downloadProductsReportPdf(products.value.data);
   } catch (error) {
     uiStore.error(error.message || "Ошибка при формировании отчёта");
   } finally {
@@ -109,7 +110,10 @@ const saveColWidths = () => {
 const fitColWidthsToContainer = async () => {
   await nextTick();
   const el = scrollContainer.value;
-  if (!el || el.clientWidth < 300) return;
+  // Узкий контейнер (планшет) — не сжимаем 8 колонок до нечитаемости
+  // (артикул ломался в две строки, цена обрезалась): оставляем ширины по
+  // умолчанию, таблица прокручивается вбок внутри карточки
+  if (!el || el.clientWidth < 900) return;
   const ratio = el.clientWidth / tableWidth.value;
   colWidths.value = colWidths.value.map((w) =>
     Math.max(MIN_COL_WIDTH, Math.floor(w * ratio)),
@@ -201,6 +205,14 @@ const autofitColumn = (index) => {
 // (+буфер): рендер страницы не зависит от размера каталога.
 const scrollContainer = ref(null);
 
+// Телефон — карточки вместо таблицы (см. шаблон). Ширина < 768px.
+const isMobile = ref(false);
+let mobileMql = null;
+const onMobileChange = () => {
+  isMobile.value = !!mobileMql?.matches;
+  syncVirtualScroll();
+};
+
 // Высота таблицы подгоняется под остаток экрана от её верхней границы,
 // чтобы сама страница не скроллилась (внизу остаётся строка «Всего
 // товаров» + отступ страницы ≈ 76px)
@@ -209,7 +221,10 @@ const updateTableHeight = () => {
   const el = scrollContainer.value;
   if (!el) return;
   const top = el.getBoundingClientRect().top + (window.scrollY || 0);
-  tableHeight.value = Math.max(240, window.innerHeight - top - 76);
+  // На телефоне шапка и фильтры съедают пол-экрана — список не меньше
+  // ~60% высоты, остальное докручивается страницей
+  const minHeight = isMobile.value ? Math.round(window.innerHeight * 0.6) : 240;
+  tableHeight.value = Math.max(minHeight, window.innerHeight - top - 76);
 };
 
 const tableHeightStyle = computed(() =>
@@ -270,8 +285,9 @@ const onTableScroll = () => {
     scrollTop.value = el.scrollTop;
     viewportHeight.value = el.clientHeight;
     // высота строки могла измениться (смена стилей/зум) — если расчёт
-    // разойдётся с реальностью, при прокрутке появляются пустые зоны
-    const row = el.querySelector("tbody tr.product-row");
+    // разойдётся с реальностью, при прокрутке появляются пустые зоны.
+    // .product-row — и строка таблицы, и мобильная карточка
+    const row = el.querySelector(".product-row");
     if (row && row.offsetHeight > 20) rowHeight.value = row.offsetHeight;
   });
 };
@@ -284,7 +300,7 @@ const syncVirtualScroll = async () => {
   if (!el) return;
   updateTableHeight();
   await nextTick(); // высота контейнера применяется в следующем тике
-  const row = el.querySelector("tbody tr.product-row");
+  const row = el.querySelector(".product-row");
   if (row && row.offsetHeight > 20) rowHeight.value = row.offsetHeight;
   viewportHeight.value = el.clientHeight;
   scrollTop.value = el.scrollTop;
@@ -386,9 +402,10 @@ const fetchProducts = async () => {
   if (params.category_id === "") delete params.category_id;
   if (!params.search) delete params.search;
 
-  // Лоадер — только если показать пока нечего (повторные фильтры/поиск
-  // по уже отрисованному списку лоадер не показывают).
+  // Пустой список — большой лоадер вместо таблицы; при повторной загрузке
+  // (фильтры/поиск) — полупрозрачный лоадер поверх уже отрисованной таблицы.
   isLoading.value = products.value.data.length === 0;
+  isRefreshing.value = !isLoading.value;
 
   // noCache: эта страница — рабочий инструмент админа по ценам/остаткам,
   // ему нельзя мгновенно рисовать устаревший снимок из localStorage SWR-кэша
@@ -405,6 +422,7 @@ const fetchProducts = async () => {
     console.error("Error fetching products:", error);
   } finally {
     isLoading.value = false;
+    isRefreshing.value = false;
   }
 };
 
@@ -449,14 +467,19 @@ const stockClass = (product) => {
 
 onMounted(async () => {
   const hasSavedWidths = loadColWidths();
+  mobileMql = window.matchMedia("(max-width: 767.98px)");
+  isMobile.value = mobileMql.matches;
+  mobileMql.addEventListener("change", onMobileChange);
   window.addEventListener("resize", updateTableHeight);
   // категории и товары не зависят друг от друга — грузим параллельно
   await Promise.all([fetchCategories(), fetchProducts()]);
-  if (!hasSavedWidths) await fitColWidthsToContainer();
+  // подгонка ширин колонок под контейнер — только для таблицы
+  if (!hasSavedWidths && !isMobile.value) await fitColWidthsToContainer();
 });
 
 onUnmounted(() => {
   window.removeEventListener("resize", updateTableHeight);
+  mobileMql?.removeEventListener("change", onMobileChange);
   endColResize();
 });
 </script>
@@ -476,33 +499,35 @@ onUnmounted(() => {
     <div
       class="header-card mb-3 p-3 rounded-4 shadow-sm text-white glass-header"
     >
-      <div class="row align-items-center">
-        <div class="col">
+      <!-- flex-wrap: на телефоне кнопки уходят под заголовок, а не
+           сжимаются в круги с обрезанным текстом -->
+      <div class="d-flex flex-wrap align-items-center gap-2 gap-md-3">
+        <div class="me-auto">
           <h5 class="mb-0 fw-bold">Управление каталогом</h5>
           <p class="small mb-0 opacity-75">Товары, цены и остатки</p>
         </div>
-        <div class="col-auto d-flex gap-2">
+        <div class="hdr-actions d-flex flex-wrap gap-2">
           <button
             @click="downloadProductsExcel(filters.value)"
-            class="btn btn-light rounded-pill px-4 py-2 fw-bold shadow-sm"
+            class="btn btn-light rounded-pill fw-bold shadow-sm text-nowrap"
           >
-            <i class="bi bi-file-earmark-excel me-2 text-success"></i>Экспорт
-            excel
+            <i class="bi bi-file-earmark-excel me-1 me-md-2 text-success"></i>
+            <span class="d-none d-sm-inline">Экспорт </span>excel
           </button>
           <button
             @click="exportPdf"
             :disabled="isExportingPdf"
-            class="btn btn-light rounded-pill px-4 py-2 fw-bold shadow-sm"
+            class="btn btn-light rounded-pill fw-bold shadow-sm text-nowrap"
           >
             <span v-if="isExportingPdf" class="spinner-border spinner-border-sm me-2"></span>
-            <i v-else class="bi bi-file-earmark-pdf me-2 text-danger"></i>
+            <i v-else class="bi bi-file-earmark-pdf me-1 me-md-2 text-danger"></i>
             {{ isExportingPdf ? "Формируется…" : "Отчет (PDF)" }}
           </button>
           <NuxtLink
             to="/admin/products/create"
-            class="btn btn-add rounded-pill px-4 py-2 fw-bold"
+            class="btn btn-add rounded-pill fw-bold text-nowrap"
           >
-            <i class="bi bi-plus-lg me-2"></i>Добавить товар
+            <i class="bi bi-plus-lg me-1 me-md-2"></i>Добавить<span class="d-none d-sm-inline"> товар</span>
           </NuxtLink>
         </div>
       </div>
@@ -510,8 +535,8 @@ onUnmounted(() => {
 
     <div class="card border-0 shadow-sm rounded-4 luxury-filter-card mb-3">
       <div class="card-body p-3">
-        <div class="row g-3">
-          <div class="col-lg-4">
+        <div class="row g-2 g-md-3 align-items-center">
+          <div class="col-12 col-lg-4">
             <div class="input-group search-pill-inner">
               <span class="input-group-text border-0 ps-3"
                 ><i class="bi bi-search"></i
@@ -525,11 +550,11 @@ onUnmounted(() => {
               />
             </div>
           </div>
-          <div class="col-md-3">
+          <div class="col-6 col-md-5 col-lg-3">
             <select
               v-model="filters.category_id"
               @change="fetchProducts"
-              class="form-select border-0 bg-light rounded-pill px-3 py-2"
+              class="form-select border-0 bg-light rounded-pill ps-3 py-2"
             >
               <option value="">Все категории</option>
               <option v-for="cat in categories" :key="cat.id" :value="cat.id">
@@ -537,18 +562,18 @@ onUnmounted(() => {
               </option>
             </select>
           </div>
-          <div class="col-md-3">
+          <div class="col col-md-5 col-lg-3">
             <select
               v-model="filters.is_active"
               @change="fetchProducts"
-              class="form-select border-0 bg-light rounded-pill px-3 py-2"
+              class="form-select border-0 bg-light rounded-pill ps-3 py-2"
             >
               <option value="">Все статусы</option>
               <option :value="true">🟢 Активные</option>
               <option :value="false">🔴 Скрытые</option>
             </select>
           </div>
-          <div class="col-md-2 text-end">
+          <div class="col-auto col-md-2 d-flex justify-content-end ms-auto">
             <button
               @click="fetchProducts"
               class="btn btn-refresh-round shadow-sm"
@@ -564,8 +589,9 @@ onUnmounted(() => {
     <div
       class="card border-0 shadow-sm rounded-4 luxury-table-card overflow-hidden"
     >
-      <div class="card-header bg-white border-0 py-3 ps-4">
+      <div class="card-header bg-white border-0 py-3 ps-4 d-flex align-items-center gap-2">
         <h5 class="mb-0 fw-bold text-dark">Список товаров</h5>
+        <span v-if="isRefreshing" class="spinner-border spinner-border-sm text-primary" role="status"></span>
       </div>
       <div v-if="isLoading" class="p-5 text-center">
         <div class="spinner-border text-primary" role="status"></div>
@@ -584,10 +610,76 @@ onUnmounted(() => {
         v-else
         ref="scrollContainer"
         class="table-responsive custom-scrollbar"
-        :style="{ minHeight: tableHeightStyle, maxHeight: tableHeightStyle, overflowY: 'auto', background: '#f8fafc' }"
+        :style="{ minHeight: tableHeightStyle, maxHeight: tableHeightStyle, overflowY: 'auto', background: '#f8fafc', opacity: isRefreshing ? 0.5 : 1, pointerEvents: isRefreshing ? 'none' : 'auto', transition: 'opacity .15s' }"
         @scroll.passive="onTableScroll"
       >
+        <!-- Телефон: 8 колонок Excel-таблицы в 340px не помещаются (артикул
+             ломался по одной цифре) — вместо неё карточки фиксированной
+             высоты на том же виртуальном скролле (класс product-row → замер
+             rowHeight). Тап по карточке — редактирование. -->
+        <div v-if="isMobile" class="m-list">
+          <div v-if="padTop > 0" aria-hidden="true" :style="{ height: padTop + 'px' }"></div>
+          <div
+            v-for="product in visibleProducts"
+            :key="product.id"
+            v-memo="[product]"
+            class="product-row m-card"
+            @click="navigateTo(`/admin/products/update-${product.id}`)"
+          >
+            <div class="m-line">
+              <span class="m-name" :title="product.name">{{ product.name }}</span>
+              <span class="m-price">
+                {{ formatPrice(product.sale_price || product.price) }}
+              </span>
+            </div>
+            <div class="m-line m-meta">
+              <span class="m-sub">
+                <span class="font-monospace">{{ product.sku || "—" }}</span>
+                · {{ product.category?.name || "—" }}
+              </span>
+              <span class="stock-badge py-0 px-2" :class="stockClass(product)" style="font-size: 0.7rem;">
+                {{ formatQty(product.stock_quantity) }} {{ product.unit || "шт" }}.
+              </span>
+            </div>
+            <div class="m-line">
+              <span
+                class="badge-status"
+                :class="product.is_active ? 'active' : 'inactive'"
+                style="font-size: 0.6rem; padding: 0.1rem 0.5rem;"
+              >
+                {{ product.is_active ? "Активен" : "Скрыт" }}
+              </span>
+              <div class="d-flex gap-2" @click.stop>
+                <NuxtLink
+                  :to="`/admin/inventory?product_id=${product.id}`"
+                  class="btn-action m-act"
+                  title="Инвентаризация"
+                  style="background: #e0f2fe; color: #0369a1;"
+                >
+                  <i class="bi bi-box-seam"></i>
+                </NuxtLink>
+                <button
+                  @click="goToPrintLabels(product)"
+                  class="btn-action barcode m-act"
+                  title="Печать этикетки"
+                >
+                  <i class="bi bi-tag"></i>
+                </button>
+                <button
+                  v-if="authStore.hasPermission('products.delete')"
+                  @click="handleDelete(product.id)"
+                  class="btn-action delete m-act"
+                  title="Удалить"
+                >
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-if="padBottom > 0" aria-hidden="true" :style="{ height: padBottom + 'px' }"></div>
+        </div>
         <table
+          v-else
           class="table table-hover align-middle mb-0 custom-table"
           :style="{ width: tableWidth + 'px' }"
         >
@@ -632,7 +724,7 @@ onUnmounted(() => {
                 {{ product._idx }}
               </td>
               <td class="py-1">
-                <div class="text-muted font-monospace fw-bold" style="font-size: 0.75rem;">
+                <div class="text-muted font-monospace fw-bold text-truncate" style="font-size: 0.75rem;" :title="product.sku">
                   {{ product.sku }}
                 </div>
               </td>
@@ -735,6 +827,7 @@ onUnmounted(() => {
 .products-page {
   background-color: #f8fafc;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* ── Excel-режим таблицы ────────────────────────────────────────────
@@ -855,6 +948,82 @@ onUnmounted(() => {
 
 .glass-header {
   background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%);
+}
+
+.hdr-actions .btn {
+  padding: 0.5rem 1.5rem;
+}
+@media (max-width: 767.98px) {
+  .products-page {
+    padding: 0.75rem !important;
+  }
+  .hdr-actions {
+    width: 100%;
+  }
+  .hdr-actions .btn {
+    flex: 1 1 auto;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+  }
+}
+
+/* ── Мобильные карточки товаров ──────────────────────────────────────
+   Высота фиксирована (как строки таблицы) — на ней держится расчёт
+   виртуального скролла; отступы внутри, без margin */
+.m-card {
+  height: 96px;
+  padding: 8px 12px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  cursor: pointer;
+}
+.m-card:active {
+  background: #f1f5f9;
+}
+.m-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.m-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-price {
+  flex-shrink: 0;
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: #0f172a;
+  white-space: nowrap;
+}
+.m-meta {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+.m-sub {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-act {
+  width: 30px;
+  height: 30px;
+  font-size: 0.8rem;
+  border-radius: 8px;
 }
 
 .btn-add {

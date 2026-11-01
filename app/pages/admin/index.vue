@@ -117,16 +117,16 @@ watch(filters, loadReports, { deep: true });
 </script>
 
 <template>
-  <div class="dashboard-page p-4 animate-fade-in">
-    <div class="row align-items-end mb-5">
-      <div class="col">
+  <div class="dashboard-page p-3 p-md-4 animate-fade-in">
+    <div class="row align-items-end g-3 mb-4 mb-md-5">
+      <div class="col-12 col-xxl">
         <div
           class="badge bg-primary-subtle text-primary rounded-pill px-3 py-2 mb-2 fw-bold"
           style="font-size: 0.7rem; letter-spacing: 0.5px"
         >
           <i class="bi bi-calendar3 me-2"></i>{{ currentDate }}
         </div>
-        <h1 class="h2 fw-bold text-dark-blue mb-1">
+        <h1 class="dash-title fw-bold text-dark-blue mb-1">
           С возвращением, Администратор! 👋
         </h1>
         <p class="text-muted mb-0">
@@ -137,11 +137,11 @@ watch(filters, loadReports, { deep: true });
           }}
         </p>
       </div>
-      <div class="col-auto">
+      <div class="col-12 col-xxl-auto">
         <div
-          class="d-flex align-items-center gap-3 bg-white p-2 rounded-4 shadow-sm border border-light"
+          class="dash-filters bg-white p-2 rounded-4 shadow-sm border border-light"
         >
-          <div class="d-flex align-items-center gap-2">
+          <div class="dash-filter dash-filter-staff">
             <span
               class="small text-muted fw-bold text-uppercase ls-1"
               style="font-size: 0.65rem"
@@ -150,7 +150,7 @@ watch(filters, loadReports, { deep: true });
             <select
               v-model="filters.user_id"
               class="form-select form-select-sm border-0 bg-light rounded-pill px-3 fw-bold text-dark"
-              style="font-size: 0.8rem; width: 140px"
+              style="font-size: 0.8rem"
             >
               <option value="">Все</option>
               <option
@@ -162,7 +162,7 @@ watch(filters, loadReports, { deep: true });
               </option>
             </select>
           </div>
-          <div class="d-flex align-items-center gap-2">
+          <div class="dash-filter">
             <span
               class="small text-muted fw-bold text-uppercase ls-1"
               style="font-size: 0.65rem"
@@ -172,10 +172,10 @@ watch(filters, loadReports, { deep: true });
               type="date"
               v-model="filters.date_from"
               class="form-control form-control-sm border-0 bg-light rounded-pill px-3 fw-bold text-dark"
-              style="font-size: 0.8rem; width: 140px"
+              style="font-size: 0.8rem"
             />
           </div>
-          <div class="d-flex align-items-center gap-2">
+          <div class="dash-filter">
             <span
               class="small text-muted fw-bold text-uppercase ls-1"
               style="font-size: 0.65rem"
@@ -185,34 +185,36 @@ watch(filters, loadReports, { deep: true });
               type="date"
               v-model="filters.date_to"
               class="form-control form-control-sm border-0 bg-light rounded-pill px-3 fw-bold text-dark"
-              style="font-size: 0.8rem; width: 140px"
+              style="font-size: 0.8rem"
             />
           </div>
-          <div class="vr mx-1 my-1 opacity-10"></div>
-          <button
-            class="btn btn-refresh shadow-none border-0 rounded-pill px-3 py-2 text-primary hover-bg-light"
-            @click="loadReports"
-            :disabled="loading"
-          >
-            <i
-              class="bi bi-arrow-clockwise fs-5"
-              :class="{ spin: loading }"
-            ></i>
-          </button>
-          <div class="vr mx-1 my-1 opacity-10"></div>
-          <button
-            class="btn btn-refresh shadow-none border-0 rounded-pill px-3 py-2 text-danger hover-bg-light"
-            @click="isReturnsModalOpen = true"
-          >
-            <i class="bi bi-arrow-counterclockwise fs-5"></i>
-            <span class="ms-2 d-none d-md-inline small fw-bold">Возвраты</span>
-          </button>
+          <div class="dash-actions">
+            <button
+              class="btn btn-refresh shadow-none border-0 rounded-pill px-3 py-2 text-primary hover-bg-light"
+              @click="loadReports"
+              :disabled="loading"
+              title="Обновить"
+            >
+              <i
+                class="bi bi-arrow-clockwise fs-5"
+                :class="{ spin: loading }"
+              ></i>
+            </button>
+            <div class="vr mx-1 my-1 opacity-10 d-none d-md-block"></div>
+            <button
+              class="btn btn-refresh shadow-none border-0 rounded-pill px-3 py-2 text-danger hover-bg-light"
+              @click="isReturnsModalOpen = true"
+            >
+              <i class="bi bi-arrow-counterclockwise fs-5"></i>
+              <span class="ms-2 small fw-bold">Возвраты</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
 
-    <div v-if="isInitialLoading" class="row g-4 mb-5">
-      <div v-for="i in 4" :key="i" class="col-xl-3 col-md-6">
+    <div v-if="isInitialLoading" class="row g-2 g-md-4 mb-4 mb-md-5">
+      <div v-for="i in 4" :key="i" class="col-6 col-xl-3">
         <div class="card border-0 shadow-sm rounded-4 p-4 animate-pulse">
           <div
             class="bg-light rounded-circle mb-3"
@@ -232,10 +234,10 @@ watch(filters, loadReports, { deep: true });
 
     <div
       v-else-if="reports"
-      class="row g-4 mb-5"
+      class="row g-2 g-md-4 mb-4 mb-md-5"
       :class="{ 'opacity-75 transition-all': loading }"
     >
-      <div class="col-xl-3 col-md-6">
+      <div class="col-6 col-xl-3">
         <div class="stat-card glass-card luxury-blue">
           <div class="card-content">
             <div class="icon-box">
@@ -252,7 +254,7 @@ watch(filters, loadReports, { deep: true });
         </div>
       </div>
 
-      <div class="col-xl-3 col-md-6">
+      <div class="col-6 col-xl-3">
         <div class="stat-card glass-card luxury-rose">
           <div class="card-content">
             <div class="icon-box">
@@ -269,7 +271,7 @@ watch(filters, loadReports, { deep: true });
         </div>
       </div>
 
-      <div class="col-xl-3 col-md-6">
+      <div class="col-6 col-xl-3">
         <div class="stat-card glass-card luxury-emerald">
           <div class="card-content">
             <div class="icon-box">
@@ -291,7 +293,7 @@ watch(filters, loadReports, { deep: true });
         </div>
       </div>
 
-      <div class="col-xl-3 col-md-6">
+      <div class="col-6 col-xl-3">
         <div class="stat-card glass-card luxury-amber">
           <div class="card-content">
             <div class="icon-box">
@@ -320,9 +322,9 @@ watch(filters, loadReports, { deep: true });
           style="max-height: 500px"
         >
           <div
-            class="p-4 d-flex justify-content-between align-items-center border-bottom"
+            class="p-3 p-md-4 d-flex justify-content-between align-items-center gap-2 border-bottom"
           >
-            <h5 class="fw-bold mb-0 text-dark-blue">
+            <h5 class="fw-bold mb-0 text-dark-blue fs-6 fs-md-5">
               <i
                 class="bi bi-clock-history me-2 text-primary"
                 :class="{ spin: loading }"
@@ -331,7 +333,7 @@ watch(filters, loadReports, { deep: true });
             </h5>
             <NuxtLink
               to="/admin/orders"
-              class="btn btn-link text-primary text-decoration-none small fw-bold"
+              class="btn btn-link text-primary text-decoration-none small fw-bold text-nowrap"
             >
               Все заказы <i class="bi bi-arrow-right ms-1"></i>
             </NuxtLink>
@@ -419,7 +421,7 @@ watch(filters, loadReports, { deep: true });
                   </td>
                 </tr>
                 <tr v-if="!reports?.recent_transactions?.length">
-                  <td colspan="4" class="text-center py-5">
+                  <td colspan="5" class="text-center py-5">
                     <i class="bi bi-inbox fs-1 opacity-10 d-block mb-3"></i>
                     <span class="text-muted fw-semi-bold"
                       >Транзакции пока отсутствуют</span
@@ -437,7 +439,7 @@ watch(filters, loadReports, { deep: true });
           class="card border-0 shadow-sm rounded-4 h-100 p-0 overflow-hidden"
           style="background: #ffffff"
         >
-          <div class="p-4 bg-dark text-white">
+          <div class="p-3 p-md-4 bg-dark text-white">
             <h5 class="fw-bold mb-0">Динамика за 30 дней</h5>
             <p class="small text-white-50 mb-0">Ежедневный доход</p>
 
@@ -517,7 +519,7 @@ watch(filters, loadReports, { deep: true });
             </div>
           </div>
 
-          <div class="p-4">
+          <div class="p-3 p-md-4">
             <div class="d-flex justify-content-between align-items-center mb-3">
               <span class="small text-muted fw-bold">АНАЛИТИКА</span>
               <span class="badge bg-primary-subtle text-primary">30 дней</span>
@@ -560,10 +562,68 @@ watch(filters, loadReports, { deep: true });
 .dashboard-page {
   background-color: #f8fafc;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .text-dark-blue {
   color: #0f172a;
+}
+
+.dash-title {
+  font-size: clamp(1.3rem, 1rem + 1.5vw, 2rem);
+}
+@media (min-width: 768px) {
+  .fs-md-5 {
+    font-size: 1.25rem !important;
+  }
+}
+
+/* Панель фильтров: на десктопе — одна строка, на телефоне/планшете
+   переносится (сотрудник во всю ширину, даты по половине, кнопки ниже) —
+   раньше строка шириной ~740px растягивала страницу вбок на телефоне */
+.dash-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+.dash-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.dash-filter > .form-control,
+.dash-filter > .form-select {
+  flex: 1;
+  min-width: 0;
+}
+.dash-filter-staff {
+  flex-basis: 100%;
+}
+.dash-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 100%;
+  justify-content: flex-end;
+}
+/* ≥768: поля фиксированной ширины, лишнее переносится само — в одну
+   строку вся панель (~740px) влезает только на широком десктопе */
+@media (min-width: 768px) {
+  .dash-filter,
+  .dash-filter-staff {
+    flex: 0 0 auto;
+  }
+  .dash-filter > .form-control,
+  .dash-filter > .form-select {
+    width: 140px;
+    flex: none;
+  }
+  .dash-actions {
+    flex: 0 0 auto;
+  }
 }
 
 .btn-refresh {
@@ -643,6 +703,42 @@ watch(filters, loadReports, { deep: true });
   color: white;
   margin-bottom: 0;
   margin-top: 4px;
+}
+
+/* Телефон: карточки по две в ряд — компактнее, иконка над суммой */
+@media (max-width: 575.98px) {
+  .stat-card {
+    padding: 14px;
+    min-height: 0;
+    border-radius: 18px;
+  }
+  .card-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .icon-box {
+    width: 36px;
+    height: 36px;
+    font-size: 1.1rem;
+    border-radius: 12px;
+    margin-right: 0;
+  }
+  .info .label {
+    font-size: 0.6rem;
+    letter-spacing: 0.5px;
+  }
+  .info .amount {
+    font-size: 1.05rem;
+    word-break: break-word;
+  }
+}
+/* Подпрыгивание при наведении — только там, где есть мышь */
+@media (hover: none) {
+  .stat-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
 }
 
 .luxury-blue {

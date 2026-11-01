@@ -47,7 +47,7 @@ const save = async () => {
     showAddModal.value = false;
     fetchDevices();
   } catch (e) {
-    ui.addToast(e?.data?.message || "Ошибка сохранения", "error");
+    ui.addToast(apiErrorMessage(e, "Ошибка сохранения"), "error");
   }
 };
 
@@ -133,12 +133,12 @@ onMounted(fetchDevices);
                 </td>
                 <td>{{ formatDate(device.last_seen_at) }}</td>
                 <td class="text-end pe-4">
+                  <!-- Для отозванной кассы новый код снимает отзыв: старый токен уже стёрт -->
                   <button
                     class="btn btn-sm btn-outline-primary rounded-pill me-2"
-                    :disabled="!!device.revoked_at"
                     @click="generateCode(device)"
                   >
-                    Код пейринга
+                    {{ device.revoked_at ? "Привязать заново" : "Код пейринга" }}
                   </button>
                   <button
                     class="btn btn-sm btn-outline-danger rounded-pill"

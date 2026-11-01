@@ -293,20 +293,20 @@ const handleSubmit = async () => {
     });
 
     if (selectedFile.value) {
-      formData.append("image", selectedFile.value);
+      formData.append("image", await compressImage(selectedFile.value));
     }
 
     if (gallery.value.length > 0) {
       let newFileIndex = 0;
-      gallery.value.forEach((item) => {
+      for (const item of gallery.value) {
         if (item.type === 'existing') {
           formData.append('gallery_order[]', `existing:${item.path}`);
         } else {
           formData.append('gallery_order[]', `new:${newFileIndex}`);
-          formData.append('gallery_files[]', item.file);
+          formData.append('gallery_files[]', await compressImage(item.file));
           newFileIndex++;
         }
-      });
+      }
     } else {
       formData.append('clear_gallery', '1');
     }
@@ -323,6 +323,9 @@ const handleSubmit = async () => {
   } catch (error) {
     if (error.data && error.data.errors) {
       errors.value = error.data.errors;
+      // Не у всех полей есть место под ошибку (sale_price, галерея) —
+      // первую ошибку показываем тостом, иначе 422 выглядела как «ничего не произошло»
+      uiStore.error(Object.values(error.data.errors).flat()[0] || "Проверьте поля формы");
     } else {
       console.error(error);
       uiStore.error("Ошибка при обновлении товара");

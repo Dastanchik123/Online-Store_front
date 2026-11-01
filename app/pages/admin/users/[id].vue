@@ -18,6 +18,9 @@ const isLoading = ref(true);
 const isSaving = ref(false);
 const activeTab = ref("orders"); 
 const passwordForm = ref({ password: "" });
+// PIN/бейдж для подтверждений на кассе самообслуживания — сервер хранит только
+// хэш, поэтому поля всегда пустые: заполненное значение = заменить
+const staffForm = ref({ staff_pin: "", badge_code: "" });
 const fileInput = ref(null);
 
 const config = useRuntimeConfig();
@@ -133,13 +136,26 @@ const saveRole = async () => {
     if (passwordForm.value.password) {
       payload.password = passwordForm.value.password;
     }
-    await updateUser(user.value.id, payload);
+    if (staffForm.value.staff_pin) payload.staff_pin = staffForm.value.staff_pin;
+    if (staffForm.value.badge_code) payload.badge_code = staffForm.value.badge_code;
+    user.value = await updateUser(user.value.id, payload);
     uiStore.success("Успешно сохранено");
-    passwordForm.value.password = ""; 
+    passwordForm.value.password = "";
+    staffForm.value = { staff_pin: "", badge_code: "" };
   } catch (e) {
-    uiStore.error("Ошибка сохранения");
+    uiStore.error(e?.data?.message || "Ошибка сохранения");
   } finally {
     isSaving.value = false;
+  }
+};
+
+const clearStaffCredential = async (field) => {
+  if (!user.value) return;
+  try {
+    user.value = await updateUser(user.value.id, { [field]: "" });
+    uiStore.success(field === "staff_pin" ? "PIN снят" : "Бейдж отвязан");
+  } catch (e) {
+    uiStore.error(e?.data?.message || "Ошибка сохранения");
   }
 };
 
@@ -314,22 +330,6 @@ onMounted(loadData);
                 </select>
               </div>
 
-              <div v-if="user.role !== 'user'" class="mb-3">
-                <label class="small text-muted form-label">Номер кассы (Terminal ID)</label>
-                <div class="input-group">
-                  <span class="input-group-text">k</span>
-                  <input 
-                    type="number" 
-                    class="form-control" 
-                    min="1"
-                    placeholder="1"
-                    :value="user.terminal_id ? user.terminal_id.replace('k', '') : ''"
-                    @input="e => user.terminal_id = e.target.value ? 'k' + e.target.value : ''"
-                  />
-                </div>
-                <div class="form-text small opacity-75">Влияет на номера чеков (k1-1, k1-2...)</div>
-              </div>
-
               <hr class="my-4 op-1" />
 
               <h6 class="fw-bold text-uppercase text-muted small mb-3">
@@ -344,6 +344,42 @@ onMounted(loadData);
                   placeholder="Оставьте пустым, если не меняете"
                 />
               </div>
+
+              <template v-if="user.role !== 'user'">
+                <div class="mb-3">
+                  <label class="small text-muted form-label d-flex justify-content-between">
+                    <span>PIN для кассы самообслуживания</span>
+                    <span v-if="user.has_staff_pin" class="text-success">
+                      задан
+                      <a href="#" class="text-danger ms-1" @click.prevent="clearStaffCredential('staff_pin')">снять</a>
+                    </span>
+                  </label>
+                  <input
+                    v-model="staffForm.staff_pin"
+                    type="password"
+                    inputmode="numeric"
+                    maxlength="8"
+                    class="form-control"
+                    :placeholder="user.has_staff_pin ? 'Новый PIN (4–8 цифр)' : '4–8 цифр'"
+                  />
+                </div>
+                <div class="mb-3">
+                  <label class="small text-muted form-label d-flex justify-content-between">
+                    <span>Бейдж (штрихкод)</span>
+                    <span v-if="user.has_badge" class="text-success">
+                      привязан
+                      <a href="#" class="text-danger ms-1" @click.prevent="clearStaffCredential('badge_code')">отвязать</a>
+                    </span>
+                  </label>
+                  <input
+                    v-model="staffForm.badge_code"
+                    type="text"
+                    class="form-control"
+                    placeholder="Отсканируйте бейдж в это поле"
+                    @keydown.enter.prevent
+                  />
+                </div>
+              </template>
 
               <button
                 type="submit"

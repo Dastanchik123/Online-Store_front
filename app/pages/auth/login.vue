@@ -1,42 +1,148 @@
 <script setup>
-const { login } = useAuth();
-const authStore = useAuthStore();
+// Вход покупателя по номеру телефона и коду из SMS. Регистрации отдельно нет:
+// новый номер сам создаёт аккаунт, имя спрашиваем один раз после кода.
+// Сотрудники входят по паролю на /auth/staff.
+const { sendPhoneCode, verifyPhoneCode, saveName } = useAuth();
 const uiStore = useUiStore();
+const route = useRoute();
 
 definePageMeta({
   layout: "auth",
   middleware: "guest",
 });
 
-const form = ref({
-  email: "",
-  password: "",
+const CODE_LENGTH = 4;
+
+const step = ref("phone"); // phone → code → name
+const phoneDigits = ref(""); // 9 цифр после +996
+const code = ref("");
+const name = ref("");
+const error = ref("");
+const loading = ref(false);
+const resendIn = ref(0);
+let resendTimer = null;
+
+const phoneEl = ref(null);
+const codeEl = ref(null);
+const nameEl = ref(null);
+
+const fullPhone = computed(() => `+996${phoneDigits.value}`);
+const phoneReady = computed(() => phoneDigits.value.length === 9);
+// «555 123 456» — так номер легче проверить глазами
+const phonePretty = computed(() =>
+  phoneDigits.value.replace(/(\d{3})(?=\d)/g, "$1 ").trim(),
+);
+
+// Только внутренний адрес: ссылка «?redirect=https://…» не должна уводить
+// с сайта после входа
+const redirectTo = computed(() => {
+  const target = String(route.query.redirect || "");
+  return target.startsWith("/") && !target.startsWith("//") ? target : "/";
 });
 
-const errors = ref({});
-const loading = ref(false);
-const showPassword = ref(false);
+const onPhoneInput = (e) => {
+  // Вставили номер целиком (+996…, 0555…) — оставляем 9 цифр абонента
+  let digits = e.target.value.replace(/\D+/g, "");
+  if (digits.startsWith("996") && digits.length > 9) digits = digits.slice(3);
+  if (digits.startsWith("0") && digits.length > 9) digits = digits.slice(1);
+  phoneDigits.value = digits.slice(0, 9);
+  e.target.value = phonePretty.value;
+  error.value = "";
+};
 
-const handleSubmit = async () => {
-  errors.value = {};
+const startResendTimer = (seconds) => {
+  clearInterval(resendTimer);
+  resendIn.value = seconds;
+  resendTimer = setInterval(() => {
+    resendIn.value -= 1;
+    if (resendIn.value <= 0) clearInterval(resendTimer);
+  }, 1000);
+};
+
+const messageOf = (e, fallback) =>
+  e?.data?.errors?.phone?.[0] ||
+  e?.data?.errors?.code?.[0] ||
+  e?.data?.errors?.name?.[0] ||
+  e?.data?.message ||
+  fallback;
+
+const requestCode = async () => {
+  if (!phoneReady.value || loading.value) return;
   loading.value = true;
-
+  error.value = "";
   try {
-    await login(form.value);
-    uiStore.success("Вы успешно вошли в систему!");
-    await navigateTo("/");
-  } catch (error) {
-    if (error.data?.errors) {
-      errors.value = error.data.errors;
-    } else if (error.data?.message) {
-      errors.value = { general: [error.data.message] };
-    } else {
-      errors.value = { general: ["Ошибка при входе. Проверьте данные."] };
-    }
+    const res = await sendPhoneCode(fullPhone.value);
+    step.value = "code";
+    code.value = "";
+    startResendTimer(res?.resend_in || 60);
+    nextTick(() => codeEl.value?.focus());
+  } catch (e) {
+    error.value = messageOf(e, "Не удалось отправить SMS. Попробуйте ещё раз.");
   } finally {
     loading.value = false;
   }
 };
+
+const finish = async () => {
+  await navigateTo(redirectTo.value);
+};
+
+const submitCode = async () => {
+  if (code.value.length !== CODE_LENGTH || loading.value) return;
+  loading.value = true;
+  error.value = "";
+  try {
+    const res = await verifyPhoneCode(fullPhone.value, code.value);
+    clearInterval(resendTimer);
+    if (res.needs_name) {
+      step.value = "name";
+      nextTick(() => nameEl.value?.focus());
+    } else {
+      uiStore.success(`Здравствуйте, ${res.user?.name || ""}!`);
+      await finish();
+    }
+  } catch (e) {
+    error.value = messageOf(e, "Неверный код. Попробуйте ещё раз.");
+    code.value = "";
+    nextTick(() => codeEl.value?.focus());
+  } finally {
+    loading.value = false;
+  }
+};
+
+// Код проверяется сам, как только введена последняя цифра
+const onCodeInput = (e) => {
+  code.value = e.target.value.replace(/\D+/g, "").slice(0, CODE_LENGTH);
+  e.target.value = code.value;
+  error.value = "";
+  if (code.value.length === CODE_LENGTH) submitCode();
+};
+
+const changePhone = () => {
+  clearInterval(resendTimer);
+  step.value = "phone";
+  code.value = "";
+  error.value = "";
+  nextTick(() => phoneEl.value?.focus());
+};
+
+const submitName = async () => {
+  if (!name.value.trim() || loading.value) return;
+  loading.value = true;
+  error.value = "";
+  try {
+    await saveName(name.value.trim());
+    uiStore.success(`Добро пожаловать, ${name.value.trim()}!`);
+    await finish();
+  } catch (e) {
+    error.value = messageOf(e, "Не удалось сохранить имя.");
+  } finally {
+    loading.value = false;
+  }
+};
+
+onMounted(() => nextTick(() => phoneEl.value?.focus()));
+onUnmounted(() => clearInterval(resendTimer));
 </script>
 
 <template>
@@ -46,109 +152,146 @@ const handleSubmit = async () => {
 
     <div class="auth-card-container animate-fade-in">
       <div class="auth-glass-card shadow-2xl">
-        <div class="auth-header text-center mb-5">
-          <div class="auth-logo mb-3">
-            <i class="bi bi-shield-lock-fill"></i>
-          </div>
-          <h2 class="auth-title fw-bold">С возвращением!</h2>
-          <p class="auth-subtitle">Пожалуйста, войдите в свой аккаунт</p>
-        </div>
-
-        <form @submit.prevent="handleSubmit" class="auth-form">
-          <div
-            v-if="errors.general"
-            class="alert alert-glass-danger mb-4 animate-shake"
-          >
-            <div
-              v-for="error in errors.general"
-              :key="error"
-              class="d-flex align-items-center"
-            >
-              <i class="bi bi-exclamation-triangle-fill me-2"></i>
-              <span>{{ error }}</span>
-            </div>
+        <!-- Шаг 1: номер -->
+        <form v-if="step === 'phone'" class="auth-form" @submit.prevent="requestCode">
+          <div class="auth-header text-center mb-4">
+            <div class="auth-logo mb-3"><i class="bi bi-phone-fill"></i></div>
+            <h2 class="auth-title fw-bold">Вход</h2>
+            <p class="auth-subtitle">Введите номер телефона — пришлём код в SMS</p>
           </div>
 
-          <div class="form-group mb-4">
-            <label class="form-label-premium">Email адрес</label>
-            <div
-              class="input-premium-group"
-              :class="{ 'has-error': errors.email }"
-            >
-              <i class="bi bi-envelope icon-prefix"></i>
-              <input
-                v-model="form.email"
-                type="email"
-                placeholder="your@example.com"
-                required
-              />
-            </div>
-            <div v-if="errors.email" class="error-text mt-1">
-              {{ errors.email[0] }}
-            </div>
+          <label class="form-label-premium" for="login-phone">Номер телефона</label>
+          <div class="input-premium-group phone-group" :class="{ 'has-error': error }">
+            <span class="phone-prefix">+996</span>
+            <input
+              id="login-phone"
+              ref="phoneEl"
+              :value="phonePretty"
+              type="tel"
+              inputmode="numeric"
+              autocomplete="tel-national"
+              placeholder="555 123 456"
+              class="phone-input"
+              @input="onPhoneInput"
+            />
           </div>
 
-          <div class="form-group mb-4">
-            <label class="form-label-premium">Пароль</label>
-            <div
-              class="input-premium-group"
-              :class="{ 'has-error': errors.password }"
-            >
-              <i class="bi bi-lock icon-prefix"></i>
-              <input
-                v-model="form.password"
-                :type="showPassword ? 'text' : 'password'"
-                placeholder="••••••••"
-                required
-              />
-              <button
-                type="button"
-                @click="showPassword = !showPassword"
-                class="btn-toggle-password"
-                tabindex="-1"
-              >
-                <i
-                  :class="
-                    showPassword ? 'bi bi-eye-slash-fill' : 'bi bi-eye-fill'
-                  "
-                ></i>
-              </button>
-            </div>
-            <div v-if="errors.password" class="error-text mt-1">
-              {{ errors.password[0] }}
-            </div>
-          </div>
-
-          <div class="d-flex justify-content-between align-items-center mb-4">
-            <div class="form-check custom-check">
-              <input class="form-check-input" type="checkbox" id="rememberMe" />
-              <label class="form-check-label" for="rememberMe"
-                >Запомнить меня</label
-              >
-            </div>
-            <a href="#" class="forgot-link">Забыли пароль?</a>
-          </div>
+          <div v-if="error" class="error-text mt-2" role="alert">{{ error }}</div>
 
           <button
             type="submit"
-            class="btn-auth-primary w-100 mb-4"
-            :disabled="loading"
+            class="btn-auth-primary w-100 mt-4"
+            :disabled="!phoneReady || loading"
           >
-            <span
-              v-if="loading"
-              class="spinner-border spinner-border-sm me-2"
-            ></span>
-            {{ loading ? "Входим..." : "Войти в аккаунт" }}
+            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+            Получить код
+          </button>
+
+          <p class="consent-text mt-3 mb-0">
+            Нажимая «Получить код», вы соглашаетесь на обработку номера
+            телефона и имени для входа и оформления заказов.
+          </p>
+        </form>
+
+        <!-- Шаг 2: код из SMS -->
+        <form v-else-if="step === 'code'" class="auth-form" @submit.prevent="submitCode">
+          <div class="auth-header text-center mb-4">
+            <div class="auth-logo mb-3"><i class="bi bi-chat-dots-fill"></i></div>
+            <h2 class="auth-title fw-bold">Код из SMS</h2>
+            <p class="auth-subtitle">
+              Отправили на <span class="text-white fw-semibold">+996 {{ phonePretty }}</span>
+            </p>
+          </div>
+
+          <label class="visually-hidden" for="login-code">Код из SMS</label>
+          <div class="code-cells" @click="codeEl?.focus()">
+            <!-- Одно настоящее поле поверх клеток: телефон подставляет код
+                 из SMS (autocomplete="one-time-code"), вставка тоже работает -->
+            <input
+              id="login-code"
+              ref="codeEl"
+              :value="code"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              :maxlength="CODE_LENGTH"
+              class="code-input"
+              :disabled="loading"
+              @input="onCodeInput"
+            />
+            <div
+              v-for="i in CODE_LENGTH"
+              :key="i"
+              class="code-cell"
+              :class="{
+                filled: code.length >= i,
+                active: code.length === i - 1 && !loading,
+                'has-error': error,
+              }"
+              aria-hidden="true"
+            >
+              {{ code[i - 1] || "" }}
+            </div>
+          </div>
+
+          <div v-if="loading" class="text-center mt-3 small auth-subtitle">
+            <span class="spinner-border spinner-border-sm me-2"></span>Проверяем…
+          </div>
+          <div v-if="error" class="error-text text-center mt-3" role="alert">{{ error }}</div>
+
+          <div class="d-flex justify-content-between align-items-center mt-4 small">
+            <button type="button" class="link-btn" @click="changePhone">
+              <i class="bi bi-arrow-left me-1"></i>Изменить номер
+            </button>
+            <button
+              v-if="resendIn <= 0"
+              type="button"
+              class="link-btn"
+              :disabled="loading"
+              @click="requestCode"
+            >
+              Отправить ещё раз
+            </button>
+            <span v-else class="auth-subtitle">
+              Ещё раз через {{ resendIn }} сек.
+            </span>
+          </div>
+        </form>
+
+        <!-- Шаг 3: имя (только при первом входе) -->
+        <form v-else class="auth-form" @submit.prevent="submitName">
+          <div class="auth-header text-center mb-4">
+            <div class="auth-logo mb-3"><i class="bi bi-person-fill"></i></div>
+            <h2 class="auth-title fw-bold">Как вас зовут?</h2>
+            <p class="auth-subtitle">Чтобы мы знали, как к вам обращаться</p>
+          </div>
+
+          <label class="form-label-premium" for="login-name">Ваше имя</label>
+          <div class="input-premium-group" :class="{ 'has-error': error }">
+            <i class="bi bi-person icon-prefix"></i>
+            <input
+              id="login-name"
+              ref="nameEl"
+              v-model="name"
+              type="text"
+              autocomplete="given-name"
+              maxlength="255"
+            />
+          </div>
+          <div v-if="error" class="error-text mt-2" role="alert">{{ error }}</div>
+
+          <button
+            type="submit"
+            class="btn-auth-primary w-100 mt-4"
+            :disabled="!name.trim() || loading"
+          >
+            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+            Готово
           </button>
         </form>
 
-        <div class="auth-footer text-center">
-          <p class="mb-0 text-muted">
-            Нет аккаунта?
-            <NuxtLink to="/auth/register" class="auth-link"
-              >Создать аккаунт</NuxtLink
-            >
-          </p>
+        <div v-if="step === 'phone'" class="auth-footer text-center mt-4">
+          <NuxtLink to="/auth/staff" class="staff-link">Вход для сотрудников</NuxtLink>
         </div>
       </div>
     </div>
@@ -161,6 +304,7 @@ const handleSubmit = async () => {
 .auth-viewport {
   font-family: "Plus Jakarta Sans", sans-serif;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -170,7 +314,6 @@ const handleSubmit = async () => {
   padding: 2rem;
 }
 
-/* Background Bubbles */
 .auth-bubble {
   position: absolute;
   border-radius: 50%;
@@ -195,7 +338,7 @@ const handleSubmit = async () => {
 
 .auth-card-container {
   width: 100%;
-  max-width: 460px;
+  max-width: 440px;
   position: relative;
   z-index: 10;
 }
@@ -206,7 +349,7 @@ const handleSubmit = async () => {
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 32px;
-  padding: 3.5rem 3rem;
+  padding: 3rem 2.5rem;
   color: #f8fafc;
 }
 
@@ -227,12 +370,12 @@ const handleSubmit = async () => {
 
 .auth-subtitle {
   color: #94a3b8;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .form-label-premium {
   display: block;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: #cbd5e1;
   margin-bottom: 0.75rem;
@@ -242,21 +385,31 @@ const handleSubmit = async () => {
 .input-premium-group {
   position: relative;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 16px;
   transition: all 0.3s;
   display: flex;
   align-items: center;
 }
-
 .input-premium-group:focus-within {
   background: rgba(255, 255, 255, 0.08);
   border-color: #3b82f6;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
 }
-
 .input-premium-group.has-error {
   border-color: #ef4444;
+}
+.input-premium-group input {
+  background: transparent;
+  border: none;
+  width: 100%;
+  padding: 1rem 1rem 1rem 0;
+  color: white;
+  outline: none;
+  font-size: 1.1rem;
+}
+.input-premium-group input::placeholder {
+  color: #475569;
 }
 
 .icon-prefix {
@@ -265,61 +418,91 @@ const handleSubmit = async () => {
   font-size: 1.1rem;
 }
 
-.input-premium-group input {
-  background: transparent;
-  border: none;
+/* Номер — крупно: его вводят люди, которым мелкий шрифт неудобен */
+.phone-prefix {
+  padding: 0 0.75rem 0 1.25rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+.input-premium-group .phone-input {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.code-cells {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+}
+.code-input {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  padding: 1rem 1rem 1rem 0;
-  color: white;
-  outline: none;
-  font-size: 0.95rem;
+  opacity: 0;
+  font-size: 16px; /* иначе iOS увеличивает страницу при фокусе */
+  caret-color: transparent;
 }
-
-.input-premium-group input::placeholder {
-  color: #475569;
+.code-cell {
+  width: 64px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  font-size: 2rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  transition: border-color 0.2s, background 0.2s;
 }
-
-.btn-toggle-password {
-  background: transparent;
-  border: none;
-  color: #64748b;
-  padding: 0 1.25rem;
-  cursor: pointer;
-  transition: color 0.2s;
+.code-cell.filled {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.5);
 }
-
-.btn-toggle-password:hover {
-  color: #3b82f6;
+.code-cell.active {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+}
+.code-cell.has-error {
+  border-color: #ef4444;
 }
 
 .error-text {
-  color: #ef4444;
-  font-size: 0.75rem;
+  color: #fca5a5;
+  font-size: 0.95rem;
   font-weight: 500;
-  padding-left: 0.5rem;
+  padding-left: 0.25rem;
 }
 
-.custom-check .form-check-input {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.1);
+.consent-text {
+  color: #64748b;
+  font-size: 0.75rem;
+  text-align: center;
+  line-height: 1.4;
 }
 
-.custom-check .form-check-input:checked {
-  background-color: #3b82f6;
-  border-color: #3b82f6;
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #60a5fa;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.link-btn:disabled {
+  opacity: 0.6;
 }
 
-.custom-check .form-check-label {
-  color: #94a3b8;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.forgot-link {
-  color: #3b82f6;
+.staff-link {
+  color: #64748b;
   font-size: 0.85rem;
   text-decoration: none;
-  font-weight: 600;
+}
+.staff-link:hover {
+  color: #94a3b8;
+  text-decoration: underline;
 }
 
 .btn-auth-primary {
@@ -329,56 +512,22 @@ const handleSubmit = async () => {
   border-radius: 16px;
   padding: 1.1rem;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 1.1rem;
   transition: all 0.3s;
   box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4);
 }
-
 .btn-auth-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 20px 35px -10px rgba(37, 99, 235, 0.5);
   background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
 }
-
-.btn-auth-primary:active {
-  transform: translateY(0);
-}
-
 .btn-auth-primary:disabled {
-  opacity: 0.7;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
-.auth-link {
-  color: #3b82f6;
-  text-decoration: none;
-  font-weight: 700;
-  transition: color 0.2s;
-}
-
-.auth-link:hover {
-  color: #60a5fa;
-  text-decoration: underline;
-}
-
-.alert-glass-danger {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
-  border-radius: 16px;
-  font-size: 0.9rem;
-  padding: 1rem;
-}
-
-/* Animations */
 .animate-fade-in {
   animation: fadeIn 0.6s ease-out forwards;
 }
-
-.animate-shake {
-  animation: shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-}
-
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -389,43 +538,29 @@ const handleSubmit = async () => {
     transform: translateY(0);
   }
 }
-
-@keyframes shake {
-  10%,
-  90% {
-    transform: translate3d(-1px, 0, 0);
-  }
-  20%,
-  80% {
-    transform: translate3d(2px, 0, 0);
-  }
-  30%,
-  50%,
-  70% {
-    transform: translate3d(-4px, 0, 0);
-  }
-  40%,
-  60% {
-    transform: translate3d(4px, 0, 0);
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in {
+    animation: none;
   }
 }
 
 @media (max-width: 576px) {
   .auth-viewport {
     padding: 1rem;
-    align-items: flex-start; 
-    padding-top: 10vh;
+    align-items: flex-start;
+    padding-top: 8vh;
     min-height: 100dvh;
   }
   .auth-glass-card {
-    padding: 2.25rem 1.5rem;
+    padding: 2.25rem 1.25rem;
     border-radius: 24px;
   }
   .auth-title {
     font-size: 1.5rem;
   }
-  .auth-logo {
-    font-size: 2rem;
+  .code-cell {
+    width: 58px;
+    height: 66px;
   }
   .bubble-1 {
     width: 250px;
@@ -434,27 +569,6 @@ const handleSubmit = async () => {
   .bubble-2 {
     width: 200px;
     height: 200px;
-  }
-}
-
-
-.modal-footer-premium {
-  padding: 1.5rem 2rem;
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.animate-scale-in {
-  animation: scaleIn 0.3s ease-out forwards;
-}
-
-@keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
   }
 }
 </style>

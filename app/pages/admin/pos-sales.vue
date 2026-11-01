@@ -17,7 +17,7 @@ const orders = ref<any>({
 });
 const summary = ref<any>({
   cash_total: 0,
-  transfer_total: 0,
+  qr_total: 0,
   total: 0,
   sales_count: 0,
 });
@@ -159,10 +159,10 @@ watch(
             >
               <i class="bi bi-credit-card fs-4"></i>
             </div>
-            <span class="fw-bold text-muted">Безнал (Перевод)</span>
+            <span class="fw-bold text-muted">QR GoPay</span>
           </div>
           <h3 class="fw-bold mb-0 text-primary">
-            {{ formatPrice(summary.transfer_total) }}
+            {{ formatPrice(summary.qr_total) }}
           </h3>
           <small class="text-muted">За сегодня</small>
         </div>
@@ -431,6 +431,7 @@ watch(
 .pos-sales-page {
   background: #f8fafc;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 .icon-box {
   width: 44px;

@@ -111,7 +111,7 @@ const save = async () => {
     hasUnsavedLabelChanges.value = false;
     ui.addToast("Настройки успешно сохранены", "success");
   } catch (e) {
-    ui.addToast("Ошибка при сохранении", "error");
+    ui.addToast(apiErrorMessage(e, "Ошибка при сохранении"), "error");
   } finally {
     saving.value = false;
   }
@@ -197,7 +197,7 @@ const handleLogoUpload = async (event) => {
     sett.value.site_logo = res.path;
     ui.addToast("Логотип обновлен", "success");
   } catch (e) {
-    ui.addToast("Ошибка при загрузке логотипа", "error");
+    ui.addToast(apiErrorMessage(e, "Ошибка при загрузке логотипа"), "error");
   }
 };
 
@@ -210,7 +210,7 @@ const handleQrUpload = async (event) => {
     sett.value.payment_mbank_qr_image = res.path;
     ui.addToast("QR-код обновлен", "success");
   } catch (e) {
-    ui.addToast("Ошибка при загрузке QR-кода", "error");
+    ui.addToast(apiErrorMessage(e, "Ошибка при загрузке QR-кода"), "error");
   }
 };
 
@@ -528,24 +528,76 @@ onMounted(loadPrinterSettings);
           </div>
         </div>
 
-        <div class="form-check form-switch mb-4">
-          <input
-            v-model="sett.pos_allow_price_change"
-            class="form-check-input"
-            type="checkbox"
-            role="switch"
-            id="allowPriceChangeSwitch"
-            true-value="1"
-            false-value="0"
-          />
-          <label
-            class="form-check-label fw-bold small"
-            for="allowPriceChangeSwitch"
+        <div class="alert alert-light border small mb-4">
+          <i class="bi bi-shield-lock me-1"></i>
+          Изменение цены, продажа больше остатка и ввод веса вручную
+          настраиваются для каждой роли на странице
+          <NuxtLink to="/admin/permissions">«Права доступа»</NuxtLink>
+          (группа «Касса»).
+        </div>
+
+        <div class="mb-4">
+          <label class="form-label small fw-bold" for="maxDiscountInput"
+            >Лимит скидки кассира, %</label
           >
-            Разрешить изменение цены кассиру
-          </label>
+          <input
+            id="maxDiscountInput"
+            v-model="sett.pos_max_discount_percent"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            class="form-control rounded-3"
+            placeholder="10"
+            style="max-width: 160px"
+          />
           <div class="form-text small">
-            Если включено, кассир сможет менять цену товара прямо в корзине.
+            Максимальная ручная скидка в чеке для ролей с правом «Скидка
+            кассира». Роли с правом «Скидка без лимита» он не ограничивает.
+            Права выдаются на странице «Права доступа».
+          </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+          <div class="col-sm-6">
+            <label class="form-label small fw-bold" for="onlineTtlInput"
+              >Срок оплаты онлайн-заказа по QR, мин</label
+            >
+            <input
+              id="onlineTtlInput"
+              v-model="sett.online_order_payment_ttl_minutes"
+              type="number"
+              min="10"
+              max="10080"
+              step="5"
+              class="form-control rounded-3"
+              placeholder="20"
+            />
+            <div class="form-text small">
+              Неоплаченный заказ отменится автоматически, товар вернётся на
+              склад (проверка раз в 15 минут, поэтому отмена приходит с
+              запасом до 15 минут). Заказы с оплатой при получении не
+              отменяются.
+            </div>
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label small fw-bold" for="kioskTimeoutInput"
+              >Время на оплату в киоске, сек</label
+            >
+            <input
+              id="kioskTimeoutInput"
+              v-model="sett.self_service_payment_timeout"
+              type="number"
+              min="300"
+              max="86400"
+              step="30"
+              class="form-control rounded-3"
+              placeholder="300"
+            />
+            <div class="form-text small">
+              Сколько живёт QR на кассе самообслуживания (не меньше 300 —
+              требование GoPay).
+            </div>
           </div>
         </div>
 
@@ -606,7 +658,7 @@ onMounted(loadPrinterSettings);
           />
         </div>
 
-        <div class="mb-0">
+        <div class="mb-3">
           <label class="form-label small fw-bold">Текст внизу (Подвал)</label>
           <textarea
             v-model="sett.receipt_footer"
@@ -614,6 +666,21 @@ onMounted(loadPrinterSettings);
             rows="3"
             placeholder="Спасибо за покупку!"
           ></textarea>
+        </div>
+
+        <div class="mb-0">
+          <label class="form-label small fw-bold">Адрес сайта для QR на чеке</label>
+          <input
+            v-model="sett.receipt_public_url"
+            type="url"
+            class="form-control form-control-sm"
+            placeholder="https://shop.kg"
+          />
+          <div class="form-text">
+            Внизу чека печатается QR со ссылкой на электронную копию:
+            <code>{{ (sett.receipt_public_url || "https://shop.kg").replace(/\/+$/, "") }}/receipt/…</code>.
+            Пусто — QR не печатается.
+          </div>
         </div>
       </div>
 

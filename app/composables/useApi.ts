@@ -9,7 +9,8 @@ const API_CACHEABLE: RegExp[] = [
   /^\/categories(\?|$)/,
   /^\/settings\/public$/,
   /^\/banners(\?|$)/,
-  /^\/coupons(\?|$)/,
+  // /coupons не кэшируем: это админский список, после создания/удаления
+  // купона страница получала из кэша старый список
   /^\/blog(\?|$)/,
 ];
 const memApiCache = new Map<string, { t: number; data: any }>();
@@ -17,15 +18,30 @@ const memApiCache = new Map<string, { t: number; data: any }>();
 const isCacheableEndpoint = (endpoint: string) =>
   API_CACHEABLE.some((re) => re.test(endpoint));
 
+// Кэш раздельный для каждого пользователя: ответы для персонала (например,
+// с закупочной ценой) не должны достаться следующему человеку за тем же
+// компьютером. Ключ: "<id пользователя | guest>:<endpoint>".
+const cacheScope = (): string => {
+  try {
+    return String(JSON.parse(localStorage.getItem("user") || "null")?.id ?? "guest");
+  } catch {
+    return "guest";
+  }
+};
+const cacheKey = (endpoint: string) => `${cacheScope()}:${endpoint}`;
+// endpoint из ключа "<scope>:<endpoint>"
+const endpointOfKey = (key: string) => key.slice(key.indexOf(":") + 1);
+
 const readApiCache = (endpoint: string): { t: number; data: any } | null => {
-  const hit = memApiCache.get(endpoint);
+  const key = cacheKey(endpoint);
+  const hit = memApiCache.get(key);
   if (hit) return hit;
   try {
-    const raw = localStorage.getItem(API_CACHE_PREFIX + endpoint);
+    const raw = localStorage.getItem(API_CACHE_PREFIX + key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (Date.now() - parsed.t > API_CACHE_MAX_STALE_MS) return null;
-    memApiCache.set(endpoint, parsed);
+    memApiCache.set(key, parsed);
     return parsed;
   } catch {
     return null;
@@ -33,13 +49,26 @@ const readApiCache = (endpoint: string): { t: number; data: any } | null => {
 };
 
 const writeApiCache = (endpoint: string, data: any) => {
+  const key = cacheKey(endpoint);
   const entry = { t: Date.now(), data };
-  memApiCache.set(endpoint, entry);
+  memApiCache.set(key, entry);
   try {
-    localStorage.setItem(API_CACHE_PREFIX + endpoint, JSON.stringify(entry));
+    localStorage.setItem(API_CACHE_PREFIX + key, JSON.stringify(entry));
   } catch {
     // квота localStorage — живём только с памятью
   }
+};
+
+// Выход из аккаунта — кэш ответов удаляется целиком
+export const clearApiCache = () => {
+  memApiCache.clear();
+  if (typeof localStorage === "undefined") return;
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(API_CACHE_PREFIX)) localStorage.removeItem(k);
+    }
+  } catch {}
 };
 
 // POST /products → пометить '/products*' устаревшими; '/banners-admin' и
@@ -62,7 +91,7 @@ const markApiCacheStale = (mutatedEndpoint: string) => {
   const prefixes = ["/" + seg, ...(CROSS_INVALIDATE[seg] || []).map((s) => "/" + s)];
   const staleT = Date.now() - API_CACHE_FRESH_MS;
   for (const key of [...memApiCache.keys()]) {
-    if (prefixes.some((p) => key.startsWith(p))) {
+    if (prefixes.some((p) => endpointOfKey(key).startsWith(p))) {
       const hit = memApiCache.get(key);
       if (hit) memApiCache.set(key, { ...hit, t: staleT });
     }
@@ -70,7 +99,11 @@ const markApiCacheStale = (mutatedEndpoint: string) => {
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);
-      if (k && prefixes.some((p) => k.startsWith(API_CACHE_PREFIX + p))) {
+      if (
+        k &&
+        k.startsWith(API_CACHE_PREFIX) &&
+        prefixes.some((p) => endpointOfKey(k.slice(API_CACHE_PREFIX.length)).startsWith(p))
+      ) {
         const raw = localStorage.getItem(k);
         if (!raw) continue;
         const parsed = JSON.parse(raw);
@@ -82,7 +115,7 @@ const markApiCacheStale = (mutatedEndpoint: string) => {
 
 // В same-origin сборке (build:laravel) apiBase — относительный путь "/api",
 // это корректно для fetch() в браузере, но Node-процесс Electron (axios в
-// sync.cjs) не может резолвить относительный URL без известного origin
+// labelTemplateSync.cjs) не может резолвить относительный URL без известного origin
 export const resolveApiBase = (base: string): string => {
   if (!base || typeof window === "undefined") return base;
   try {
@@ -95,51 +128,13 @@ export const resolveApiBase = (base: string): string => {
 export const useApi = () => {
   const config = useRuntimeConfig();
   const baseURL = config.public.apiBase;
+  const connection = import.meta.client ? useServerConnection() : null;
 
   const getAuthToken = () => {
     if (import.meta.client) {
       return localStorage.getItem("auth_token");
     }
     return null;
-  };
-
-  // ─── Local-first (Electron): запрос сначала идёт в локальную SQLite ───
-  const getElectronAPI = (): any =>
-    import.meta.client ? (window as any).electronAPI : null;
-
-  // Вызов локального роутера в main-процессе.
-  // phase 'pre' — до сети (POS-критичные маршруты), 'fallback' — сеть упала.
-  const tryLocalApi = async (
-    endpoint: string,
-    options: any,
-    phase: "pre" | "fallback",
-  ) => {
-    const electron = getElectronAPI();
-    if (!electron?.localApi) return null;
-    if (options.body instanceof FormData) return null; // файлы — только сеть
-
-    try {
-      const result = await electron.localApi({
-        endpoint,
-        method: options.method || "GET",
-        body: options.body || null,
-        phase,
-      });
-      if (!result?.handled) return null;
-
-      if (result.status >= 400) {
-        // бросаем ошибку в формате $fetch, чтобы существующие catch работали
-        const err: any = new Error(result.data?.message || "Local API error");
-        err.status = result.status;
-        err.statusCode = result.status;
-        err.data = result.data;
-        throw err;
-      }
-      return { data: result.data };
-    } catch (e: any) {
-      if (e?.status) throw e; // осмысленная ошибка локальной валидации — наружу
-      return null; // сбой IPC — молча уходим в сеть
-    }
   };
 
   const apiFetch = async (endpoint: string, options: any = {}) => {
@@ -150,11 +145,21 @@ export const useApi = () => {
     const { onRefresh, noCache, ...fetchOptions } = options;
     options = fetchOptions;
 
-    // 1) POS-критичные маршруты обслуживаются локально (работают без сети)
-    const localPre = await tryLocalApi(endpoint, options, "pre");
-    if (localPre) return localPre.data;
-
     const method = String(options.method || "GET").toUpperCase();
+
+    // Ключ SWR-кэша — с учётом query/params: иначе "/products" со
+    // страницей 2 и страницей 3 делили одну запись, и «Показать ещё»
+    // возвращал из кэша ту же страницу повторно
+    const queryObj = options.query || options.params;
+    let cacheEndpoint = endpoint;
+    if (queryObj && typeof queryObj === "object") {
+      const qs = new URLSearchParams(
+        Object.entries(queryObj)
+          .filter(([, v]) => v !== undefined && v !== null && v !== "")
+          .map(([k, v]) => [k, String(v)]),
+      ).toString();
+      if (qs) cacheEndpoint += (endpoint.includes("?") ? "&" : "?") + qs;
+    }
 
     const networkFetch = async () => {
       const token = getAuthToken();
@@ -190,21 +195,21 @@ export const useApi = () => {
       });
     };
 
-    // 2) SWR-кэш: кэшируемые GET рисуются мгновенно, обновляются фоном
+    // SWR-кэш: кэшируемые GET рисуются мгновенно, обновляются фоном
     const swrEligible =
       import.meta.client &&
       method === "GET" &&
       isCacheableEndpoint(endpoint) &&
       !noCache;
     if (swrEligible) {
-      const cached = readApiCache(endpoint);
+      const cached = readApiCache(cacheEndpoint);
       if (cached) {
         if (Date.now() - cached.t >= API_CACHE_FRESH_MS) {
           // устарел — отдаём кэш сразу, свежее подтянем в фоне
           // и отдадим странице через onRefresh, чтобы она перерисовалась
           networkFetch()
             .then((data) => {
-              writeApiCache(endpoint, data);
+              writeApiCache(cacheEndpoint, data);
               if (typeof onRefresh === "function") onRefresh(data);
             })
             .catch(() => {});
@@ -215,22 +220,20 @@ export const useApi = () => {
 
     try {
       const response = await networkFetch();
+      connection?.markOnline();
 
-      if (swrEligible) writeApiCache(endpoint, response);
+      if (swrEligible) writeApiCache(cacheEndpoint, response);
       // мутация → пометить кэш ресурса устаревшим: список отрисуется
       // мгновенно из кеша, а свежие данные подтянутся фоном
       if (import.meta.client && method !== "GET") markApiCacheStale(endpoint);
 
       return response;
     } catch (error: any) {
-      // 2) Сеть недоступна / сервер лежит → пробуем локальную SQLite
-      const isNetworkFailure = !error.status || error.status >= 502;
-      if (isNetworkFailure) {
-        const localFallback = await tryLocalApi(endpoint, options, "fallback");
-        if (localFallback) {
-          console.warn(`[useApi] Offline fallback → SQLite: ${endpoint}`);
-          return localFallback.data;
-        }
+      if (isNetworkError(error)) {
+        connection?.markOffline();
+      } else {
+        // Сервер ответил (пусть и ошибкой) — значит, связь есть
+        connection?.markOnline();
       }
 
       if (error.status === 401) {

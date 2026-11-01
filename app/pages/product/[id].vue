@@ -156,6 +156,19 @@ onUnmounted(() => { window.removeEventListener('keydown', handleKeydown); });
 
 const quantity = ref(1);
 
+// Флаг in_stock может отстать от остатка (продажа в минус на кассе) —
+// проверяем и сам остаток, и не даём выбрать больше, чем есть
+const stockQty = computed(() => {
+  const q = parseFloat(product.value?.stock_quantity);
+  return Number.isFinite(q) ? q : null;
+});
+const isAvailable = computed(
+  () => !!product.value?.in_stock && (stockQty.value === null || stockQty.value > 0),
+);
+const maxQty = computed(() =>
+  stockQty.value === null ? 99 : Math.max(1, Math.min(99, Math.floor(stockQty.value))),
+);
+
 const handleAddToCart = async () => {
   if (!authStore.isAuthenticated) {
     await navigateTo("/auth/login");
@@ -322,14 +335,14 @@ const whatsappLink = computed(() => {
             <h1 class="product-title fw-bold mb-2 text-dark">{{ product.name }}</h1>
             
             <div class="price-section mb-3 d-flex align-items-baseline gap-2">
-              <span class="product-price fw-black text-primary mb-0">{{ product.price }} сом</span>
+              <span class="product-price fw-black text-primary mb-0">{{ Number(product.price || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 }) }} сом</span>
             </div>
 
             <div class="stock-status mb-3">
-               <div :class="['stock-indicator d-flex align-items-center gap-2', product.in_stock ? 'text-success' : 'text-danger']">
-                 <span class="pulse-dot" v-if="product.in_stock"></span>
+               <div :class="['stock-indicator d-flex align-items-center gap-2', isAvailable ? 'text-success' : 'text-danger']">
+                 <span class="pulse-dot" v-if="isAvailable"></span>
                  <span class="fw-bold">
-                   {{ product.in_stock ? 'В наличии' : 'Нет в наличии' }}
+                   {{ isAvailable ? 'В наличии' : 'Нет в наличии' }}
                  </span>
                </div>
             </div>
@@ -344,7 +357,7 @@ const whatsappLink = computed(() => {
                 <div class="qty-control d-flex align-items-center rounded-pill border bg-light" style="padding: 2px;">
                   <button class="btn btn-qty rounded-circle" @click="quantity > 1 ? quantity-- : null" :disabled="quantity <= 1">−</button>
                   <input type="number" v-model.number="quantity" class="qty-input" readonly />
-                  <button class="btn btn-qty rounded-circle" @click="quantity < 99 ? quantity++ : null" :disabled="quantity >= 99">+</button>
+                  <button class="btn btn-qty rounded-circle" @click="quantity < maxQty ? quantity++ : null" :disabled="quantity >= maxQty">+</button>
                 </div>
               </div>
 
@@ -352,14 +365,14 @@ const whatsappLink = computed(() => {
                 <button 
                   class="btn btn-primary rounded-pill w-100 fw-bold py-2 shadow-primary"
                   @click="handleAddToCart"
-                  :disabled="!product.in_stock || isAdding"
+                  :disabled="!isAvailable || isAdding"
                 >
                   <i class="bi bi-cart3 me-1"></i> {{ isAdding ? 'Добавляем...' : 'В КОРЗИНУ' }}
                 </button>
                 <button
                   class="btn btn-outline-dark rounded-pill w-100 fw-bold py-2"
                   @click="handleBuyNow"
-                  :disabled="!product.in_stock"
+                  :disabled="!isAvailable"
                 >
                   КУПИТЬ В 1 КЛИК
                 </button>

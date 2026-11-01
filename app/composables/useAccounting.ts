@@ -95,6 +95,26 @@ export const useAccounting = () => {
     });
   };
 
+  // Погашение безналом: QR GoPay, в долг записывается после подтверждения банка
+  const createDebtQr = async (id: number | string, amount: number) => {
+    return await api.apiFetch(`/accounting/debts/${id}/qr`, {
+      method: "POST",
+      body: { amount },
+    });
+  };
+
+  const getDebtQrStatus = async (paymentId: number | string, check = false) => {
+    return await api.apiFetch(
+      `/accounting/debts/qr/${paymentId}${check ? "?check=1" : ""}`,
+    );
+  };
+
+  const cancelDebtQr = async (paymentId: number | string) => {
+    return await api.apiFetch(`/accounting/debts/qr/${paymentId}/cancel`, {
+      method: "POST",
+    });
+  };
+
   const deleteDebtPayment = async (id: number | string) => {
     try {
       return await api.apiFetch(`/accounting/debts/payments/${id}`, {
@@ -261,7 +281,7 @@ export const useAccounting = () => {
     });
     return await api.downloadFile(
       `/reports/debts-excel?${queryParams.toString()}`,
-      `Debts_Report_${new Date().toISOString().split("T")[0]}.xls`
+      `Debts_Report_${new Date().toISOString().split("T")[0]}.xlsx`
     );
   };
 
@@ -277,6 +297,9 @@ export const useAccounting = () => {
     deleteAdjustment,
     getDebts,
     payDebt,
+    createDebtQr,
+    getDebtQrStatus,
+    cancelDebtQr,
     deleteDebt,
     deleteDebtPayment,
     getAccountingReports,

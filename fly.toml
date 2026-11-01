@@ -5,7 +5,7 @@ primary_region = "fra"
 
 [env]
   PORT = "3000"
-  NUXT_PUBLIC_API_BASE = "https://kurulush-store-back.fly.dev/api"
+  NUXT_PUBLIC_API_BASE = "https://kurulush-store.fly.dev/api"
   # Realtime (Soketi на fly): wss через 443
   NUXT_PUBLIC_WS_HOST = "kurulush-store-soketi.fly.dev"
   NUXT_PUBLIC_WS_PORT = "443"

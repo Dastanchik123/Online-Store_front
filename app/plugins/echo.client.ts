@@ -8,20 +8,6 @@ export default defineNuxtPlugin(() => {
 
   const backendBase = (config.public.apiBase as string).replace(/\/api\/?$/, "");
 
-  // Electron: передаём ws-конфиг в main-процесс при каждом запуске,
-  // чтобы realtime работал и у давно залогиненных касс (не только после логина)
-  if ((window as any).electronAPI?.saveWsConfig) {
-    (window as any).electronAPI
-      .saveWsConfig({
-        wsHost: config.public.wsHost,
-        wsPort: config.public.wsPort,
-        wsKey: config.public.wsKey,
-        wsTLS: !!config.public.wsTLS,
-        apiBase: resolveApiBase(config.public.apiBase as string),
-      })
-      .catch(console.error);
-  }
-
   const useTLS = !!config.public.wsTLS;
 
   const echo = new Echo({

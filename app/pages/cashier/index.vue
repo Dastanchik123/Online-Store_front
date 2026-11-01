@@ -7,6 +7,7 @@ definePageMeta({
 const authStore = useAuthStore();
 const { getOrders, getOrder, trackOrder, returnOrderItems } = useOrders();
 const { getDebts } = useAccounting();
+const { getPosSummary } = usePos();
 const {
   printers,
   activePrinter,
@@ -76,19 +77,16 @@ const summary = ref({
 
 const loadSummary = async () => {
   try {
-    const todayStr = todayDate();
-    const orders = await getOrders({
-      date_from: toUtcDayBoundary(todayStr, false),
-      date_to: toUtcDayBoundary(todayStr, true),
-      source: "pos",
-    });
-    summary.value.todaySales = (orders.data || []).reduce(
-      (acc, curr) => acc + parseFloat(curr.total || 0),
-      0,
-    );
+    // Выручка считается на сервере (/pos/summary): сумма по первой странице
+    // заказов занижала итог, как только чеков за день больше per_page
+    const posSummary = await getPosSummary(authStore.user?.id ?? "");
+    summary.value.todaySales = Number(posSummary.total || 0);
 
-    const debts = await getDebts({ status: "active" });
-    summary.value.activeDebtsCount = debts.total || debts.data?.length || 0;
+    // Долги доступны только с правом debts.view — без него запрос даёт 403
+    if (authStore.hasPermission("debts.view")) {
+      const debts = await getDebts({ status: "active" });
+      summary.value.activeDebtsCount = debts.total || debts.data?.length || 0;
+    }
   } catch (e) {
     console.error(e);
   }
@@ -169,9 +167,12 @@ const isReturnCheckLoading = ref(false);
 const returnItems = ref({});
 
 const searchOrderForReturn = async () => {
-  const query = returnSearchQuery.value?.trim();
+  let query = returnSearchQuery.value?.trim();
   if (!query) return;
-  
+  // Номера кассовых чеков — «P-25»; кассир обычно вводит только цифры
+  // с чека, а /orders/track ищет строгим совпадением номера
+  if (/^\d+$/.test(query)) query = `P-${query}`;
+
   isReturnCheckLoading.value = true;
   returnOrderData.value = null;
   returnItems.value = {};
@@ -300,7 +301,7 @@ onMounted(async () => {
           <h2 class="fw-bold mb-0">{{ formatPrice(summary.todaySales) }}</h2>
         </div>
       </div>
-      <div class="col-md-6">
+      <div v-if="authStore.hasPermission('debts.view')" class="col-md-6">
         <div class="stat-card p-4 rounded-4 shadow-sm border-0 bg-white">
           <div class="d-flex align-items-center mb-3">
             <div class="icon-box bg-danger-subtle text-danger rounded-3 me-3">
@@ -347,7 +348,9 @@ onMounted(async () => {
               </div>
             </button>
           </div>
-          <div class="col-md-4">
+          <!-- Возврат требует orders.edit (выдаётся в «Права доступа») — без
+               права кнопка вела к 403 «Missing permission» -->
+          <div v-if="authStore.hasPermission('orders.edit')" class="col-md-4">
             <button
               @click="showReturnModal = true"
               class="action-btn w-100 p-4 rounded-4 d-flex align-items-center text-decoration-none border h-100 bg-white"
@@ -525,6 +528,8 @@ onMounted(async () => {
               >
                 Запустите приложение через <strong>Electron</strong> для выбора принтера и прямой печати.
               </div>
+
+              <PrinterReceiptPrintModeSettings />
 
               <div class="mt-4">
                 <label class="form-label fw-bold">Шаблон печати</label>
@@ -746,7 +751,7 @@ onMounted(async () => {
               <input
                 type="text"
                 class="form-control form-control-lg border-0 ps-4"
-                placeholder="Введите номер чека (например: 1250)"
+                placeholder="Номер чека (например: P-25 или 25)"
                 v-model="returnSearchQuery"
                 @keyup.enter="searchOrderForReturn"
               />
